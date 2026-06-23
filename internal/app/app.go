@@ -24,7 +24,7 @@ import (
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/state"
 )
 
-const Version = "0.1.0-dev"
+var Version = "0.1.0-dev"
 
 type App struct {
 	Out io.Writer

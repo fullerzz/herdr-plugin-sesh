@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to release, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test before release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify
+        run: |
+          go mod download
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+          go build -o bin/herdr-sesh ./cmd/herdr-sesh
+          ./bin/herdr-sesh --version
+
+  release:
+    name: Build and publish release
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag='${{ inputs.tag }}'
+          else
+            tag='${{ github.ref_name }}'
+          fi
+          case "$tag" in
+            v*) ;;
+            *) echo "Release tag must start with v, got: $tag" >&2; exit 1 ;;
+          esac
+          version="${tag#v}"
+          manifest_version=$(awk -F'"' '
+            /^version = / { print $2; exit }
+          ' herdr-plugin.toml)
+          if [ "$manifest_version" != "$version" ]; then
+            echo "Tag mismatch: $tag != manifest $manifest_version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ steps.meta.outputs.version }}'
+          module='forgejo.local/fullerzz/herdr-plugin-sesh/internal/app'
+          mkdir -p dist/release dist/work
+          targets=(
+            linux/amd64
+            linux/arm64
+            darwin/amd64
+            darwin/arm64
+          )
+          for target in "${targets[@]}"; do
+            goos=${target%/*}
+            goarch=${target#*/}
+            name="herdr-sesh_${version}_${goos}_${goarch}"
+            out="dist/work/${name}/herdr-sesh"
+            mkdir -p "$(dirname "$out")"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+              go build \
+                -trimpath \
+                -ldflags "-s -w -X ${module}.Version=${version}" \
+                -o "$out" \
+                ./cmd/herdr-sesh
+            cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"
+            tar -C dist/work -czf "dist/release/${name}.tar.gz" "$name"
+          done
+          (cd dist/release && sha256sum *.tar.gz > checksums.txt)
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.meta.outputs.tag }}'
+          version='${{ steps.meta.outputs.version }}'
+          {
+            echo "# herdr-plugin-sesh ${tag}"
+            echo
+            echo "Sesh-style smart workspace/session management for Herdr."
+            echo
+            echo "## Install from this Forgejo repo"
+            echo
+            echo '```bash'
+            echo "git clone ssh://git@ser8:222/zach/herdr-plugin-sesh.git"
+            echo "cd herdr-plugin-sesh"
+            echo "git checkout ${tag}"
+            echo 'go build -o bin/herdr-sesh ./cmd/herdr-sesh'
+            echo 'herdr plugin link "$PWD"'
+            echo '```'
+            echo
+            echo "## Assets"
+            echo
+            for file in dist/release/*.tar.gz; do
+              echo "- $(basename "$file")"
+            done
+            echo "- checksums.txt"
+            echo
+            echo "Version: ${version}"
+            echo "Commit: ${GITHUB_SHA}"
+          } > dist/release/RELEASE_NOTES.md
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: herdr-plugin-sesh-${{ steps.meta.outputs.tag }}
+          path: dist/release/*
+
+      - name: Publish Forgejo release
+        uses: actions/forgejo-release@v2.12.1
+        with:
+          direction: upload
+          tag: ${{ steps.meta.outputs.tag }}
+          title: ${{ steps.meta.outputs.tag }}
+          release-dir: dist/release
+          release-notes-file: dist/release/RELEASE_NOTES.md
+          override: true
