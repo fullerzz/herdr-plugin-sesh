@@ -1,0 +1,28 @@
+cache = false
+strict_mode = true
+sort_order = ["herdr", "config", "zoxide", "dir"]
+dir_length = 1
+separator_aware = true
+blacklist = ["scratch"]
+
+[tui]
+show_icons = true
+prompt = "Sesh> "
+placeholder = "Search workspaces"
+
+[default_session]
+preview_command = "ls -la {}"
+
+[[session]]
+name = "sesh"
+path = "~/projects/sesh"
+startup_command = "git status"
+windows = ["git"]
+
+[[window]]
+name = "git"
+startup_script = "git status"
+
+[[wildcard]]
+pattern = "~/projects/**"
+preview_command = "ls -la {}"

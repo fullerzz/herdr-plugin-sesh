@@ -1,0 +1,33 @@
+id = "fullerzz.sesh"
+name = "Sesh for Herdr"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Sesh-style smart workspace/session manager for Herdr"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["go", "build", "-o", "bin/herdr-sesh", "./cmd/herdr-sesh"]
+
+[[actions]]
+id = "open-picker"
+title = "Open Sesh Picker"
+contexts = ["workspace", "pane"]
+command = ["./bin/herdr-sesh", "plugin", "open-picker"]
+
+[[actions]]
+id = "connect-root"
+title = "Connect to Git Root"
+contexts = ["workspace", "pane"]
+command = ["./bin/herdr-sesh", "root", "--connect"]
+
+[[actions]]
+id = "last"
+title = "Switch to Last Sesh Workspace"
+contexts = ["workspace", "pane"]
+command = ["./bin/herdr-sesh", "last"]
+
+[[panes]]
+id = "picker"
+title = "Sesh Picker"
+placement = "overlay"
+command = ["./bin/herdr-sesh", "picker"]
