@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	clonepkg "forgejo.local/fullerzz/herdr-plugin-sesh/internal/clone"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/config"
@@ -109,20 +110,35 @@ func (a *App) list(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if cfg.Cache {
+		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), 5*time.Second, time.Now()); err != nil {
+			return err
+		} else if ok {
+			return a.printSessions(cached, *jsonOut)
+		}
+	}
 	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
 	if err != nil {
 		return err
 	}
-	if *jsonOut {
+	sessions := ss.Ordered()
+	if cfg.Cache {
+		_ = state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), sessions, time.Now())
+	}
+	return a.printSessions(sessions, *jsonOut)
+}
+
+func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
+	if jsonOut {
 		enc := json.NewEncoder(a.Out)
 		enc.SetIndent("", "  ")
-		return enc.Encode(ss.Ordered())
+		return enc.Encode(sessions)
 	}
-	for _, s := range ss.Ordered() {
+	for _, s := range sessions {
 		if s.Path != "" {
-			fmt.Fprintf(a.Out, "%s\t%s\t%s\n", s.Source, s.Name, s.Path)
+			fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.Name, s.Path)
 		} else {
-			fmt.Fprintf(a.Out, "%s\t%s\n", s.Source, s.Name)
+			fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.Name)
 		}
 	}
 	return nil
