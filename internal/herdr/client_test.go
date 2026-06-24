@@ -21,9 +21,69 @@ func TestCLIClientConstructsWorkspaceCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/bin/herdr", "workspace", "create", "--cwd", "/tmp/api", "--label", "api", "--focus", "--json"}
-	if !reflect.DeepEqual(rr.calls[0], want) {
-		t.Fatalf("got %#v want %#v", rr.calls[0], want)
+	want := [][]string{
+		{"/bin/herdr", "workspace", "create", "--cwd", "/tmp/api", "--label", "api"},
+		{"/bin/herdr", "workspace", "focus", "ws1"},
+	}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
+func TestCLIClientConstructsWorkspaceCreateNoFocus(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"/bin/herdr", "workspace", "create", "--cwd", "/tmp/api", "--label", "api", "--no-focus"}}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
+func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}`)}}
+	got, err := c.WorkspaceList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" {
+		t.Fatalf("workspaces=%#v", got)
+	}
+}
+
+func TestCLIClientDecodesWorkspaceCreateEnvelope(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"root_pane":{"cwd":"/tmp/api","pane_id":"p1"},"workspace":{"workspace_id":"w1","label":"api"}}}`)}}
+	got, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api", Focus: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "w1" || got.Label != "api" || got.CWD != "/tmp/api" {
+		t.Fatalf("workspace=%#v", got)
+	}
+}
+
+func TestCLIClientDecodesTabCreateEnvelope(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"root_pane":{"cwd":"/tmp/api","pane_id":"p1"},"tab":{"tab_id":"w1:t2","workspace_id":"w1","label":"api"}}}`)}}
+	got, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "w1", CWD: "/tmp/api", Label: "api", Focus: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "w1:t2" || got.WorkspaceID != "w1" || got.CWD != "/tmp/api" || got.PaneID != "p1" {
+		t.Fatalf("tab=%#v", got)
+	}
+}
+
+func TestCLIClientDecodesPaneCurrentEnvelope(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"pane":{"pane_id":"p1","workspace_id":"w1","tab_id":"w1:t1","cwd":"/tmp/api"}}}`)}}
+	got, err := c.PaneCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "p1" || got.WorkspaceID != "w1" || got.TabID != "w1:t1" || got.CWD != "/tmp/api" {
+		t.Fatalf("pane=%#v", got)
 	}
 }
 func TestFakeClientRecordsPaneRun(t *testing.T) {
