@@ -14,6 +14,7 @@ type Runner interface {
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, bin string, args ...string) (string, error) {
+	//nolint:gosec // command is the fixed git lookup used to name local sessions.
 	b, err := exec.CommandContext(ctx, bin, args...).Output()
 	return strings.TrimSpace(string(b)), err
 }

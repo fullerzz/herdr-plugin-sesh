@@ -77,6 +77,7 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		return nil
 	}
 	seen[abs] = true
+	//nolint:gosec // config imports intentionally read user-selected paths.
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return err
@@ -180,7 +181,7 @@ func InitConfig(dir string) (string, error) {
 	if dir == "" {
 		return "", errors.New("config dir required")
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
 	p := filepath.Join(dir, "sesh.toml")
@@ -189,5 +190,5 @@ func InitConfig(dir string) (string, error) {
 		return p, nil
 	}
 	starter := "#:schema https://github.com/joshmedeski/sesh/raw/main/sesh.schema.json\n\n[default_session]\npreview_command = \"ls -la {}\"\n\n# [[session]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n"
-	return p, os.WriteFile(p, []byte(starter), 0644)
+	return p, os.WriteFile(p, []byte(starter), 0600)
 }

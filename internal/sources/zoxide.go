@@ -3,11 +3,12 @@ package sources
 import (
 	"bufio"
 	"context"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type Zoxide struct {
@@ -54,5 +55,6 @@ func ParseZoxideLine(line string) (model.Session, bool) {
 	return model.Session{Source: "zoxide", Name: filepath.Base(path), Path: path, Score: score}, true
 }
 func AddPath(ctx context.Context, path string) {
+	//nolint:gosec // zoxide is a fixed local integration; path is a single argv value.
 	_ = exec.CommandContext(ctx, "zoxide", "add", path).Run()
 }

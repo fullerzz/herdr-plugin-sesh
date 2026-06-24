@@ -2,8 +2,9 @@ package sources
 
 import (
 	"context"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"testing"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type staticSource struct {

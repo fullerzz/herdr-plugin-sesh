@@ -13,7 +13,7 @@ func writeJSONFile(path string, v any) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 
 	enc := json.NewEncoder(tmp)
 	enc.SetIndent("", "  ")
@@ -24,7 +24,7 @@ func writeJSONFile(path string, v any) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, 0644); err != nil {
+	if err := os.Chmod(tmpName, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, path)

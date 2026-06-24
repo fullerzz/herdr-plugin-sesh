@@ -6,7 +6,7 @@ This repository is a Go CLI plugin for Herdr named `herdr-sesh`.
 
 - `cmd/herdr-sesh/` contains the executable entry point.
 - `internal/app/` owns CLI routing and command behavior.
-- `internal/config/`, `internal/model/`, `internal/sources/`, `internal/state/`, and related packages hold focused domain logic.
+- `internal/config/`, `internal/model/`, `internal/sources/`, `internal/state/`, and related packages hold domain logic.
 - `docs/` contains user-facing configuration and keybinding notes.
 - `testdata/` stores fixture TOML used by tests and smoke checks.
 - `herdr-plugin.toml` is the plugin manifest and release version source.
@@ -14,22 +14,27 @@ This repository is a Go CLI plugin for Herdr named `herdr-sesh`.
 
 ## Build, Test, and Development Commands
 
-- `go test ./...` runs the full test suite.
-- `go vet ./...` runs Go's standard static checks.
-- `gofmt -w .` formats Go files before committing.
-- `go build -o bin/herdr-sesh ./cmd/herdr-sesh` builds the local plugin binary.
+- `mise install` installs pinned tools from `mise.toml`: Go, `just`, `golangci-lint`, and `gotestsum`.
+- `just` lists available development recipes from the `justfile`.
+- `just fmt-check` checks formatting; `just fmt` applies it.
+- `just lint` runs `golangci-lint run ./...`.
+- `just test` runs the race-enabled test suite through `gotestsum`.
+- `just build` builds the local plugin binary at `bin/herdr-sesh`.
+- `just run` runs `./cmd/herdr-sesh` through `go run`.
 - `./bin/herdr-sesh --version` smoke-tests the built CLI.
 - `./bin/herdr-sesh list --json --config testdata/sesh.toml` checks fixture-backed session listing.
 
-The Forgejo test workflow runs formatting, vet, tests, build, and CLI smoke checks; mirror that sequence before opening a pull request.
+The Forgejo workflow runs formatting, vet, tests, build, and CLI smoke checks; mirror it before opening a pull request. Prefer `just` recipes so local checks use pinned tools.
 
 ## Coding Style & Naming Conventions
 
-Use idiomatic Go formatting and package names: short, lowercase, and purpose-specific. Keep command orchestration in `internal/app` and reusable logic in narrow `internal/*` packages. Prefer table tests only when they reduce repetition; simple single-case tests are fine. Use `xh` instead of `curl`, `uv` when Python is needed, and install developer tools with `mise`.
+Use idiomatic Go formatting and short, lowercase package names. Keep command orchestration in `internal/app` and reusable logic in narrow `internal/*` packages. Prefer table tests only when they reduce repetition. Use `xh` instead of `curl` and `uv` when Python is needed.
+
+Tool versions belong in `mise.toml`; update that file when adding or changing shared developer tooling.
 
 ## Testing Guidelines
 
-Tests use Go's standard `testing` package and live beside the code as `*_test.go`. Name tests as `Test<Behavior>` and keep fixtures in `testdata/` when file input is needed. New behavior should include the smallest focused test that would fail if the behavior regressed.
+Tests use Go's standard `testing` package and live beside the code as `*_test.go`. Name tests as `Test<Behavior>` and keep file fixtures in `testdata/`. New behavior should include the smallest focused regression test.
 
 ## Commit & Pull Request Guidelines
 

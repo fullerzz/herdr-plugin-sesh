@@ -27,10 +27,11 @@ type DefaultSessionConfig struct {
 }
 
 type SessionConfig struct {
+	DefaultSessionConfig
+
 	Name                string `toml:"name"`
 	Path                string `toml:"path"`
 	DisableStartCommand bool   `toml:"disable_startup_command"`
-	DefaultSessionConfig
 }
 
 type TUIConfig struct {

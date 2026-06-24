@@ -60,7 +60,7 @@ path="/extra"
 }
 func mustWrite(t *testing.T, p, s string) {
 	t.Helper()
-	if err := os.WriteFile(p, []byte(s), 0644); err != nil {
+	if err := os.WriteFile(p, []byte(s), 0600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -25,7 +25,9 @@ func TestNameFromDirectoryLength(t *testing.T) {
 }
 func TestNameFromRepoWithoutRemote(t *testing.T) {
 	d := filepath.Join(t.TempDir(), "repo")
-	os.MkdirAll(d, 0755)
+	if err := os.MkdirAll(d, 0700); err != nil {
+		t.Fatal(err)
+	}
 	run(t, d, "git", "init")
 	got := Namer{}.Name(context.Background(), d, 1)
 	if got != "repo" {
@@ -34,6 +36,7 @@ func TestNameFromRepoWithoutRemote(t *testing.T) {
 }
 func run(t *testing.T, dir string, args ...string) {
 	t.Helper()
+	//nolint:gosec // tests execute fixed git commands.
 	c := exec.Command(args[0], args[1:]...)
 	c.Dir = dir
 	if out, err := c.CombinedOutput(); err != nil {

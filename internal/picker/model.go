@@ -14,7 +14,12 @@ type Model struct {
 	SeparatorAware bool
 }
 
-func New(items []model.Session) Model { return Model{All: items, Filtered: items} }
+func New(items []model.Session) Model {
+	return Model{
+		All:      append([]model.Session(nil), items...),
+		Filtered: append([]model.Session(nil), items...),
+	}
+}
 func (m *Model) Filter(q string) {
 	m.Query = q
 	m.Filtered = m.Filtered[:0]
@@ -23,6 +28,13 @@ func (m *Model) Filter(q string) {
 			m.Filtered = append(m.Filtered, s)
 		}
 	}
+	m.clampSelected()
+}
+func (m *Model) Move(delta int) {
+	m.Selected += delta
+	m.clampSelected()
+}
+func (m *Model) clampSelected() {
 	if m.Selected >= len(m.Filtered) {
 		m.Selected = len(m.Filtered) - 1
 	}

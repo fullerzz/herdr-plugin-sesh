@@ -2,9 +2,10 @@ package sources
 
 import (
 	"context"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"regexp"
 	"sync"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 func Merge(ctx context.Context, srcs []Source, order []string, blacklist []string, onlyBlacklisted, dedupe bool) (model.Sessions, error) {
