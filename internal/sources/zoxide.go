@@ -3,11 +3,12 @@ package sources
 import (
 	"bufio"
 	"context"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type Zoxide struct {

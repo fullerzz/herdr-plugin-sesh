@@ -2,9 +2,10 @@ package sources
 
 import (
 	"context"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"os"
 	"path/filepath"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type DirectPath struct {

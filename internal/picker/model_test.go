@@ -1,8 +1,9 @@
 package picker
 
 import (
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"testing"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 func TestFilterAndCurrent(t *testing.T) {
