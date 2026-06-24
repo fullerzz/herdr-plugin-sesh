@@ -147,6 +147,9 @@ func (c *CLIClient) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func responseJSON(out []byte, command string) (json.RawMessage, bool, error) {
+	if !bytes.HasPrefix(bytes.TrimSpace(out), []byte("{")) {
+		return out, false, nil
+	}
 	var env struct {
 		Result json.RawMessage `json:"result"`
 	}

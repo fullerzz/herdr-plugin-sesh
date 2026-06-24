@@ -54,6 +54,17 @@ func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
 	}
 }
 
+func TestCLIClientDecodesWorkspaceListArray(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1","label":"api"}]`)}}
+	got, err := c.WorkspaceList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" {
+		t.Fatalf("workspaces=%#v", got)
+	}
+}
+
 func TestCLIClientDecodesWorkspaceCreateEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"root_pane":{"cwd":"/tmp/api","pane_id":"p1"},"workspace":{"workspace_id":"w1","label":"api"}}}`)}}
 	got, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api", Focus: true})
@@ -73,6 +84,17 @@ func TestCLIClientDecodesTabCreateEnvelope(t *testing.T) {
 	}
 	if got.ID != "w1:t2" || got.WorkspaceID != "w1" || got.CWD != "/tmp/api" || got.PaneID != "p1" {
 		t.Fatalf("tab=%#v", got)
+	}
+}
+
+func TestCLIClientDecodesTabListArray(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1:t1","workspace_id":"w1","label":"api"}]`)}}
+	got, err := c.TabList(context.Background(), "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "w1:t1" || got[0].WorkspaceID != "w1" || got[0].Label != "api" {
+		t.Fatalf("tabs=%#v", got)
 	}
 }
 
