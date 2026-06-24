@@ -74,16 +74,8 @@ var (
 			Foreground(lipgloss.Color("81")).
 			Bold(true)
 
-	selectedSourceStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("230")).
-				Background(lipgloss.Color("98")).
-				Bold(true)
-
 	pathStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244"))
-
-	selectedPathStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("255"))
 
 	emptyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("203")).
@@ -263,17 +255,17 @@ func row(s sessionmodel.Session, selected bool, width int) string {
 	badgeText := sourceBadge(source)
 	badge := sourceStyle.Render(badgeText)
 	path := ""
-	if s.Path != "" && s.Path != label {
+	showPath := s.Path != "" && s.Path != label
+	if showPath {
 		path = pathStyle.Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
 	}
 	line := rowText(cursor, badge, label, path)
 	if selected {
-		badge = selectedSourceStyle.Render(badgeText)
 		path = ""
-		if s.Path != "" && s.Path != label {
-			path = selectedPathStyle.Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
+		if showPath {
+			path = lipgloss.NewStyle().Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
 		}
-		line = rowText(cursor, badge, label, path)
+		line = rowText(cursor, badgeText, label, path)
 		return selectedRowStyle.Width(width-2).Render(line) + "\n"
 	}
 	return rowStyle.Width(width-2).Render(line) + "\n"

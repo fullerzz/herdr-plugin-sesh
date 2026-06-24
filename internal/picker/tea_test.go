@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 )
@@ -65,6 +67,29 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	for _, want := range []string{"herdr workspace picker", "3/3 matches", "Find> ", "Search sessions", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "Enter select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestSelectedRowHighlightDoesNotResetBeforeContent(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(prev)
+	})
+
+	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh"}, true, 80)
+	if !strings.Contains(got, "48;5;63") {
+		t.Fatalf("selected row missing highlight background:\n%q", got)
+	}
+	for _, want := range []string{herdrSourceIcon + " herdr", "herdr-plugin-sesh", "/tmp/herdr-plugin-sesh"} {
+		i := strings.Index(got, want)
+		if i == -1 {
+			t.Fatalf("selected row missing %q:\n%q", want, got)
+		}
+		prefix := got[:i]
+		if bg, reset := strings.LastIndex(prefix, "48;5;63"), strings.LastIndex(prefix, "\x1b[0m"); bg == -1 || bg < reset {
+			t.Fatalf("selected row highlight inactive before %q:\n%q", want, got)
 		}
 	}
 }
