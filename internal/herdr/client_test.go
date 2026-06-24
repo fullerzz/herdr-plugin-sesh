@@ -2,7 +2,9 @@ package herdr
 
 import (
 	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +31,37 @@ func TestFakeClientRecordsPaneRun(t *testing.T) {
 	_ = f.PaneRun(context.Background(), "p1", "npm test")
 	if f.PaneRuns[0] != "p1:npm test" {
 		t.Fatal(f.PaneRuns)
+	}
+}
+
+type fixedRunner struct {
+	stdout []byte
+	stderr []byte
+	err    error
+}
+
+func (r fixedRunner) Run(context.Context, string, ...string) ([]byte, []byte, error) {
+	return r.stdout, r.stderr, r.err
+}
+
+func TestCLIClientReturnsDecodeErrors(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte("not json")}}
+	_, err := c.WorkspaceList(context.Background())
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	if !strings.Contains(err.Error(), "decode herdr workspace list JSON") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCLIClientIncludesStderrOnCommandFailure(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stderr: []byte("boom\n"), err: errors.New("exit status 1")}}
+	_, err := c.WorkspaceList(context.Background())
+	if err == nil {
+		t.Fatal("expected command error")
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

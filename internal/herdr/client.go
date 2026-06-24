@@ -92,13 +92,23 @@ func (c *CLIClient) run(ctx context.Context, args ...string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+func decodeJSON[T any](out []byte, command string, dst *T) error {
+	if err := json.Unmarshal(out, dst); err != nil {
+		return fmt.Errorf("decode herdr %s JSON: %w", command, err)
+	}
+	return nil
+}
+
 func (c *CLIClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	out, err := c.run(ctx, "workspace", "list", "--json")
 	if err != nil {
 		return nil, err
 	}
 	var ws []Workspace
-	_ = json.Unmarshal(out, &ws)
+	if err := decodeJSON(out, "workspace list", &ws); err != nil {
+		return nil, err
+	}
 	return ws, nil
 }
 func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateRequest) (Workspace, error) {
@@ -114,7 +124,9 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 		return Workspace{}, err
 	}
 	var w Workspace
-	_ = json.Unmarshal(out, &w)
+	if err := decodeJSON(out, "workspace create", &w); err != nil {
+		return Workspace{}, err
+	}
 	return w, nil
 }
 func (c *CLIClient) WorkspaceFocus(ctx context.Context, id string) error {
@@ -131,7 +143,9 @@ func (c *CLIClient) TabList(ctx context.Context, wid string) ([]Tab, error) {
 		return nil, err
 	}
 	var tabs []Tab
-	_ = json.Unmarshal(out, &tabs)
+	if err := decodeJSON(out, "tab list", &tabs); err != nil {
+		return nil, err
+	}
 	return tabs, nil
 }
 func (c *CLIClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, error) {
@@ -147,7 +161,9 @@ func (c *CLIClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, err
 		return Tab{}, err
 	}
 	var t Tab
-	_ = json.Unmarshal(out, &t)
+	if err := decodeJSON(out, "tab create", &t); err != nil {
+		return Tab{}, err
+	}
 	return t, nil
 }
 func (c *CLIClient) TabFocus(ctx context.Context, id string) error {
@@ -160,7 +176,9 @@ func (c *CLIClient) PaneCurrent(ctx context.Context) (Pane, error) {
 		return Pane{}, err
 	}
 	var p Pane
-	_ = json.Unmarshal(out, &p)
+	if err := decodeJSON(out, "pane current", &p); err != nil {
+		return Pane{}, err
+	}
 	return p, nil
 }
 func (c *CLIClient) PaneRun(ctx context.Context, id, cmd string) error {
