@@ -14,6 +14,14 @@ func TestFilterAndCurrent(t *testing.T) {
 		t.Fatalf("cur=%#v ok=%v", cur, ok)
 	}
 }
+func TestFilterDoesNotMutateSourceItems(t *testing.T) {
+	m := New([]model.Session{{Name: "api"}, {Name: "web"}})
+	m.Filter("web")
+	m.Filter("")
+	if len(m.Filtered) != 2 || m.Filtered[0].Name != "api" || m.Filtered[1].Name != "web" {
+		t.Fatalf("filtered=%#v all=%#v", m.Filtered, m.All)
+	}
+}
 func TestSeparatorAwareMatch(t *testing.T) {
 	if !Match("my-api.service", "api service", true) {
 		t.Fatal("expected separator aware match")

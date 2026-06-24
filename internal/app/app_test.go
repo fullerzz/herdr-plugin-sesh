@@ -83,3 +83,14 @@ func TestListWarnsWhenSessionCacheCannotBeSaved(t *testing.T) {
 		t.Fatalf("stderr = %q", errb.String())
 	}
 }
+
+func TestPickerJSONCommand(t *testing.T) {
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"picker", "--json", "--config", filepath.Join("..", "..", "testdata", "sesh.toml")}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"name": "sesh"`) {
+		t.Fatalf("output = %q", out.String())
+	}
+}

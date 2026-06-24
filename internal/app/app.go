@@ -19,6 +19,7 @@ import (
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/namer"
+	pickerpkg "forgejo.local/fullerzz/herdr-plugin-sesh/internal/picker"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/preview"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/sources"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/state"
@@ -59,7 +60,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	case "config":
 		return a.config(ctx, args[1:])
 	case "picker":
-		return a.list(ctx, append([]string{"--json"}, args[1:]...))
+		return a.picker(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -155,6 +156,56 @@ func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
 		}
 	}
 	return nil
+}
+
+func (a *App) picker(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("picker", flag.ContinueOnError)
+	fs.SetOutput(a.Err)
+	jsonOut := fs.Bool("json", false, "")
+	cfgPath := fs.String("config", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := a.loadConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	sessions, err := a.collect(ctx, cfg, "")
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return a.printSessions(sessions, true)
+	}
+	selected, ok, err := pickerpkg.Run(sessions, pickerpkg.Options{
+		Output:         a.Out,
+		Prompt:         cfg.TUI.Prompt,
+		Placeholder:    cfg.TUI.Placeholder,
+		SeparatorAware: cfg.SeparatorAware,
+	})
+	if err != nil || !ok {
+		return err
+	}
+	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
+		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) },
+	})
+	if err != nil {
+		return err
+	}
+	if err := state.Record(os.Getenv("HERDR_PLUGIN_STATE_DIR"), res.Session.WorkspaceID); err != nil {
+		a.warnf("could not record workspace history: %v", err)
+	}
+	return nil
+}
+
+func pickerTarget(s model.Session) string {
+	if s.WorkspaceID != "" {
+		return s.WorkspaceID
+	}
+	if s.Path != "" {
+		return s.Path
+	}
+	return s.Name
 }
 
 func (a *App) connect(ctx context.Context, args []string) error {
