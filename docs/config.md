@@ -9,6 +9,19 @@ Lookup order:
 3. `${HERDR_PLUGIN_CONFIG_DIR}/sesh.toml`
 4. `~/.config/sesh/sesh.toml`
 
+For a linked Herdr plugin, create or edit the plugin-owned config file with:
+
+```bash
+herdr plugin link "$PWD"
+HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config init
+HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config path
+```
+
+Herdr creates `HERDR_PLUGIN_CONFIG_DIR` and `HERDR_PLUGIN_STATE_DIR` for the
+plugin. Keep user-editable configuration in the config directory and runtime
+state in the state directory; do not rely on the linked or installed plugin root
+for durable user data.
+
 Supported keys include:
 
 - `cache`
