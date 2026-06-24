@@ -51,14 +51,18 @@ func TestTeaModelForwardsTextInputNonKeyMessages(t *testing.T) {
 }
 
 func TestTeaModelViewRendersStyledShell(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "config", Name: "api", Path: "/tmp/api"}}, Options{
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api"},
+		{Source: "zoxide", Name: "tools", Path: "/tmp/tools"},
+		{Source: "config", Name: "api", Path: "/tmp/api"},
+	}, Options{
 		Prompt:      "Find> ",
 		Placeholder: "Search sessions",
 	})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(teaModel)
 	view := m.View()
-	for _, want := range []string{"herdr workspace picker", "1/1 matches", "Find> ", "Search sessions", "[config]", "api", "Enter select"} {
+	for _, want := range []string{"herdr workspace picker", "3/3 matches", "Find> ", "Search sessions", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "Enter select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

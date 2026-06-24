@@ -6,8 +6,11 @@ Prerequisite: build and link this checkout, or install a GitHub mirror with
 Example Herdr keybinding once the plugin is linked:
 
 ```toml
+[keys]
+rename_tab = ""
+
 [[keys.command]]
-key = "prefix+s"
+key = "prefix+shift+t"
 type = "plugin_action"
 command = "fullerzz.sesh.open-picker"
 description = "open Sesh picker"

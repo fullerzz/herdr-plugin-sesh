@@ -20,6 +20,9 @@ const (
 	defaultWidth       = 80
 	minContentWidth    = 36
 	maxContentWidth    = 84
+	herdrSourceIcon    = "\U000f0cc6"
+	zoxideSourceIcon   = "\uf114"
+	configSourceIcon   = "\ue615"
 )
 
 var (
@@ -257,17 +260,15 @@ func row(s sessionmodel.Session, selected bool, width int) string {
 		label = s.Path
 	}
 	source := s.Source
-	if source == "" {
-		source = "session"
-	}
-	badge := sourceStyle.Render("[" + source + "]")
+	badgeText := sourceBadge(source)
+	badge := sourceStyle.Render(badgeText)
 	path := ""
 	if s.Path != "" && s.Path != label {
 		path = pathStyle.Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
 	}
 	line := rowText(cursor, badge, label, path)
 	if selected {
-		badge = selectedSourceStyle.Render("[" + source + "]")
+		badge = selectedSourceStyle.Render(badgeText)
 		path = ""
 		if s.Path != "" && s.Path != label {
 			path = selectedPathStyle.Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
@@ -276,6 +277,21 @@ func row(s sessionmodel.Session, selected bool, width int) string {
 		return selectedRowStyle.Width(width-2).Render(line) + "\n"
 	}
 	return rowStyle.Width(width-2).Render(line) + "\n"
+}
+
+func sourceBadge(source string) string {
+	switch source {
+	case "herdr":
+		return herdrSourceIcon + " herdr"
+	case "zoxide":
+		return zoxideSourceIcon + " zoxide"
+	case "config":
+		return configSourceIcon + " config"
+	case "":
+		return "[session]"
+	default:
+		return "[" + source + "]"
+	}
 }
 
 func rowText(cursor, badge, label, path string) string {
