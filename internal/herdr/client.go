@@ -56,6 +56,7 @@ type Runner interface {
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
+	//nolint:gosec // HERDR_BIN_PATH may intentionally point at a user-selected herdr binary.
 	c := exec.CommandContext(ctx, bin, args...)
 	var out, errb bytes.Buffer
 	c.Stdout = &out

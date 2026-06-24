@@ -34,14 +34,14 @@ func TestConfigPathCommand(t *testing.T) {
 func TestListIgnoresCorruptSessionCache(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	stateDir := filepath.Join(d, "state")
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "sessions.json"), []byte("{"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, "sessions.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
@@ -62,11 +62,11 @@ func TestListIgnoresCorruptSessionCache(t *testing.T) {
 func TestListWarnsWhenSessionCacheCannotBeSaved(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	statePath := filepath.Join(d, "state-file")
-	if err := os.WriteFile(statePath, []byte("not a directory"), 0644); err != nil {
+	if err := os.WriteFile(statePath, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", statePath)

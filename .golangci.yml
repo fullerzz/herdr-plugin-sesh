@@ -1,6 +1,13 @@
 # See the dedicated "version" documentation section.
 version: "2"
 linters:
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
   # See the dedicated "linters" documentation section.
   enable:
     - govet

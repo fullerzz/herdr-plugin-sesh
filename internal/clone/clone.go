@@ -32,6 +32,7 @@ func Clone(ctx context.Context, r Request) (string, error) {
 	if r.Dir != "" {
 		args = append(args, r.Dir)
 	}
+	//nolint:gosec // clone intentionally shells out to git with caller-provided repo/destination argv.
 	c := exec.CommandContext(ctx, "git", args...)
 	if r.CmdDir != "" {
 		c.Dir = r.CmdDir

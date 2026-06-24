@@ -1,7 +1,7 @@
 package model
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 )
@@ -22,9 +22,9 @@ type Session struct {
 }
 
 type WindowConfig struct {
-	Name          string `json:"name" toml:"name"`
+	Name          string `json:"name"                     toml:"name"`
 	StartupScript string `json:"startup_script,omitempty" toml:"startup_script"`
-	Path          string `json:"path,omitempty" toml:"path"`
+	Path          string `json:"path,omitempty"           toml:"path"`
 }
 
 type Sessions struct {
@@ -50,7 +50,7 @@ func NewSessions() Sessions {
 
 func Key(s Session) string {
 	base := fmt.Sprintf("%s\x00%s\x00%s\x00%s", s.Source, s.Name, s.Path, s.WorkspaceID)
-	sum := sha1.Sum([]byte(base))
+	sum := sha256.Sum256([]byte(base))
 	return s.Source + ":" + hex.EncodeToString(sum[:8])
 }
 
@@ -66,7 +66,7 @@ func (ss *Sessions) Add(s Session) string {
 	return key
 }
 
-func (ss Sessions) Ordered() []Session {
+func (ss *Sessions) Ordered() []Session {
 	out := make([]Session, 0, len(ss.OrderedIndex))
 	for _, key := range ss.OrderedIndex {
 		if s, ok := ss.Directory[key]; ok {

@@ -41,7 +41,7 @@ func TestHistoryNoopsWithoutStateDir(t *testing.T) {
 
 func TestRecordRecoversCorruptHistory(t *testing.T) {
 	d := t.TempDir()
-	if err := os.WriteFile(filepath.Join(d, "history.json"), []byte("{"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(d, "history.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := Record(d, "ws1"); err != nil {

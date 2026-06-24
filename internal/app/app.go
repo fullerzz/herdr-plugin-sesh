@@ -34,13 +34,12 @@ type App struct {
 func New() *App { return &App{Out: os.Stdout, Err: os.Stderr} }
 func (a *App) Run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		a.usage()
-		return nil
+		return a.usage()
 	}
 	switch args[0] {
 	case "--version", "version":
-		fmt.Fprintf(a.Out, "herdr-sesh %s\n", Version)
-		return nil
+		_, err := fmt.Fprintf(a.Out, "herdr-sesh %s\n", Version)
+		return err
 	case "list":
 		return a.list(ctx, args[1:])
 	case "connect":
@@ -65,15 +64,16 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("unknown command %q", args[0])
 	}
 }
-func (a *App) usage() {
-	fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|--version")
+func (a *App) usage() error {
+	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|--version")
+	return err
 }
 
 func (a *App) warnf(format string, args ...any) {
 	if a.Err == nil {
 		return
 	}
-	fmt.Fprintf(a.Err, "warning: "+format+"\n", args...)
+	_, _ = fmt.Fprintf(a.Err, "warning: "+format+"\n", args...)
 }
 
 func (a *App) loadConfig(path string) (config.Config, error) {
@@ -144,10 +144,14 @@ func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
 		return enc.Encode(sessions)
 	}
 	for _, s := range sessions {
+		var err error
 		if s.Path != "" {
-			fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.Name, s.Path)
+			_, err = fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.Name, s.Path)
 		} else {
-			fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.Name)
+			_, err = fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.Name)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -180,8 +184,8 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	if err := state.Record(os.Getenv("HERDR_PLUGIN_STATE_DIR"), res.Session.WorkspaceID); err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
-	fmt.Fprintf(a.Out, "%s\n", res.Session.Name)
-	return nil
+	_, err = fmt.Fprintf(a.Out, "%s\n", res.Session.Name)
+	return err
 }
 
 func (a *App) preview(ctx context.Context, args []string) error {
@@ -205,8 +209,8 @@ func (a *App) preview(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(a.Out, out)
-	return nil
+	_, err = fmt.Fprint(a.Out, out)
+	return err
 }
 func (a *App) clone(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("clone", flag.ContinueOnError)
@@ -239,17 +243,18 @@ func (a *App) root(ctx context.Context, args []string) error {
 	if *doConnect {
 		return a.connect(ctx, []string{root})
 	}
-	fmt.Fprintln(a.Out, root)
-	return nil
+	_, err = fmt.Fprintln(a.Out, root)
+	return err
 }
 func gitRoot(ctx context.Context, dir string) (string, error) {
+	//nolint:gosec // dir is passed as an argv value to a fixed git command.
 	b, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
 }
-func (a *App) last(ctx context.Context, args []string) error {
+func (a *App) last(ctx context.Context, _ []string) error {
 	id, ok, err := state.Last(os.Getenv("HERDR_PLUGIN_STATE_DIR"))
 	if err != nil {
 		return err
@@ -267,7 +272,9 @@ func (a *App) window(ctx context.Context, args []string) error {
 			return err
 		}
 		for _, t := range tabs {
-			fmt.Fprintf(a.Out, "%s\t%s\n", t.ID, t.Label)
+			if _, err := fmt.Fprintf(a.Out, "%s\t%s\n", t.ID, t.Label); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -280,7 +287,7 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 	}
 	return errors.New("unknown plugin command")
 }
-func (a *App) config(ctx context.Context, args []string) error {
+func (a *App) config(_ context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("config requires path or init")
 	}
@@ -291,13 +298,14 @@ func (a *App) config(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "path":
-		fmt.Fprintln(a.Out, filepath.Join(dir, "sesh.toml"))
-		return nil
+		_, err := fmt.Fprintln(a.Out, filepath.Join(dir, "sesh.toml"))
+		return err
 	case "init":
 		p, err := config.InitConfig(dir)
-		if err == nil {
-			fmt.Fprintln(a.Out, p)
+		if err != nil {
+			return err
 		}
+		_, err = fmt.Fprintln(a.Out, p)
 		return err
 	default:
 		return errors.New("unknown config command")

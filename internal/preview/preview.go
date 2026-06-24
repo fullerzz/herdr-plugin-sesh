@@ -32,6 +32,7 @@ func Render(ctx context.Context, s model.Session, fallbackCommand string) (strin
 func runShell(ctx context.Context, command string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	//nolint:gosec // preview commands are user-configured shell snippets by design.
 	c := exec.CommandContext(ctx, "sh", "-lc", command)
 	var out, errb bytes.Buffer
 	c.Stdout = &out

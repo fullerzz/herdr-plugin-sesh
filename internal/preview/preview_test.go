@@ -22,10 +22,10 @@ func TestRenderUsesPreviewCommand(t *testing.T) {
 
 func TestRenderDirectoryFallbackSorted(t *testing.T) {
 	d := t.TempDir()
-	if err := os.WriteFile(filepath.Join(d, "b"), []byte(""), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(d, "b"), []byte(""), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(d, "a"), []byte(""), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(d, "a"), []byte(""), 0600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := Render(context.Background(), model.Session{Path: d}, "")

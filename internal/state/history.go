@@ -32,7 +32,7 @@ func SaveHistory(dir string, h History) error {
 	if dir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 	return writeJSONFile(Path(dir), h)
