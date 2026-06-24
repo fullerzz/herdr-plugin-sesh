@@ -25,12 +25,7 @@ func SaveSessionCache(dir string, sessions []model.Session, now time.Time) error
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	payload := SessionCache{SavedAt: now, Sessions: sessions}
-	b, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(SessionCachePath(dir), b, 0644)
+	return writeJSONFile(SessionCachePath(dir), SessionCache{SavedAt: now, Sessions: sessions})
 }
 
 func LoadSessionCache(dir string, ttl time.Duration, now time.Time) ([]model.Session, bool, error) {

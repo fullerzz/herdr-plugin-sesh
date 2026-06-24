@@ -69,6 +69,13 @@ func (a *App) usage() {
 	fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|--version")
 }
 
+func (a *App) warnf(format string, args ...any) {
+	if a.Err == nil {
+		return
+	}
+	fmt.Fprintf(a.Err, "warning: "+format+"\n", args...)
+}
+
 func (a *App) loadConfig(path string) (config.Config, error) {
 	cfg, _, err := config.Load(config.LoadOptions{Path: path})
 	return cfg, err
@@ -112,7 +119,7 @@ func (a *App) list(ctx context.Context, args []string) error {
 	}
 	if cfg.Cache {
 		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), 5*time.Second, time.Now()); err != nil {
-			return err
+			a.warnf("ignoring session cache: %v", err)
 		} else if ok {
 			return a.printSessions(cached, *jsonOut)
 		}
@@ -123,7 +130,9 @@ func (a *App) list(ctx context.Context, args []string) error {
 	}
 	sessions := ss.Ordered()
 	if cfg.Cache {
-		_ = state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), sessions, time.Now())
+		if err := state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), sessions, time.Now()); err != nil {
+			a.warnf("could not save session cache: %v", err)
+		}
 	}
 	return a.printSessions(sessions, *jsonOut)
 }
@@ -168,7 +177,9 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	_ = state.Record(os.Getenv("HERDR_PLUGIN_STATE_DIR"), res.Session.WorkspaceID)
+	if err := state.Record(os.Getenv("HERDR_PLUGIN_STATE_DIR"), res.Session.WorkspaceID); err != nil {
+		a.warnf("could not record workspace history: %v", err)
+	}
 	fmt.Fprintf(a.Out, "%s\n", res.Session.Name)
 	return nil
 }

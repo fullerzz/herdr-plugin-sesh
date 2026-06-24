@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -26,5 +28,58 @@ func TestConfigPathCommand(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "sesh.toml") {
 		t.Fatalf("got %q", out.String())
+	}
+}
+
+func TestListIgnoresCorruptSessionCache(t *testing.T) {
+	d := t.TempDir()
+	cfgPath := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(d, "state")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "sessions.json"), []byte("{"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+
+	var out, errb bytes.Buffer
+	a := &App{Out: &out, Err: &errb}
+	if err := a.Run(context.Background(), []string{"list", "--json", "--config", cfgPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"name": "api"`) {
+		t.Fatalf("output = %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "warning: ignoring session cache") {
+		t.Fatalf("stderr = %q", errb.String())
+	}
+}
+
+func TestListWarnsWhenSessionCacheCannotBeSaved(t *testing.T) {
+	d := t.TempDir()
+	cfgPath := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(d, "state-file")
+	if err := os.WriteFile(statePath, []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", statePath)
+
+	var out, errb bytes.Buffer
+	a := &App{Out: &out, Err: &errb}
+	if err := a.Run(context.Background(), []string{"list", "--json", "--config", cfgPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"name": "api"`) {
+		t.Fatalf("output = %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "warning: ignoring session cache") || !strings.Contains(errb.String(), "warning: could not save session cache") {
+		t.Fatalf("stderr = %q", errb.String())
 	}
 }

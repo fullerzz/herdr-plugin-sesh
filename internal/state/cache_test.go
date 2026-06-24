@@ -45,3 +45,16 @@ func TestSessionCacheMissWhenMissing(t *testing.T) {
 		t.Fatalf("expected cache miss, got=%#v ok=%v", got, ok)
 	}
 }
+
+func TestSessionCacheNoopsWithoutStateDir(t *testing.T) {
+	if err := SaveSessionCache("", []model.Session{{Name: "api"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadSessionCache("", time.Second, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || got != nil {
+		t.Fatalf("expected cache miss, got=%#v ok=%v", got, ok)
+	}
+}

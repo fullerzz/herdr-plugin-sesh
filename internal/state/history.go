@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -14,6 +15,9 @@ func Path(dir string) string { return filepath.Join(dir, "history.json") }
 
 func LoadHistory(dir string) (History, error) {
 	var h History
+	if dir == "" {
+		return h, nil
+	}
 	b, err := os.ReadFile(Path(dir))
 	if os.IsNotExist(err) {
 		return h, nil
@@ -25,14 +29,13 @@ func LoadHistory(dir string) (History, error) {
 }
 
 func SaveHistory(dir string, h History) error {
+	if dir == "" {
+		return nil
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(h, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(Path(dir), b, 0644)
+	return writeJSONFile(Path(dir), h)
 }
 
 func Record(dir, workspaceID string) error {
@@ -41,7 +44,10 @@ func Record(dir, workspaceID string) error {
 	}
 	h, err := LoadHistory(dir)
 	if err != nil {
-		return err
+		if !isJSONDecodeError(err) {
+			return err
+		}
+		h = History{}
 	}
 	if len(h.Workspaces) > 0 && h.Workspaces[0] == workspaceID {
 		return nil
@@ -57,6 +63,12 @@ func Record(dir, workspaceID string) error {
 	}
 	h.Workspaces = filtered
 	return SaveHistory(dir, h)
+}
+
+func isJSONDecodeError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
 }
 
 func Last(dir string) (string, bool, error) {
