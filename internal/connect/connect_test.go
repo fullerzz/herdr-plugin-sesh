@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/config"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/sources"
 )
 
 func TestConnectFocusesExistingWorkspace(t *testing.T) {
@@ -33,5 +35,21 @@ func TestConnectCreatesWorkspaceForConfigSession(t *testing.T) {
 	}
 	if f.CreatedWorkspaces[0].CWD != "/tmp/api" || f.CreatedWorkspaces[0].Label != "api" {
 		t.Fatalf("bad request: %#v", f.CreatedWorkspaces[0])
+	}
+}
+
+func TestConnectUsesExpandedConfigSessionPath(t *testing.T) {
+	cfg := config.Config{SessionConfigs: []config.SessionConfig{{Name: "api", Path: "~/projects/api"}}}
+	got, err := sources.ConfigSessions{Config: cfg, Home: "/home/zach"}.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &herdr.FakeClient{}
+	_, err = Connect(context.Background(), f, got.Ordered(), "api", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.CreatedWorkspaces) != 1 || f.CreatedWorkspaces[0].CWD != "/home/zach/projects/api" {
+		t.Fatalf("created workspaces: %#v", f.CreatedWorkspaces)
 	}
 }
