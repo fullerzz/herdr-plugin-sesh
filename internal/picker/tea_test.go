@@ -1,8 +1,10 @@
 package picker
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
@@ -33,5 +35,32 @@ func TestTeaModelMovesSelection(t *testing.T) {
 	cur, ok := m.list.Current()
 	if !ok || cur.Name != "web" {
 		t.Fatalf("current = %#v ok=%v", cur, ok)
+	}
+}
+
+func TestTeaModelForwardsTextInputNonKeyMessages(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
+	updated, cmd := m.Update(cursor.Blink())
+	m = updated.(teaModel)
+	if cmd == nil {
+		t.Fatal("expected textinput to handle non-key cursor message")
+	}
+	if m.list.Query != m.input.Value() {
+		t.Fatalf("query=%q input=%q", m.list.Query, m.input.Value())
+	}
+}
+
+func TestTeaModelViewRendersStyledShell(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "config", Name: "api", Path: "/tmp/api"}}, Options{
+		Prompt:      "Find> ",
+		Placeholder: "Search sessions",
+	})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = updated.(teaModel)
+	view := m.View()
+	for _, want := range []string{"herdr workspace picker", "1/1 matches", "Find> ", "Search sessions", "[config]", "api", "Enter select"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
 	}
 }
