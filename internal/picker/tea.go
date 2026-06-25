@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -10,16 +11,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	sessionmodel "forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	previewpkg "forgejo.local/fullerzz/herdr-plugin-sesh/internal/preview"
 )
 
-const maxVisibleRows = 12
+const defaultVisibleRows = 12
 
 const (
 	defaultPrompt      = "Sesh> "
 	defaultPlaceholder = "Filter workspaces"
 	defaultWidth       = 80
 	minContentWidth    = 36
-	maxContentWidth    = 84
+	maxContentWidth    = 132
+	previewSplitWidth  = 92
+	minPreviewWidth    = 36
+	maxPreviewWidth    = 52
+	previewTitleRows   = 1
+	previewBorderRows  = 2
+	pickerChromeRows   = 14
+	compactPreviewBody = 6
 	herdrSourceIcon    = "\U000f0cc6"
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
@@ -61,6 +70,20 @@ var (
 		BorderForeground(lipgloss.Color("240")).
 		Padding(0, 1)
 
+	previewBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.Border{
+			Top:         "-",
+			Bottom:      "-",
+			Left:        "|",
+			Right:       "|",
+			TopLeft:     "+",
+			TopRight:    "+",
+			BottomLeft:  "+",
+			BottomRight: "+",
+		}).
+		BorderForeground(lipgloss.Color("240")).
+		Padding(0, 1)
+
 	rowStyle = lipgloss.NewStyle().
 			Padding(0, 1)
 
@@ -88,6 +111,8 @@ var (
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244"))
 )
+
+var renderBatPreview = previewpkg.RenderBat
 
 type Options struct {
 	Output         io.Writer
@@ -117,8 +142,17 @@ type teaModel struct {
 	list   Model
 	input  textinput.Model
 	width  int
+	height int
 	choice sessionmodel.Session
 	chosen bool
+
+	preview    string
+	previewKey string
+}
+
+type previewMsg struct {
+	key  string
+	text string
 }
 
 func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
@@ -140,15 +174,33 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	input.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	input.Focus()
-	return teaModel{list: list, input: input}
+	m := teaModel{list: list, input: input}
+	if current, ok := list.Current(); ok {
+		m.previewKey = sessionmodel.Key(current)
+		m.preview = "Loading preview..."
+	}
+	return m
 }
 
-func (m teaModel) Init() tea.Cmd { return m.input.Focus() }
+func (m teaModel) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.input.Focus()}
+	if current, ok := m.list.Current(); ok && m.previewKey != "" {
+		cmds = append(cmds, previewCommand(m.previewKey, current))
+	}
+	return tea.Batch(cmds...)
+}
 
 //nolint:ireturn // Bubble Tea's Model interface requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if preview, ok := msg.(previewMsg); ok {
+		if preview.key == m.previewKey {
+			m.preview = preview.text
+		}
+		return m, nil
+	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
+		m.height = size.Height
 		return m, nil
 	}
 	key, ok := msg.(tea.KeyMsg)
@@ -156,7 +208,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.list.Filter(m.input.Value())
-		return m, cmd
+		m, previewCmd := m.refreshPreview()
+		return m, tea.Batch(cmd, previewCmd)
 	}
 	switch key.Type {
 	case tea.KeyCtrlC, tea.KeyEsc:
@@ -169,22 +222,32 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.KeyUp, tea.KeyCtrlP:
 		m.list.Move(-1)
+		return m.refreshPreview()
 	case tea.KeyDown, tea.KeyCtrlN:
 		m.list.Move(1)
+		return m.refreshPreview()
 	case tea.KeyCtrlU:
 		m.input.SetValue("")
 		m.list.Filter("")
+		return m.refreshPreview()
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.list.Filter(m.input.Value())
-		return m, cmd
+		m, previewCmd := m.refreshPreview()
+		return m, tea.Batch(cmd, previewCmd)
 	}
-	return m, nil
 }
 
 func (m teaModel) View() string {
 	width := m.contentWidth()
+	listWidth, previewWidth := previewLayout(width)
+	previewLines := m.previewBodyLines()
+	listRows := previewLines
+	if previewWidth == 0 {
+		previewLines = compactPreviewBody
+		listRows = defaultVisibleRows
+	}
 	var b strings.Builder
 	b.WriteString(m.header(width))
 	b.WriteString("\n\n")
@@ -192,14 +255,29 @@ func (m teaModel) View() string {
 	input.Width = maxInt(8, width-lipgloss.Width(input.Prompt)-4)
 	b.WriteString(inputBoxStyle.Width(width - 2).Render(input.View()))
 	b.WriteString("\n\n")
+	list := m.listView(listWidth, listRows)
+	if previewWidth > 0 {
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", m.previewView(previewWidth, previewLines)))
+	} else {
+		b.WriteString(list)
+		b.WriteString("\n")
+		b.WriteString(m.previewView(width, previewLines))
+	}
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Width(width).Render("Enter select  Up/Down move  Ctrl+U clear  Esc cancel"))
+	return panelStyle.Width(width + 4).Render(b.String())
+}
+
+func (m teaModel) listView(width, visibleRows int) string {
+	var b strings.Builder
 	if len(m.list.Filtered) == 0 {
 		b.WriteString(emptyStyle.Width(width - 2).Render("No matching workspaces"))
 	} else {
 		start := 0
-		if m.list.Selected >= maxVisibleRows {
-			start = m.list.Selected - maxVisibleRows + 1
+		if m.list.Selected >= visibleRows {
+			start = m.list.Selected - visibleRows + 1
 		}
-		end := start + maxVisibleRows
+		end := start + visibleRows
 		if end > len(m.list.Filtered) {
 			end = len(m.list.Filtered)
 		}
@@ -213,9 +291,18 @@ func (m teaModel) View() string {
 			b.WriteString(moreStyle.Render("...") + "\n")
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Width(width).Render("Enter select  Up/Down move  Ctrl+U clear  Esc cancel"))
-	return panelStyle.Width(width + 4).Render(b.String())
+	return b.String()
+}
+
+func (m teaModel) previewBodyLines() int {
+	if m.height == 0 {
+		return defaultVisibleRows
+	}
+	lines := m.height - pickerChromeRows
+	if lines < compactPreviewBody {
+		return compactPreviewBody
+	}
+	return lines
 }
 
 func (m teaModel) contentWidth() int {
@@ -241,6 +328,83 @@ func (m teaModel) header(width int) string {
 		gap = 1
 	}
 	return title + strings.Repeat(" ", gap) + count
+}
+
+func (m teaModel) previewView(width, maxLines int) string {
+	text := strings.TrimRight(m.preview, "\n")
+	if text == "" {
+		text = "No preview available"
+	}
+	bodyWidth := maxInt(8, width-4)
+	text = fixedVisualLines(text, bodyWidth, maxLines)
+	height := maxLines + previewTitleRows
+	return previewBoxStyle.
+		Width(width - 2).
+		Height(height).
+		MaxWidth(width).
+		Render(titleStyle.Render("preview") + "\n" + text)
+}
+
+func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
+	current, ok := m.list.Current()
+	if !ok {
+		m.previewKey = ""
+		m.preview = "No preview available"
+		return m, nil
+	}
+	key := sessionmodel.Key(current)
+	if key == m.previewKey {
+		return m, nil
+	}
+	m.previewKey = key
+	m.preview = "Loading preview..."
+	return m, previewCommand(key, current)
+}
+
+func previewCommand(key string, s sessionmodel.Session) tea.Cmd {
+	return func() tea.Msg {
+		text, err := renderBatPreview(context.Background(), s)
+		if err != nil {
+			text = err.Error()
+		}
+		text = strings.TrimRight(text, "\n")
+		if text == "" {
+			text = "No preview available"
+		}
+		return previewMsg{key: key, text: text}
+	}
+}
+
+func previewLayout(width int) (int, int) {
+	if width < previewSplitWidth {
+		return width, 0
+	}
+	previewWidth := width / 2
+	if previewWidth > maxPreviewWidth {
+		previewWidth = maxPreviewWidth
+	}
+	if previewWidth < minPreviewWidth {
+		previewWidth = minPreviewWidth
+	}
+	return width - previewWidth - 2, previewWidth
+}
+
+func fixedVisualLines(text string, width, count int) string {
+	if count < 1 {
+		count = 1
+	}
+	lines := strings.Split(lipgloss.NewStyle().Width(width).MaxWidth(width).Render(text), "\n")
+	if len(lines) > count {
+		if count == 1 {
+			lines = []string{"..."}
+		} else {
+			lines = append(lines[:count-1], "...")
+		}
+	}
+	for len(lines) < count {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func row(s sessionmodel.Session, selected bool, width int) string {

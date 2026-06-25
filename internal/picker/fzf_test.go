@@ -41,12 +41,15 @@ func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 	}
 }
 
-func TestFZFArgsPreviewExistingHerdrWorkspacesWithBat(t *testing.T) {
+func TestFZFArgsPreviewAllItemsWithBat(t *testing.T) {
 	args := strings.Join(fzfArgs(Options{}), "\n")
-	for _, want := range []string{"--with-nth=3,4,5", "--preview=", "{2} != herdr", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$path\""} {
+	for _, want := range []string{"--with-nth=3,4,5", "--preview=", "source={2}", "label={4}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$path\""} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("args missing %q:\n%s", want, args)
 		}
+	}
+	if strings.Contains(args, "{2} != herdr") {
+		t.Fatalf("preview should not be limited to herdr rows:\n%s", args)
 	}
 }
 

@@ -93,13 +93,11 @@ func fzfInput(items []sessionmodel.Session, separatorAware bool) string {
 
 func fzfPreviewCommand() string {
 	return strings.Join([]string{
-		`if [ {2} != herdr ]; then`,
-		`  printf 'Preview is available for existing Herdr workspaces only\n'`,
-		`  exit 0`,
-		`fi`,
+		`source={2}`,
+		`label={4}`,
 		`path={5}`,
 		`if [ -z "$path" ] || [ ! -d "$path" ]; then`,
-		`  printf 'No workspace path available\n'`,
+		`  printf 'No item path available\n'`,
 		`  exit 0`,
 		`fi`,
 		`bat_bin=$(command -v bat 2>/dev/null || command -v batcat 2>/dev/null || true)`,
@@ -115,7 +113,7 @@ func fzfPreviewCommand() string {
 		`  printf 'bat not found in PATH or common install locations\n'`,
 		`  exit 0`,
 		`fi`,
-		`printf 'workspace: %s\npath: %s\n\n' {4} "$path"`,
+		`printf 'session: %s\nsource: %s\npath: %s\n\n' "$label" "$source" "$path"`,
 		`for file in "$path/README.md" "$path/README" "$path/AGENTS.md" "$path/go.mod" "$path/package.json" "$path/pyproject.toml"; do`,
 		`  if [ -f "$file" ]; then`,
 		`    "$bat_bin" --color=always --style=numbers --line-range=:160 "$file"`,
