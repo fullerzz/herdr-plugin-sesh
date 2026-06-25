@@ -98,6 +98,17 @@ func TestCLIClientDecodesTabListArray(t *testing.T) {
 	}
 }
 
+func TestCLIClientDecodesPaneListEnvelope(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"panes":[{"pane_id":"p1","workspace_id":"w1","tab_id":"w1:t1","cwd":"/tmp/api","foreground_cwd":"/tmp/api/sub","focused":true}]}}`)}}
+	got, err := c.PaneList(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "p1" || got[0].WorkspaceID != "w1" || got[0].ForegroundCWD != "/tmp/api/sub" || !got[0].Focused {
+		t.Fatalf("panes=%#v", got)
+	}
+}
+
 func TestCLIClientDecodesPaneCurrentEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"pane":{"pane_id":"p1","workspace_id":"w1","tab_id":"w1:t1","cwd":"/tmp/api"}}}`)}}
 	got, err := c.PaneCurrent(context.Background())

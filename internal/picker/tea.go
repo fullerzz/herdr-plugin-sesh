@@ -94,6 +94,7 @@ type Options struct {
 	Prompt         string
 	Placeholder    string
 	SeparatorAware bool
+	FZFCommand     string
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {

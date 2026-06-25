@@ -163,6 +163,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	fs.SetOutput(a.Err)
 	jsonOut := fs.Bool("json", false, "")
 	cfgPath := fs.String("config", "", "")
+	fzfPicker := fs.Bool("fzf", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -177,12 +178,19 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if *jsonOut {
 		return a.printSessions(sessions, true)
 	}
-	selected, ok, err := pickerpkg.Run(sessions, pickerpkg.Options{
+	pickOpts := pickerpkg.Options{
 		Output:         a.Out,
 		Prompt:         cfg.TUI.Prompt,
 		Placeholder:    cfg.TUI.Placeholder,
 		SeparatorAware: cfg.SeparatorAware,
-	})
+	}
+	var selected model.Session
+	var ok bool
+	if *fzfPicker || strings.EqualFold(os.Getenv("HERDR_SESH_PICKER"), "fzf") {
+		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
+	} else {
+		selected, ok, err = pickerpkg.Run(sessions, pickOpts)
+	}
 	if err != nil || !ok {
 		return err
 	}
