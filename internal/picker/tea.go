@@ -112,14 +112,15 @@ var (
 			Foreground(lipgloss.Color("244"))
 )
 
-var renderBatPreview = previewpkg.RenderBat
+var renderPreview = previewpkg.Render
 
 type Options struct {
-	Output         io.Writer
-	Prompt         string
-	Placeholder    string
-	SeparatorAware bool
-	FZFCommand     string
+	Output                io.Writer
+	Prompt                string
+	Placeholder           string
+	SeparatorAware        bool
+	DefaultPreviewCommand string
+	FZFCommand            string
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
@@ -148,6 +149,8 @@ type teaModel struct {
 
 	preview    string
 	previewKey string
+
+	defaultPreviewCommand string
 }
 
 type previewMsg struct {
@@ -174,7 +177,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	input.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	input.Focus()
-	m := teaModel{list: list, input: input}
+	m := teaModel{list: list, input: input, defaultPreviewCommand: opts.DefaultPreviewCommand}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
 		m.preview = "Loading preview..."
@@ -185,7 +188,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 func (m teaModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
-		cmds = append(cmds, previewCommand(m.previewKey, current))
+		cmds = append(cmds, previewCommand(m.previewKey, current, m.defaultPreviewCommand))
 	}
 	return tea.Batch(cmds...)
 }
@@ -358,12 +361,12 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 	}
 	m.previewKey = key
 	m.preview = "Loading preview..."
-	return m, previewCommand(key, current)
+	return m, previewCommand(key, current, m.defaultPreviewCommand)
 }
 
-func previewCommand(key string, s sessionmodel.Session) tea.Cmd {
+func previewCommand(key string, s sessionmodel.Session, defaultPreviewCommand string) tea.Cmd {
 	return func() tea.Msg {
-		text, err := renderBatPreview(context.Background(), s)
+		text, err := renderPreview(context.Background(), s, defaultPreviewCommand)
 		if err != nil {
 			text = err.Error()
 		}

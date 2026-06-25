@@ -179,10 +179,11 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return a.printSessions(sessions, true)
 	}
 	pickOpts := pickerpkg.Options{
-		Output:         a.Out,
-		Prompt:         cfg.TUI.Prompt,
-		Placeholder:    cfg.TUI.Placeholder,
-		SeparatorAware: cfg.SeparatorAware,
+		Output:                a.Out,
+		Prompt:                cfg.TUI.Prompt,
+		Placeholder:           cfg.TUI.Placeholder,
+		SeparatorAware:        cfg.SeparatorAware,
+		DefaultPreviewCommand: cfg.DefaultSessionConfig.PreviewCommand,
 	}
 	var selected model.Session
 	var ok bool

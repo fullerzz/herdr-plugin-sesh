@@ -54,11 +54,11 @@ func TestTeaModelForwardsTextInputNonKeyMessages(t *testing.T) {
 }
 
 func TestTeaModelViewRendersStyledShell(t *testing.T) {
-	oldPreview := renderBatPreview
-	renderBatPreview = func(context.Context, model.Session) (string, error) {
+	oldPreview := renderPreview
+	renderPreview = func(context.Context, model.Session, string) (string, error) {
 		return "preview content", nil
 	}
-	t.Cleanup(func() { renderBatPreview = oldPreview })
+	t.Cleanup(func() { renderPreview = oldPreview })
 
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api"},
@@ -70,13 +70,22 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(teaModel)
-	updated, _ = m.Update(previewCommand(m.previewKey, m.list.Filtered[m.list.Selected])())
+	updated, _ = m.Update(previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)())
 	m = updated.(teaModel)
 	view := m.View()
 	for _, want := range []string{"herdr workspace picker", "3/3 matches", "Find> ", "Search sessions", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview", "preview content", "Enter select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
+	msg := previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)()
+	preview := msg.(previewMsg)
+	if got := strings.TrimSpace(preview.text); got != "preview:/tmp/api" {
+		t.Fatalf("preview=%q", preview.text)
 	}
 }
 

@@ -30,4 +30,4 @@ command = ["./bin/herdr-sesh", "last"]
 id = "picker"
 title = "Sesh Picker"
 placement = "overlay"
-command = ["./bin/herdr-sesh", "picker", "--fzf"]
+command = ["./bin/herdr-sesh", "picker"]
