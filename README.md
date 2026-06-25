@@ -50,7 +50,14 @@ herdr-sesh preview /path/to/project
 herdr-sesh root --connect
 herdr-sesh last
 herdr-sesh plugin open-picker
+herdr-sesh picker
+herdr-sesh picker --fzf
 ```
+
+Use `herdr-sesh picker --fzf` or `HERDR_SESH_PICKER=fzf herdr-sesh picker`
+to try the fzf-backed picker prototype. The native picker honors configured
+`preview_command` values; the fzf prototype uses a `bat` preview for items with
+an existing directory path.
 
 ## Configuration
 

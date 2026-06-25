@@ -21,12 +21,16 @@ func New(items []model.Session) Model {
 	}
 }
 func (m *Model) Filter(q string) {
+	queryChanged := q != m.Query
 	m.Query = q
 	m.Filtered = m.Filtered[:0]
 	for _, s := range m.All {
 		if Match(s.Name, q, m.SeparatorAware) || Match(s.Path, q, m.SeparatorAware) {
 			m.Filtered = append(m.Filtered, s)
 		}
+	}
+	if queryChanged {
+		m.Selected = 0
 	}
 	m.clampSelected()
 }

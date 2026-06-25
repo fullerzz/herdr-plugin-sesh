@@ -36,6 +36,7 @@ func (f *FakeClient) TabFocus(_ context.Context, id string) error {
 	f.FocusedTabs = append(f.FocusedTabs, id)
 	return nil
 }
+func (f *FakeClient) PaneList(context.Context, string) ([]Pane, error) { return f.Panes, nil }
 func (f *FakeClient) PaneCurrent(context.Context) (Pane, error) {
 	if len(f.Panes) > 0 {
 		return f.Panes[0], nil

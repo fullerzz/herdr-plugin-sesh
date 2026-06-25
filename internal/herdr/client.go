@@ -16,6 +16,7 @@ type Workspace struct {
 	Label         string `json:"label"`
 	CWD           string `json:"cwd"`
 	ForegroundCWD string `json:"foreground_cwd"`
+	ActiveTabID   string `json:"active_tab_id"`
 }
 type Tab struct {
 	ID          string `json:"id"`
@@ -25,10 +26,12 @@ type Tab struct {
 	PaneID      string `json:"pane_id"`
 }
 type Pane struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	TabID       string `json:"tab_id"`
-	CWD         string `json:"cwd"`
+	ID            string `json:"id"`
+	WorkspaceID   string `json:"workspace_id"`
+	TabID         string `json:"tab_id"`
+	CWD           string `json:"cwd"`
+	ForegroundCWD string `json:"foreground_cwd"`
+	Focused       bool   `json:"focused"`
 }
 
 func (w *Workspace) UnmarshalJSON(data []byte) error {
@@ -98,6 +101,7 @@ type Client interface {
 	TabList(context.Context, string) ([]Tab, error)
 	TabCreate(context.Context, TabCreateRequest) (Tab, error)
 	TabFocus(context.Context, string) error
+	PaneList(context.Context, string) ([]Pane, error)
 	PaneCurrent(context.Context) (Pane, error)
 	PaneRun(context.Context, string, string) error
 	PluginPaneOpen(context.Context, string, string, string) error
@@ -311,6 +315,34 @@ func (c *CLIClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, err
 func (c *CLIClient) TabFocus(ctx context.Context, id string) error {
 	_, err := c.run(ctx, "tab", "focus", id)
 	return err
+}
+func (c *CLIClient) PaneList(ctx context.Context, wid string) ([]Pane, error) {
+	args := []string{"pane", "list"}
+	if wid != "" {
+		args = append(args, "--workspace", wid)
+	}
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	raw, wrapped, err := responseJSON(out, "pane list")
+	if err != nil {
+		return nil, err
+	}
+	if wrapped {
+		var resp struct {
+			Panes []Pane `json:"panes"`
+		}
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return nil, fmt.Errorf("decode herdr pane list JSON: %w", err)
+		}
+		return resp.Panes, nil
+	}
+	var panes []Pane
+	if err := json.Unmarshal(raw, &panes); err != nil {
+		return nil, fmt.Errorf("decode herdr pane list JSON: %w", err)
+	}
+	return panes, nil
 }
 func (c *CLIClient) PaneCurrent(ctx context.Context) (Pane, error) {
 	out, err := c.run(ctx, "pane", "current")
