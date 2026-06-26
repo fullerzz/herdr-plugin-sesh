@@ -27,7 +27,8 @@ const (
 	maxPreviewWidth    = 52
 	previewTitleRows   = 1
 	previewBorderRows  = 2
-	pickerChromeRows   = 14
+	pickerTopPadding   = 1
+	pickerChromeRows   = 14 + pickerTopPadding
 	compactPreviewBody = 6
 	herdrSourceIcon    = "\U000f0cc6"
 	zoxideSourceIcon   = "\uf114"
@@ -264,7 +265,7 @@ func (m teaModel) View() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Width(width).Render("Enter select  Up/Down move  Ctrl+U clear  Esc cancel"))
-	return panelStyle.Width(width + 4).Render(b.String())
+	return strings.Repeat("\n", pickerTopPadding) + panelStyle.Width(width+4).Render(b.String())
 }
 
 func (m teaModel) listView(width, visibleRows int) string {
