@@ -80,6 +80,30 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	}
 }
 
+func TestRowUsesSourceCategoryColors(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(prev)
+	})
+
+	tests := []struct {
+		source string
+		color  string
+	}{
+		{source: "herdr", color: "38;5;81"},
+		{source: "config", color: "38;5;214"},
+		{source: "zoxide", color: "38;5;114"},
+		{source: "dir", color: "38;5;176"},
+	}
+	for _, tt := range tests {
+		got := row(model.Session{Source: tt.source, Name: tt.source}, false, 80)
+		if !strings.Contains(got, tt.color) {
+			t.Fatalf("row for source %q missing color %s:\n%q", tt.source, tt.color, got)
+		}
+	}
+}
+
 func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
 	msg := previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)()
@@ -138,6 +162,12 @@ func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 		t.Fatalf("view height=%d, want %d", got, want)
 	}
 	lines := strings.Split(view, "\n")
+	if lines[0] != "" {
+		t.Fatalf("expected top padding row, got %q\n%s", lines[0], view)
+	}
+	if topBorder := lines[1]; !strings.HasPrefix(topBorder, "+") || !strings.HasSuffix(topBorder, "+") {
+		t.Fatalf("expected parent top border after padding, got %q\n%s", topBorder, view)
+	}
 	if padding := lines[len(lines)-2]; strings.Contains(padding, "+") || strings.Contains(padding, "preview") || strings.Contains(padding, "Enter select") {
 		t.Fatalf("expected one padding line before parent bottom border, got %q\n%s", padding, view)
 	}

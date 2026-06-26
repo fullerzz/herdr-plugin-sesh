@@ -59,6 +59,7 @@ func fzfArgs(opts Options) []string {
 	args := []string{
 		"--layout=reverse",
 		"--border",
+		"--ansi",
 		"--prompt=" + prompt,
 		"--delimiter=\t",
 		"--with-nth=3,4,5",
@@ -82,7 +83,7 @@ func fzfInput(items []sessionmodel.Session, separatorAware bool) string {
 			"%d\t%s\t%s\t%s\t%s\t%s\n",
 			i,
 			fzfField(s.Source),
-			fzfField(sourceBadge(s.Source)),
+			fzfSourceBadge(s.Source),
 			fzfField(fzfLabel(s)),
 			fzfField(s.Path),
 			fzfSearchField(s, separatorAware),
@@ -93,10 +94,12 @@ func fzfInput(items []sessionmodel.Session, separatorAware bool) string {
 
 func fzfPreviewCommand() string {
 	return strings.Join([]string{
+		`PATH="${PATH:+$PATH:}/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin:$HOME/.local/share/mise/shims"`,
+		`export PATH`,
 		`source={2}`,
 		`label={4}`,
-		`path={5}`,
-		`if [ -z "$path" ] || [ ! -d "$path" ]; then`,
+		`item_path={5}`,
+		`if [ -z "$item_path" ] || [ ! -d "$item_path" ]; then`,
 		`  printf 'No item path available\n'`,
 		`  exit 0`,
 		`fi`,
@@ -113,14 +116,14 @@ func fzfPreviewCommand() string {
 		`  printf 'bat not found in PATH or common install locations\n'`,
 		`  exit 0`,
 		`fi`,
-		`printf 'session: %s\nsource: %s\npath: %s\n\n' "$label" "$source" "$path"`,
-		`for file in "$path/README.md" "$path/README" "$path/AGENTS.md" "$path/go.mod" "$path/package.json" "$path/pyproject.toml"; do`,
+		`printf 'session: %s\nsource: %s\npath: %s\n\n' "$label" "$source" "$item_path"`,
+		`for file in "$item_path/README.md" "$item_path/README" "$item_path/AGENTS.md" "$item_path/go.mod" "$item_path/package.json" "$item_path/pyproject.toml"; do`,
 		`  if [ -f "$file" ]; then`,
 		`    "$bat_bin" --color=always --style=numbers --line-range=:160 "$file"`,
 		`    exit 0`,
 		`  fi`,
 		`done`,
-		`find "$path" -maxdepth 2 -type f ! -path '*/.git/*' | sort | head -80 | "$bat_bin" --color=always --style=plain --language=txt --file-name "$path"`,
+		`find "$item_path" -maxdepth 2 -type f ! -path '*/.git/*' | sort | head -80 | "$bat_bin" --color=always --style=plain --language=txt --file-name "$item_path"`,
 	}, "\n")
 }
 
@@ -129,6 +132,10 @@ func fzfLabel(s sessionmodel.Session) string {
 		return s.Name
 	}
 	return s.Path
+}
+
+func fzfSourceBadge(source string) string {
+	return "\x1b[1;38;5;" + sourceBadgeColor(source) + "m" + fzfField(sourceBadge(source)) + "\x1b[0m"
 }
 
 func fzfSearchField(s sessionmodel.Session, separatorAware bool) string {

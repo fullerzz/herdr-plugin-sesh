@@ -1,7 +1,9 @@
 [tools]
 go = "1.26"
+cargo-binstall = "1.17.7"
 golangci-lint = "v2.12.2"
 gotestsum = "latest"
 just = "latest"
 fzf = "latest"
 bat = "latest"
+eza = "latest"

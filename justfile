@@ -15,6 +15,11 @@ build:
     mkdir -p bin
     go build -o bin/herdr-sesh ./cmd/herdr-sesh
 
+# Rebuild and relink this checkout as a local Herdr plugin
+install-plugin: build
+    @echo "{{ BOLD + BLUE + BG_BLACK }} Relinking Herdr plugin...{{ NORMAL }}"
+    herdr plugin link "$PWD"
+
 # Run linters on the codebase
 lint:
     @echo "{{ BOLD + GREEN + BG_BLACK }} Running linters...{{ NORMAL }}"
