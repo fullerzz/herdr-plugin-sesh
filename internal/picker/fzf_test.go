@@ -33,7 +33,7 @@ func TestRunFZFSelectsSessionByHiddenIndex(t *testing.T) {
 
 func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 	got := fzfInput([]model.Session{{Source: "config", Name: "api-service", Path: "/tmp/api.service"}}, true)
-	if !strings.HasPrefix(got, "0\tconfig\t"+configSourceIcon+" config\tapi-service\t/tmp/api.service\t") {
+	if !strings.HasPrefix(got, "0\tconfig\t\x1b[1;38;5;214m"+configSourceIcon+" config\x1b[0m\tapi-service\t/tmp/api.service\t") {
 		t.Fatalf("input = %q", got)
 	}
 	if !strings.Contains(got, "api service") || !strings.Contains(got, "tmp api service") {
@@ -41,9 +41,28 @@ func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 	}
 }
 
+func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
+	got := fzfInput([]model.Session{
+		{Source: "herdr", Name: "herdr"},
+		{Source: "config", Name: "config"},
+		{Source: "zoxide", Name: "zoxide"},
+		{Source: "dir", Name: "dir"},
+	}, false)
+	for _, want := range []string{
+		"\x1b[1;38;5;81m" + herdrSourceIcon + " herdr\x1b[0m",
+		"\x1b[1;38;5;214m" + configSourceIcon + " config\x1b[0m",
+		"\x1b[1;38;5;114m" + zoxideSourceIcon + " zoxide\x1b[0m",
+		"\x1b[1;38;5;176m[dir]\x1b[0m",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("input missing %q:\n%q", want, got)
+		}
+	}
+}
+
 func TestFZFArgsPreviewAllItemsWithBat(t *testing.T) {
 	args := strings.Join(fzfArgs(Options{}), "\n")
-	for _, want := range []string{"--with-nth=3,4,5", "--preview=", "source={2}", "label={4}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$path\""} {
+	for _, want := range []string{"--ansi", "--with-nth=3,4,5", "--preview=", "source={2}", "label={4}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$path\""} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("args missing %q:\n%s", want, args)
 		}

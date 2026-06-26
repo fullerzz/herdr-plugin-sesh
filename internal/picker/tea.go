@@ -93,10 +93,6 @@ var (
 				Bold(true).
 				Padding(0, 1)
 
-	sourceStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("81")).
-			Bold(true)
-
 	pathStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244"))
 
@@ -421,7 +417,7 @@ func row(s sessionmodel.Session, selected bool, width int) string {
 	}
 	source := s.Source
 	badgeText := sourceBadge(source)
-	badge := sourceStyle.Render(badgeText)
+	badge := sourceBadgeStyle(source).Render(badgeText)
 	path := ""
 	showPath := s.Path != "" && s.Path != label
 	if showPath {
@@ -452,6 +448,25 @@ func sourceBadge(source string) string {
 	default:
 		return "[" + source + "]"
 	}
+}
+
+func sourceBadgeStyle(source string) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(sourceBadgeColor(source))).Bold(true)
+}
+
+func sourceBadgeColor(source string) string {
+	color := "244"
+	switch source {
+	case "herdr":
+		color = "81"
+	case "config":
+		color = "214"
+	case "zoxide":
+		color = "114"
+	case "dir":
+		color = "176"
+	}
+	return color
 }
 
 func rowText(cursor, badge, label, path string) string {

@@ -59,6 +59,7 @@ func fzfArgs(opts Options) []string {
 	args := []string{
 		"--layout=reverse",
 		"--border",
+		"--ansi",
 		"--prompt=" + prompt,
 		"--delimiter=\t",
 		"--with-nth=3,4,5",
@@ -82,7 +83,7 @@ func fzfInput(items []sessionmodel.Session, separatorAware bool) string {
 			"%d\t%s\t%s\t%s\t%s\t%s\n",
 			i,
 			fzfField(s.Source),
-			fzfField(sourceBadge(s.Source)),
+			fzfSourceBadge(s.Source),
 			fzfField(fzfLabel(s)),
 			fzfField(s.Path),
 			fzfSearchField(s, separatorAware),
@@ -129,6 +130,10 @@ func fzfLabel(s sessionmodel.Session) string {
 		return s.Name
 	}
 	return s.Path
+}
+
+func fzfSourceBadge(source string) string {
+	return "\x1b[1;38;5;" + sourceBadgeColor(source) + "m" + fzfField(sourceBadge(source)) + "\x1b[0m"
 }
 
 func fzfSearchField(s sessionmodel.Session, separatorAware bool) string {
