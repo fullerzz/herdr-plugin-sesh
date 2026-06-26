@@ -31,6 +31,9 @@ startup_script = "git status"
 	if len(cfg.WindowConfigs) != 1 || cfg.WindowConfigs[0].Name != "git" {
 		t.Fatalf("missing window %#v", cfg.WindowConfigs)
 	}
+	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
+	}
 }
 
 func TestLoadStrictRejectsUnknown(t *testing.T) {
@@ -58,6 +61,17 @@ path="/extra"
 		t.Fatalf("bad order %#v", got)
 	}
 }
+
+func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
+	cfg := Default()
+	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
+	}
+	if DefaultPreviewCommand != "eza --icons=always -la {}" {
+		t.Fatalf("default preview command = %q", DefaultPreviewCommand)
+	}
+}
+
 func mustWrite(t *testing.T, p, s string) {
 	t.Helper()
 	if err := os.WriteFile(p, []byte(s), 0600); err != nil {

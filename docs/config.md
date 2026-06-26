@@ -41,7 +41,7 @@ Example:
 
 ```toml
 [default_session]
-preview_command = "ls -la {}"
+preview_command = "eza --icons=always -la {}"
 
 [[session]]
 name = "brain"
@@ -55,5 +55,5 @@ startup_script = "git status"
 
 [[wildcard]]
 pattern = "~/projects/**"
-preview_command = "ls -la {}"
+preview_command = "eza --icons=always -la {}"
 ```

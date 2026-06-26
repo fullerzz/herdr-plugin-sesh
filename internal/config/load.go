@@ -149,6 +149,9 @@ func attachDefaults(cfg *Config) {
 	if len(cfg.SortOrder) == 0 {
 		cfg.SortOrder = []string{"herdr", "config", "zoxide", "dir"}
 	}
+	if cfg.DefaultSessionConfig.PreviewCommand == "" {
+		cfg.DefaultSessionConfig.PreviewCommand = DefaultPreviewCommand
+	}
 }
 func ExpandHome(p, home string) string {
 	if p == "" {
@@ -189,6 +192,6 @@ func InitConfig(dir string) (string, error) {
 	if err == nil {
 		return p, nil
 	}
-	starter := "#:schema https://github.com/joshmedeski/sesh/raw/main/sesh.schema.json\n\n[default_session]\npreview_command = \"ls -la {}\"\n\n# [[session]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n"
+	starter := fmt.Sprintf("#:schema https://github.com/joshmedeski/sesh/raw/main/sesh.schema.json\n\n[default_session]\npreview_command = %q\n\n# [[session]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n", DefaultPreviewCommand)
 	return p, os.WriteFile(p, []byte(starter), 0600)
 }

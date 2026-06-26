@@ -2,6 +2,8 @@ package config
 
 import "forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
 
+const DefaultPreviewCommand = "eza --icons=always -la {}"
+
 type Config struct {
 	Cache                bool                 `toml:"cache"`
 	StrictMode           bool                 `toml:"strict_mode"`
@@ -49,5 +51,9 @@ type WildcardConfig struct {
 }
 
 func Default() Config {
-	return Config{DirLength: 1, SortOrder: []string{"herdr", "config", "zoxide", "dir"}}
+	return Config{
+		DirLength:            1,
+		SortOrder:            []string{"herdr", "config", "zoxide", "dir"},
+		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
+	}
 }

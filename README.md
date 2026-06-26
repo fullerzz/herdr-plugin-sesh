@@ -55,9 +55,9 @@ herdr-sesh picker --fzf
 ```
 
 Use `herdr-sesh picker --fzf` or `HERDR_SESH_PICKER=fzf herdr-sesh picker`
-to try the fzf-backed picker prototype. The native picker honors configured
-`preview_command` values; the fzf prototype uses a `bat` preview for items with
-an existing directory path.
+to try the fzf-backed picker prototype. The native picker defaults to
+`eza --icons=always -la {}` and honors configured `preview_command` values; the fzf
+prototype uses a `bat` preview for items with an existing directory path.
 
 ## Configuration
 

@@ -11,7 +11,7 @@ prompt = "Sesh> "
 placeholder = "Search workspaces"
 
 [default_session]
-preview_command = "ls -la {}"
+preview_command = "eza --icons=always -la {}"
 
 [[session]]
 name = "sesh"
@@ -25,4 +25,4 @@ startup_script = "git status"
 
 [[wildcard]]
 pattern = "~/projects/**"
-preview_command = "ls -la {}"
+preview_command = "eza --icons=always -la {}"
