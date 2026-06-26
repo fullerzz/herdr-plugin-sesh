@@ -3,6 +3,7 @@ package picker
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,13 +63,70 @@ func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
 
 func TestFZFArgsPreviewAllItemsWithBat(t *testing.T) {
 	args := strings.Join(fzfArgs(Options{}), "\n")
-	for _, want := range []string{"--ansi", "--with-nth=3,4,5", "--preview=", "source={2}", "label={4}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$path\""} {
+	for _, want := range []string{"--ansi", "--with-nth=3,4,5", "--preview=", "export PATH", "source={2}", "label={4}", "item_path={5}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$item_path\""} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("args missing %q:\n%s", want, args)
 		}
 	}
+	if strings.Contains(args, "\npath=") {
+		t.Fatalf("preview should not assign zsh's special path variable:\n%s", args)
+	}
 	if strings.Contains(args, "{2} != herdr") {
 		t.Fatalf("preview should not be limited to herdr rows:\n%s", args)
+	}
+}
+
+func TestFZFPreviewCommandFindsSystemToolsWithMinimalPath(t *testing.T) {
+	fakeBin := t.TempDir()
+	bat := filepath.Join(fakeBin, "bat")
+	if err := os.WriteFile(bat, []byte("#!/bin/sh\ncat\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // the fake bat binary must be executable for this test.
+	if err := os.Chmod(bat, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "note.txt"), []byte("preview\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := strings.NewReplacer(
+		"{2}", "zoxide",
+		"{4}", "project",
+		"{5}", project,
+	).Replace(fzfPreviewCommand())
+	run := func(t *testing.T, cmd *exec.Cmd) {
+		t.Helper()
+		cmd.Env = []string{"PATH=" + fakeBin, "HOME=" + t.TempDir()}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("preview command failed: %v\n%s", err, out)
+		}
+		got := string(out)
+		if strings.Contains(got, "not found") {
+			t.Fatalf("preview command could not find system tools:\n%s", got)
+		}
+		if !strings.Contains(got, "session: project") || !strings.Contains(got, "note.txt") {
+			t.Fatalf("preview output missing expected content:\n%s", got)
+		}
+	}
+	previewShellCommand := func(shell string) *exec.Cmd {
+		//nolint:gosec // The shell and script are fixed by this regression test.
+		return exec.Command(shell, "-c", script)
+	}
+	t.Run("sh", func(t *testing.T) {
+		run(t, previewShellCommand("/bin/sh"))
+	})
+	if _, err := os.Stat("/bin/bash"); err == nil {
+		t.Run("bash", func(t *testing.T) {
+			run(t, previewShellCommand("/bin/bash"))
+		})
+	}
+	if _, err := os.Stat("/bin/zsh"); err == nil {
+		t.Run("zsh", func(t *testing.T) {
+			run(t, previewShellCommand("/bin/zsh"))
+		})
 	}
 }
 
