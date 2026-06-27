@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           version='${{ steps.meta.outputs.version }}'
-          module='forgejo.local/fullerzz/herdr-plugin-sesh/internal/app'
+          module='github.com/fullerzz/herdr-plugin-sesh/internal/app'
           mkdir -p dist/release dist/work
           targets=(
             linux/amd64
@@ -119,10 +119,10 @@ jobs:
             echo
             echo "Sesh-style smart workspace/session management for Herdr."
             echo
-            echo "## Install from this Forgejo repo"
+            echo "## Install from GitHub"
             echo
             echo '```bash'
-            echo "git clone ssh://git@ser8:222/zach/herdr-plugin-sesh.git"
+            echo "git clone https://github.com/fullerzz/herdr-plugin-sesh.git"
             echo "cd herdr-plugin-sesh"
             echo "git checkout ${tag}"
             echo 'go build -o bin/herdr-sesh ./cmd/herdr-sesh'
@@ -146,12 +146,18 @@ jobs:
           name: herdr-plugin-sesh-${{ steps.meta.outputs.tag }}
           path: dist/release/*
 
-      - name: Publish Forgejo release
-        uses: actions/forgejo-release@v2.12.1
-        with:
-          direction: upload
-          tag: ${{ steps.meta.outputs.tag }}
-          title: ${{ steps.meta.outputs.tag }}
-          release-dir: dist/release
-          release-notes-file: dist/release/RELEASE_NOTES.md
-          override: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "$TAG" \
+              --notes-file dist/release/RELEASE_NOTES.md
+            gh release upload "$TAG" dist/release/* --clobber
+          else
+            gh release create "$TAG" dist/release/* \
+              --title "$TAG" \
+              --notes-file dist/release/RELEASE_NOTES.md
+          fi
