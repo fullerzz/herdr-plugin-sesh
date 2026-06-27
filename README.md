@@ -11,8 +11,9 @@ This plugin maps Sesh concepts onto Herdr:
 ## Build
 
 ```bash
-go test ./...
-go build -o bin/herdr-sesh ./cmd/herdr-sesh
+mise install
+just check
+just build
 ```
 
 ## Install for local use
@@ -21,8 +22,7 @@ Build the plugin binary, link this checkout into Herdr, then initialize the
 plugin-owned config file:
 
 ```bash
-go build -o bin/herdr-sesh ./cmd/herdr-sesh
-herdr plugin link "$PWD"
+just install-plugin
 herdr plugin config-dir fullerzz.sesh
 HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config init
 ```
@@ -47,11 +47,16 @@ herdr plugin log list --plugin fullerzz.sesh
 herdr-sesh list --json
 herdr-sesh connect /path/to/project
 herdr-sesh preview /path/to/project
+herdr-sesh clone git@github.com:owner/repo.git
 herdr-sesh root --connect
 herdr-sesh last
+herdr-sesh window
+herdr-sesh window /path/to/project
 herdr-sesh plugin open-picker
 herdr-sesh picker
 herdr-sesh picker --fzf
+herdr-sesh config path
+herdr-sesh config init
 ```
 
 Use `herdr-sesh picker --fzf` or `HERDR_SESH_PICKER=fzf herdr-sesh picker`
@@ -83,9 +88,9 @@ herdr plugin config-dir fullerzz.sesh
 ## Repository
 
 Canonical source lives at <https://github.com/fullerzz/herdr-plugin-sesh>.
-Herdr's managed `plugin install` command accepts GitHub shorthand sources, so
-this repository should use the `herdr-plugin` topic and matching `v*` tags if
-this plugin is published through Herdr marketplace discovery.
+Herdr's managed `plugin install` command accepts GitHub shorthand sources; use
+the `herdr-plugin` topic and matching `v*` tags for Herdr marketplace
+discovery.
 
 ## Release
 
@@ -93,10 +98,8 @@ Release tags must start with `v` and match `version` in `herdr-plugin.toml`.
 Before tagging, run the same validation expected in CI:
 
 ```bash
-gofmt -l .
-go vet ./...
-go test ./...
-go build -o bin/herdr-sesh ./cmd/herdr-sesh
+just check
+just build
 ./bin/herdr-sesh --version
 ./bin/herdr-sesh list --json --config testdata/sesh.toml
 ```

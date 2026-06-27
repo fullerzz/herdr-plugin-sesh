@@ -12,7 +12,7 @@ Lookup order:
 For a linked Herdr plugin, create or edit the plugin-owned config file with:
 
 ```bash
-herdr plugin link "$PWD"
+just install-plugin
 HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config init
 HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config path
 ```
@@ -31,6 +31,7 @@ Supported keys include:
 - `sort_order`
 - `dir_length`
 - `separator_aware`
+- `tmux_command`
 - `[tui]`
 - `[default_session]`
 - `[[session]]`
@@ -47,6 +48,7 @@ preview_command = "eza --icons=always -la {}"
 name = "brain"
 path = "~/brain"
 startup_command = "git status"
+disable_startup_command = false
 windows = ["git"]
 
 [[window]]

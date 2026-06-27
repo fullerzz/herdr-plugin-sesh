@@ -1,7 +1,8 @@
 # Keybindings
 
-Prerequisite: build and link this checkout, or install a GitHub mirror with
-`herdr plugin install owner/repo --ref v0.1.0` when one is published.
+Prerequisite: build and link this checkout, or install the published plugin with
+`herdr plugin install fullerzz/herdr-plugin-sesh --ref v0.1.0` when a release
+is published.
 
 Example Herdr keybinding once the plugin is linked:
 
