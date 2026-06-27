@@ -11,6 +11,8 @@ type History struct {
 	Workspaces []string `json:"workspaces"`
 }
 
+const maxWorkspaces = 50
+
 func Path(dir string) string { return filepath.Join(dir, "history.json") }
 
 func LoadHistory(dir string) (History, error) {
@@ -42,27 +44,51 @@ func Record(dir, workspaceID string) error {
 	if workspaceID == "" {
 		return nil
 	}
-	h, err := LoadHistory(dir)
+	h, err := loadHistoryForWrite(dir)
 	if err != nil {
-		if !isJSONDecodeError(err) {
-			return err
-		}
-		h = History{}
+		return err
 	}
-	if len(h.Workspaces) > 0 && h.Workspaces[0] == workspaceID {
+	h.Workspaces = dedupeWorkspaces([]string{workspaceID}, h.Workspaces)
+	return SaveHistory(dir, h)
+}
+
+func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
+	if toWorkspaceID == "" {
 		return nil
 	}
-	filtered := []string{workspaceID}
-	for _, id := range h.Workspaces {
-		if id != workspaceID {
-			filtered = append(filtered, id)
+	h, err := loadHistoryForWrite(dir)
+	if err != nil {
+		return err
+	}
+	h.Workspaces = dedupeWorkspaces([]string{toWorkspaceID, fromWorkspaceID}, h.Workspaces)
+	return SaveHistory(dir, h)
+}
+
+func loadHistoryForWrite(dir string) (History, error) {
+	h, err := LoadHistory(dir)
+	if err == nil {
+		return h, nil
+	}
+	if !isJSONDecodeError(err) {
+		return History{}, err
+	}
+	return History{}, nil
+}
+
+func dedupeWorkspaces(front []string, rest []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(front)+len(rest))
+	for _, id := range append(front, rest...) {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+		if len(out) == maxWorkspaces {
+			return out
 		}
 	}
-	if len(filtered) > 50 {
-		filtered = filtered[:50]
-	}
-	h.Workspaces = filtered
-	return SaveHistory(dir, h)
+	return out
 }
 
 func isJSONDecodeError(err error) bool {
@@ -80,4 +106,17 @@ func Last(dir string) (string, bool, error) {
 		return "", false, nil
 	}
 	return h.Workspaces[1], true, nil
+}
+
+func Previous(dir, currentWorkspaceID string) (string, bool, error) {
+	h, err := LoadHistory(dir)
+	if err != nil {
+		return "", false, err
+	}
+	for _, id := range h.Workspaces {
+		if id != "" && id != currentWorkspaceID {
+			return id, true, nil
+		}
+	}
+	return "", false, nil
 }

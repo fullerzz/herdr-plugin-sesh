@@ -14,6 +14,12 @@ key = "prefix+shift+t"
 type = "plugin_action"
 command = "fullerzz.sesh.open-picker"
 description = "open Sesh picker"
+
+[[keys.command]]
+key = "prefix+shift+b"
+type = "plugin_action"
+command = "fullerzz.sesh.last"
+description = "switch to previous Sesh workspace"
 ```
 
 Manual picker open:
