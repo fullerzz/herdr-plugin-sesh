@@ -195,15 +195,14 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil || !ok {
 		return err
 	}
+	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
 		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) },
 	})
 	if err != nil {
 		return err
 	}
-	if err := state.Record(os.Getenv("HERDR_PLUGIN_STATE_DIR"), res.Session.WorkspaceID); err != nil {
-		a.warnf("could not record workspace history: %v", err)
-	}
+	a.recordWorkspaceSwitch(currentWorkspaceID, res.Session.WorkspaceID)
 	return nil
 }
 
@@ -237,12 +236,13 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), sessions, target, connectpkg.Options{NoFocus: *noFocus, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
 	if err != nil {
 		return err
 	}
-	if err := state.Record(os.Getenv("HERDR_PLUGIN_STATE_DIR"), res.Session.WorkspaceID); err != nil {
-		a.warnf("could not record workspace history: %v", err)
+	if !*noFocus {
+		a.recordWorkspaceSwitch(currentWorkspaceID, res.Session.WorkspaceID)
 	}
 	_, err = fmt.Fprintf(a.Out, "%s\n", res.Session.Name)
 	return err
@@ -315,15 +315,33 @@ func gitRoot(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 func (a *App) last(ctx context.Context, _ []string) error {
-	id, ok, err := state.Last(os.Getenv("HERDR_PLUGIN_STATE_DIR"))
+	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
+	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
+	id, ok, err := state.Previous(stateDir, currentWorkspaceID)
+	if currentWorkspaceID == "" {
+		id, ok, err = state.Last(stateDir)
+	}
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return errors.New("no previous workspace recorded")
 	}
-	return herdr.NewCLIClient().WorkspaceFocus(ctx, id)
+	if err := herdr.NewCLIClient().WorkspaceFocus(ctx, id); err != nil {
+		return err
+	}
+	if err := state.RecordSwitch(stateDir, currentWorkspaceID, id); err != nil {
+		a.warnf("could not record workspace history: %v", err)
+	}
+	return nil
 }
+
+func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string) {
+	if err := state.RecordSwitch(os.Getenv("HERDR_PLUGIN_STATE_DIR"), fromWorkspaceID, toWorkspaceID); err != nil {
+		a.warnf("could not record workspace history: %v", err)
+	}
+}
+
 func (a *App) window(ctx context.Context, args []string) error {
 	c := herdr.NewCLIClient()
 	if len(args) == 0 {

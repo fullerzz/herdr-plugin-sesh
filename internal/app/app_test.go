@@ -5,8 +5,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/state"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -92,5 +95,45 @@ func TestPickerJSONCommand(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"name": "sesh"`) {
 		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
+	d := t.TempDir()
+	stateDir := filepath.Join(d, "state")
+	if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"current", "previous", "older"}}); err != nil {
+		t.Fatal(err)
+	}
+	fakeHerdr := filepath.Join(d, "herdr")
+	logPath := filepath.Join(d, "herdr.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"
+	//nolint:gosec // test creates a local executable fixture.
+	if err := os.WriteFile(fakeHerdr, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
+	t.Setenv("HERDR_FAKE_LOG", logPath)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_WORKSPACE_ID", "current")
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"last"}); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // logPath is a test-owned temp file.
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(log)); got != "workspace focus previous" {
+		t.Fatalf("herdr args = %q", got)
+	}
+	h, err := state.LoadHistory(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"previous", "current", "older"}
+	if !reflect.DeepEqual(h.Workspaces, want) {
+		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
 	}
 }

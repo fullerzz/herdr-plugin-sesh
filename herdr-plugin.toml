@@ -22,7 +22,7 @@ command = ["./bin/herdr-sesh", "root", "--connect"]
 
 [[actions]]
 id = "last"
-title = "Switch to Last Sesh Workspace"
+title = "Switch to Previous Workspace"
 contexts = ["workspace", "pane"]
 command = ["./bin/herdr-sesh", "last"]
 
