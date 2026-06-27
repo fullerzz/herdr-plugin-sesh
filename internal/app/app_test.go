@@ -98,6 +98,43 @@ func TestPickerJSONCommand(t *testing.T) {
 	}
 }
 
+func TestPreviewCommandUsesExplicitConfig(t *testing.T) {
+	d := t.TempDir()
+	targetDir := filepath.Join(d, "target")
+	if err := os.Mkdir(targetDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(cfgPath, []byte("[default_session]\npreview_command = \"printf configured:%s {}\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fakeBin := filepath.Join(d, "bin")
+	if err := os.MkdirAll(fakeBin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"herdr", "zoxide"} {
+		//nolint:gosec // test creates local executable fixtures.
+		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	//nolint:gosec // test creates a local executable fixture.
+	if err := os.WriteFile(filepath.Join(fakeBin, "eza"), []byte("#!/bin/sh\nprintf 'default:%s\\n' \"$*\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_BIN_PATH", filepath.Join(fakeBin, "herdr"))
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"preview", "--config", cfgPath, targetDir}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "configured:") || !strings.Contains(out.String(), targetDir) {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	d := t.TempDir()
 	stateDir := filepath.Join(d, "state")
