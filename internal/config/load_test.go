@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -59,6 +60,47 @@ path="/extra"
 	}
 	if got := []string{cfg.SessionConfigs[0].Name, cfg.SessionConfigs[1].Name}; got[0] != "extra" || got[1] != "main" {
 		t.Fatalf("bad order %#v", got)
+	}
+}
+
+func TestLoadMergesNestedConfigTablesFieldByField(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), `[default_session]
+startup_command = "git status"
+preview_command = "printf extra {}"
+windows = ["git"]
+
+[tui]
+prompt = "Extra> "
+placeholder = "Extra search"
+`)
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, `import = ["extra.toml"]
+
+[default_session]
+startup_command = "make test"
+
+[tui]
+placeholder = "Search workspaces"
+`)
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultSessionConfig.StartupCommand != "make test" {
+		t.Fatalf("startup command = %q", cfg.DefaultSessionConfig.StartupCommand)
+	}
+	if cfg.DefaultSessionConfig.PreviewCommand != "printf extra {}" {
+		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
+	}
+	if want := []string{"git"}; !reflect.DeepEqual(cfg.DefaultSessionConfig.Windows, want) {
+		t.Fatalf("windows = %#v, want %#v", cfg.DefaultSessionConfig.Windows, want)
+	}
+	if cfg.TUI.Prompt != "Extra> " {
+		t.Fatalf("prompt = %q", cfg.TUI.Prompt)
+	}
+	if cfg.TUI.Placeholder != "Search workspaces" {
+		t.Fatalf("placeholder = %q", cfg.TUI.Placeholder)
 	}
 }
 
