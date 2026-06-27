@@ -39,3 +39,7 @@ fmt-check:
 test:
     @echo "{{ BOLD + BLUE + BG_BLACK }} Running tests...{{ NORMAL }}"
     gotestsum --format-icons=octicons --format=pkgname -- -race ./...
+
+# Run all checks for code changes
+check: lint fmt-check test
+    @echo "{{ BOLD + GREEN + BG_BLACK }} All checks passed!{{ NORMAL }}"
