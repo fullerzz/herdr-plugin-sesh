@@ -249,11 +249,17 @@ func (a *App) connect(ctx context.Context, args []string) error {
 }
 
 func (a *App) preview(ctx context.Context, args []string) error {
-	if len(args) < 1 {
+	fs := flag.NewFlagSet("preview", flag.ContinueOnError)
+	fs.SetOutput(a.Err)
+	cfgPath := fs.String("config", "", "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
 		return errors.New("preview requires target")
 	}
-	target := args[0]
-	cfg, err := a.loadConfig("")
+	target := fs.Arg(0)
+	cfg, err := a.loadConfig(*cfgPath)
 	if err != nil {
 		return err
 	}
