@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -131,11 +130,29 @@ func merge(dst *Config, src Config) {
 	if src.TmuxCommand != "" {
 		dst.TmuxCommand = src.TmuxCommand
 	}
-	if src.TUI != (TUIConfig{}) {
-		dst.TUI = src.TUI
+	if src.TUI.ShowIcons {
+		dst.TUI.ShowIcons = true
 	}
-	if !reflect.DeepEqual(src.DefaultSessionConfig, DefaultSessionConfig{}) {
-		dst.DefaultSessionConfig = src.DefaultSessionConfig
+	if src.TUI.Prompt != "" {
+		dst.TUI.Prompt = src.TUI.Prompt
+	}
+	if src.TUI.Placeholder != "" {
+		dst.TUI.Placeholder = src.TUI.Placeholder
+	}
+	if src.DefaultSessionConfig.StartupCommand != "" {
+		dst.DefaultSessionConfig.StartupCommand = src.DefaultSessionConfig.StartupCommand
+	}
+	if src.DefaultSessionConfig.Tmuxp != "" {
+		dst.DefaultSessionConfig.Tmuxp = src.DefaultSessionConfig.Tmuxp
+	}
+	if src.DefaultSessionConfig.Tmuxinator != "" {
+		dst.DefaultSessionConfig.Tmuxinator = src.DefaultSessionConfig.Tmuxinator
+	}
+	if src.DefaultSessionConfig.PreviewCommand != "" {
+		dst.DefaultSessionConfig.PreviewCommand = src.DefaultSessionConfig.PreviewCommand
+	}
+	if len(src.DefaultSessionConfig.Windows) > 0 {
+		dst.DefaultSessionConfig.Windows = src.DefaultSessionConfig.Windows
 	}
 	dst.SessionConfigs = append(dst.SessionConfigs, src.SessionConfigs...)
 	dst.WindowConfigs = append(dst.WindowConfigs, src.WindowConfigs...)
