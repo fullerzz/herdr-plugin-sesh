@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 func TestSessionCacheUsesFreshEntries(t *testing.T) {

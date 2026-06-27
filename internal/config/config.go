@@ -1,6 +1,6 @@
 package config
 
-import "forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+import "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 
 const DefaultPreviewCommand = "eza --icons=always -la {}"
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/herdr"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 )
 
 func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {

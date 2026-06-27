@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type DirectPath struct {

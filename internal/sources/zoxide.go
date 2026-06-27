@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type Zoxide struct {

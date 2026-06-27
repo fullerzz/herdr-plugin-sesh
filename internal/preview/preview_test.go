@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 func TestRenderUsesPreviewCommand(t *testing.T) {

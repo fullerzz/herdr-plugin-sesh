@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/app"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/app"
 )
 
 func main() {

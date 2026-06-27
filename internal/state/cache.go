@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type SessionCache struct {

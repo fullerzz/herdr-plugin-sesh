@@ -3,8 +3,8 @@ package sources
 import (
 	"context"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/config"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type ConfigSessions struct {
