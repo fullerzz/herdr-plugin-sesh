@@ -3,7 +3,7 @@ package picker
 import (
 	"strings"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 type Model struct {

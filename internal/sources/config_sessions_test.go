@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/config"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 func TestConfigSessionsExpandsHomePaths(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/state"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
 
 func TestVersionCommand(t *testing.T) {

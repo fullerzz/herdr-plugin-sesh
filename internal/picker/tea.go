@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	sessionmodel "forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
-	previewpkg "forgejo.local/fullerzz/herdr-plugin-sesh/internal/preview"
+	sessionmodel "github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	previewpkg "github.com/fullerzz/herdr-plugin-sesh/internal/preview"
 )
 
 const defaultVisibleRows = 12

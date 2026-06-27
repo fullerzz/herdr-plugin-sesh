@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	sessionmodel "forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
+	sessionmodel "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
 func RunFZF(ctx context.Context, items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {

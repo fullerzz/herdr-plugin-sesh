@@ -1,4 +1,4 @@
-module forgejo.local/fullerzz/herdr-plugin-sesh
+module github.com/fullerzz/herdr-plugin-sesh
 
 go 1.26.4
 

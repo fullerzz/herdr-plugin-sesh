@@ -5,10 +5,10 @@ import (
 	"errors"
 	"os"
 
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/herdr"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/model"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/sources"
-	"forgejo.local/fullerzz/herdr-plugin-sesh/internal/startup"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/sources"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/startup"
 )
 
 type Options struct {

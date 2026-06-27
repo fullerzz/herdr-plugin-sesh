@@ -80,17 +80,17 @@ For Herdr-managed plugin config, use the directory printed by:
 herdr plugin config-dir fullerzz.sesh
 ```
 
-## Forgejo
+## Repository
 
-Canonical source is intended to live in the user's self-hosted Forgejo instance.
-Herdr's managed `plugin install` command accepts GitHub shorthand sources, so a
-public GitHub mirror should use the `herdr-plugin` topic and matching `v*` tags
-if this plugin is published through Herdr marketplace discovery.
+Canonical source lives at <https://github.com/fullerzz/herdr-plugin-sesh>.
+Herdr's managed `plugin install` command accepts GitHub shorthand sources, so
+this repository should use the `herdr-plugin` topic and matching `v*` tags if
+this plugin is published through Herdr marketplace discovery.
 
 ## Release
 
 Release tags must start with `v` and match `version` in `herdr-plugin.toml`.
-Before tagging, run the same validation as the Forgejo workflow:
+Before tagging, run the same validation expected in CI:
 
 ```bash
 gofmt -l .

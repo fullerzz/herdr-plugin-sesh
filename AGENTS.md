@@ -24,7 +24,7 @@ This repository is a Go CLI plugin for Herdr named `herdr-sesh`.
 - `./bin/herdr-sesh --version` smoke-tests the built CLI.
 - `./bin/herdr-sesh list --json --config testdata/sesh.toml` checks fixture-backed session listing.
 
-The Forgejo workflow runs formatting, vet, tests, build, and CLI smoke checks; mirror it before opening a pull request. Prefer `just` recipes so local checks use pinned tools.
+CI should run formatting, vet, tests, build, and CLI smoke checks; mirror those checks before opening a pull request. Prefer `just` recipes so local checks use pinned tools.
 
 ## Coding Style & Naming Conventions
 
@@ -38,7 +38,7 @@ Tests use Go's standard `testing` package and live beside the code as `*_test.go
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use Conventional Commit-style subjects, for example `feat: cache session list when enabled` and `ci: add forgejo test and release workflows`. Keep subjects imperative and scoped when useful (`feat:`, `fix:`, `ci:`, `docs:`).
+Recent commits use Conventional Commit-style subjects, for example `feat: cache session list when enabled` and `fix: pad native picker top border`. Keep subjects imperative and scoped when useful (`feat:`, `fix:`, `ci:`, `docs:`).
 
 Pull requests should include a short description, linked issue when applicable, and the exact validation commands run. Include CLI output or screenshots only when changing user-visible command behavior.
 
