@@ -20,6 +20,29 @@ func TestRenderUsesPreviewCommand(t *testing.T) {
 	}
 }
 
+func TestRenderMissingPathWithoutWorkspaceReturnsStableText(t *testing.T) {
+	out, err := Render(context.Background(), model.Session{Name: "api"}, "printf %s {}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "No item path available") {
+		t.Fatalf("missing stable no-path text: %q", out)
+	}
+}
+
+func TestRenderMissingPathWithWorkspaceReturnsWorkspaceSummary(t *testing.T) {
+	out, err := Render(context.Background(), model.Session{Name: "api", WorkspaceID: "ws1"}, "printf %s {}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "workspace: api") {
+		t.Fatalf("missing workspace name: %q", out)
+	}
+	if !strings.Contains(out, "id: ws1") {
+		t.Fatalf("missing workspace id: %q", out)
+	}
+}
+
 func TestRenderDirectoryFallbackSorted(t *testing.T) {
 	d := t.TempDir()
 	if err := os.WriteFile(filepath.Join(d, "b"), []byte(""), 0600); err != nil {
