@@ -56,12 +56,16 @@ jobs:
       - name: Resolve version
         id: meta
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            tag='${{ inputs.tag }}'
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
           else
-            tag='${{ github.ref_name }}'
+            tag="$REF_NAME"
           fi
           case "$tag" in
             v*) ;;
@@ -80,9 +84,11 @@ jobs:
 
       - name: Build release assets
         shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          version='${{ steps.meta.outputs.version }}'
+          version="$VERSION"
           module='github.com/fullerzz/herdr-plugin-sesh/internal/app'
           mkdir -p dist/release dist/work
           targets=(
@@ -110,10 +116,13 @@ jobs:
 
       - name: Generate release notes
         shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          tag='${{ steps.meta.outputs.tag }}'
-          version='${{ steps.meta.outputs.version }}'
+          tag="$TAG"
+          version="$VERSION"
           {
             echo "# herdr-plugin-sesh ${tag}"
             echo
