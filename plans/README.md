@@ -12,7 +12,7 @@ honor its STOP conditions, and update your row when done.
 | 002 | #2 | Merge nested config tables field by field | P1 | S | - | DONE |
 | 003 | #3 | Add explicit config support to preview | P2 | S | - | DONE |
 | 004 | #4 | Run the local check gate in pull request CI | P2 | S | - | TODO |
-| 005 | #6 | Return stable native preview text when path is missing | P3 | S | - | TODO |
+| 005 | #6 | Return stable native preview text when path is missing | P3 | S | - | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
