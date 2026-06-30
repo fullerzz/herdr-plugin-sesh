@@ -1,6 +1,8 @@
 package picker
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -24,10 +26,19 @@ func (m *Model) Filter(q string) {
 	queryChanged := q != m.Query
 	m.Query = q
 	m.Filtered = m.Filtered[:0]
+	var homeMatches []model.Session
+	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
 		if Match(s.Name, q, m.SeparatorAware) || Match(s.Path, q, m.SeparatorAware) {
+			if homeQuery && isHomeSession(s) {
+				homeMatches = append(homeMatches, s)
+				continue
+			}
 			m.Filtered = append(m.Filtered, s)
 		}
+	}
+	if len(homeMatches) > 0 {
+		m.Filtered = append(homeMatches, m.Filtered...)
 	}
 	if queryChanged {
 		m.Selected = 0
@@ -53,11 +64,32 @@ func (m *Model) Current() (model.Session, bool) {
 	return m.Filtered[m.Selected], true
 }
 func Match(s, q string, sep bool) bool {
+	raw := s
 	s = strings.ToLower(s)
 	q = strings.ToLower(q)
 	if sep {
 		repl := strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ")
 		s = repl.Replace(s)
 	}
-	return strings.Contains(s, q)
+	if strings.Contains(s, q) {
+		return true
+	}
+	return q == "home" && isHomePath(raw)
+}
+func isHomePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	cleaned := filepath.Clean(p)
+	if cleaned == "~" {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	return strings.EqualFold(cleaned, filepath.Clean(home))
+}
+func isHomeSession(s model.Session) bool {
+	return isHomePath(s.Name) || isHomePath(s.Path)
 }

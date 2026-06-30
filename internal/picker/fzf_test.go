@@ -42,6 +42,18 @@ func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 	}
 }
 
+func TestFZFInputAddsHomeAliasSearchToken(t *testing.T) {
+	t.Setenv("HOME", "/Users/zach")
+	got := fzfInput([]model.Session{{Source: "herdr", Name: "zach", Path: "/Users/zach"}}, false)
+	if !strings.HasSuffix(got, "\thome\n") {
+		t.Fatalf("missing home alias search token: %q", got)
+	}
+	args := strings.Join(fzfArgs(Options{}), "\n")
+	if !strings.Contains(args, "--nth=3..6") {
+		t.Fatalf("home alias search field is not searchable:\n%s", args)
+	}
+}
+
 func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
 	got := fzfInput([]model.Session{
 		{Source: "herdr", Name: "herdr"},

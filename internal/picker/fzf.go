@@ -52,10 +52,6 @@ func fzfArgs(opts Options) []string {
 	if prompt == "" {
 		prompt = defaultPrompt
 	}
-	nth := "3..5"
-	if opts.SeparatorAware {
-		nth = "3..6"
-	}
 	args := []string{
 		"--layout=reverse",
 		"--border",
@@ -63,7 +59,7 @@ func fzfArgs(opts Options) []string {
 		"--prompt=" + prompt,
 		"--delimiter=\t",
 		"--with-nth=3,4,5",
-		"--nth=" + nth,
+		"--nth=3..6",
 		"--preview=" + fzfPreviewCommand(),
 		"--preview-window=right:60%,border-left,wrap",
 		"--header=Enter select  Ctrl-U clear  Esc cancel",
@@ -139,11 +135,15 @@ func fzfSourceBadge(source string) string {
 }
 
 func fzfSearchField(s sessionmodel.Session, separatorAware bool) string {
-	if !separatorAware {
-		return ""
+	var terms []string
+	if separatorAware {
+		repl := strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ")
+		terms = append(terms, repl.Replace(s.Name+" "+s.Path))
 	}
-	repl := strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ")
-	return fzfField(repl.Replace(s.Name + " " + s.Path))
+	if isHomeSession(s) {
+		terms = append(terms, "home")
+	}
+	return fzfField(strings.Join(terms, " "))
 }
 
 func fzfField(s string) string {

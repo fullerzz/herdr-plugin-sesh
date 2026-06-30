@@ -31,6 +31,18 @@ func TestFilterResetsSelectionWhenQueryChanges(t *testing.T) {
 		t.Fatalf("cur=%#v ok=%v", cur, ok)
 	}
 }
+func TestFilterSelectsHomeDirectoryWhenQueryIsHome(t *testing.T) {
+	t.Setenv("HOME", "/Users/zach")
+	m := New([]model.Session{
+		{Name: "home-manager", Path: "/tmp/home-manager"},
+		{Name: "~", Path: "/Users/zach"},
+	})
+	m.Filter("home")
+	cur, ok := m.Current()
+	if !ok || cur.Name != "~" {
+		t.Fatalf("cur=%#v ok=%v", cur, ok)
+	}
+}
 func TestSeparatorAwareMatch(t *testing.T) {
 	if !Match("my-api.service", "api service", true) {
 		t.Fatal("expected separator aware match")
