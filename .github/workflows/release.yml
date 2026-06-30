@@ -19,8 +19,30 @@ jobs:
     name: Test before release
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release ref
+        id: release-ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          case "$tag" in
+            v*) ;;
+            *) echo "Release tag must start with v, got: $tag" >&2; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release-ref.outputs.tag }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -42,9 +64,30 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release ref
+        id: release-ref
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          case "$tag" in
+            v*) ;;
+            *) echo "Release tag must start with v, got: $tag" >&2; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.release-ref.outputs.tag }}
           fetch-depth: 0
 
       - name: Set up Go
@@ -56,17 +99,11 @@ jobs:
       - name: Resolve version
         id: meta
         shell: bash
+        env:
+          TAG: ${{ steps.release-ref.outputs.tag }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            tag='${{ inputs.tag }}'
-          else
-            tag='${{ github.ref_name }}'
-          fi
-          case "$tag" in
-            v*) ;;
-            *) echo "Release tag must start with v, got: $tag" >&2; exit 1 ;;
-          esac
+          tag="$TAG"
           version="${tag#v}"
           manifest_version=$(awk -F'"' '
             /^version = / { print $2; exit }
