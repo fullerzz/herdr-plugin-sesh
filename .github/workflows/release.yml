@@ -132,7 +132,7 @@ jobs:
             goos=${target%/*}
             goarch=${target#*/}
             name="herdr-sesh_${version}_${goos}_${goarch}"
-            out="dist/work/${name}/herdr-sesh"
+            out="dist/work/${name}/bin/herdr-sesh"
             mkdir -p "$(dirname "$out")"
             GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
               go build \
@@ -143,6 +143,16 @@ jobs:
             cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"
             tar -C dist/work -czf "dist/release/${name}.tar.gz" "$name"
           done
+          smoke_dir=$(mktemp -d)
+          smoke_name="herdr-sesh_${version}_linux_amd64"
+          tar -xzf "dist/release/${smoke_name}.tar.gz" -C "$smoke_dir"
+          test -x "$smoke_dir/${smoke_name}/bin/herdr-sesh"
+          grep -Fq './bin/herdr-sesh' "$smoke_dir/${smoke_name}/herdr-plugin.toml"
+          "$smoke_dir/${smoke_name}/bin/herdr-sesh" --version
+          "$smoke_dir/${smoke_name}/bin/herdr-sesh" list --json \
+            --config testdata/sesh.toml \
+            >/tmp/herdr-sesh-release-list.json
+          test -s /tmp/herdr-sesh-release-list.json
           (cd dist/release && sha256sum *.tar.gz > checksums.txt)
 
       - name: Generate release notes
