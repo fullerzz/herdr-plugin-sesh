@@ -16,6 +16,8 @@ just check
 just build
 ```
 
+Tool versions for local validation are pinned in `mise.toml`.
+
 ## Install for local use
 
 Build the plugin binary, link this checkout into Herdr, then initialize the
