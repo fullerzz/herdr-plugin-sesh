@@ -18,32 +18,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up mise
+        uses: jdx/mise-action@v2
         with:
-          go-version-file: go.mod
           cache: true
+          install: true
 
       - name: Download modules
         run: go mod download
 
-      - name: Check formatting
-        run: |
-          files=$(gofmt -l .)
-          if [ -n "$files" ]; then
-            echo "gofmt required for:"
-            echo "$files"
-            exit 1
-          fi
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./...
+      - name: Repo checks
+        run: just check
 
       - name: Build
-        run: go build -o bin/herdr-sesh ./cmd/herdr-sesh
+        run: just build
 
       - name: CLI smoke test
         run: |
