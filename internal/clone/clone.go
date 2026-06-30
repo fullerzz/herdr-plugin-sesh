@@ -15,7 +15,10 @@ type Request struct {
 
 func Destination(r Request) string {
 	if r.Dir != "" {
-		return r.Dir
+		if filepath.IsAbs(r.Dir) || r.CmdDir == "" {
+			return r.Dir
+		}
+		return filepath.Join(r.CmdDir, r.Dir)
 	}
 	base := strings.TrimSuffix(filepath.Base(r.Repo), ".git")
 	if base == "" || base == "." {
