@@ -87,6 +87,10 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		DefaultSessionConfig struct {
 			PreviewCommand *string `toml:"preview_command"`
 		} `toml:"default_session"`
+		TUI struct {
+			Prompt      *string `toml:"prompt"`
+			Placeholder *string `toml:"placeholder"`
+		} `toml:"tui"`
 	}
 	_ = toml.Unmarshal(data, &probe)
 	dec := toml.NewDecoder(bytes.NewReader(data))
@@ -107,11 +111,15 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 			return err
 		}
 	}
-	merge(dst, next, probe.DefaultSessionConfig.PreviewCommand != nil)
+	merge(dst, next,
+		probe.DefaultSessionConfig.PreviewCommand != nil,
+		probe.TUI.Prompt != nil,
+		probe.TUI.Placeholder != nil,
+	)
 	return nil
 }
 
-func merge(dst *Config, src Config, previewCommandSet bool) {
+func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -136,10 +144,10 @@ func merge(dst *Config, src Config, previewCommandSet bool) {
 	if src.TUI.ShowIcons {
 		dst.TUI.ShowIcons = true
 	}
-	if src.TUI.Prompt != "" {
+	if promptSet {
 		dst.TUI.Prompt = src.TUI.Prompt
 	}
-	if src.TUI.Placeholder != "" {
+	if placeholderSet {
 		dst.TUI.Placeholder = src.TUI.Placeholder
 	}
 	if src.DefaultSessionConfig.StartupCommand != "" {

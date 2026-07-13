@@ -124,6 +124,28 @@ preview_command = ""
 	}
 }
 
+func TestLoadExplicitEmptyTUITextOverridesImportedValues(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), `[tui]
+prompt = "Extra> "
+placeholder = "Extra search"
+`)
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, `import = ["extra.toml"]
+
+[tui]
+prompt = ""
+placeholder = ""
+`)
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.Prompt != "" || cfg.TUI.Placeholder != "" {
+		t.Fatalf("TUI text = prompt %q, placeholder %q", cfg.TUI.Prompt, cfg.TUI.Placeholder)
+	}
+}
+
 func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	cfg := Default()
 	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
