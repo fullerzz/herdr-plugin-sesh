@@ -16,6 +16,13 @@ import (
 )
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
+	if s.Path == "" {
+		if s.WorkspaceID != "" {
+			return fmt.Sprintf("workspace: %s\nid: %s\npath: %s\n", s.Name, s.WorkspaceID, s.Path), nil
+		}
+		return "No item path available\n", nil
+	}
+
 	cmd := s.PreviewCommand
 	if cmd == "" {
 		cmd = fallbackCommand

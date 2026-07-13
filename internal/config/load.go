@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -83,8 +82,15 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		return err
 	}
 	var probe struct {
-		StrictMode  bool     `toml:"strict_mode"`
-		ImportPaths []string `toml:"import"`
+		StrictMode           bool     `toml:"strict_mode"`
+		ImportPaths          []string `toml:"import"`
+		DefaultSessionConfig struct {
+			PreviewCommand *string `toml:"preview_command"`
+		} `toml:"default_session"`
+		TUI struct {
+			Prompt      *string `toml:"prompt"`
+			Placeholder *string `toml:"placeholder"`
+		} `toml:"tui"`
 	}
 	_ = toml.Unmarshal(data, &probe)
 	dec := toml.NewDecoder(bytes.NewReader(data))
@@ -105,11 +111,15 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 			return err
 		}
 	}
-	merge(dst, next)
+	merge(dst, next,
+		probe.DefaultSessionConfig.PreviewCommand != nil,
+		probe.TUI.Prompt != nil,
+		probe.TUI.Placeholder != nil,
+	)
 	return nil
 }
 
-func merge(dst *Config, src Config) {
+func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -131,11 +141,29 @@ func merge(dst *Config, src Config) {
 	if src.TmuxCommand != "" {
 		dst.TmuxCommand = src.TmuxCommand
 	}
-	if src.TUI != (TUIConfig{}) {
-		dst.TUI = src.TUI
+	if src.TUI.ShowIcons {
+		dst.TUI.ShowIcons = true
 	}
-	if !reflect.DeepEqual(src.DefaultSessionConfig, DefaultSessionConfig{}) {
-		dst.DefaultSessionConfig = src.DefaultSessionConfig
+	if promptSet {
+		dst.TUI.Prompt = src.TUI.Prompt
+	}
+	if placeholderSet {
+		dst.TUI.Placeholder = src.TUI.Placeholder
+	}
+	if src.DefaultSessionConfig.StartupCommand != "" {
+		dst.DefaultSessionConfig.StartupCommand = src.DefaultSessionConfig.StartupCommand
+	}
+	if src.DefaultSessionConfig.Tmuxp != "" {
+		dst.DefaultSessionConfig.Tmuxp = src.DefaultSessionConfig.Tmuxp
+	}
+	if src.DefaultSessionConfig.Tmuxinator != "" {
+		dst.DefaultSessionConfig.Tmuxinator = src.DefaultSessionConfig.Tmuxinator
+	}
+	if previewCommandSet {
+		dst.DefaultSessionConfig.PreviewCommand = src.DefaultSessionConfig.PreviewCommand
+	}
+	if len(src.DefaultSessionConfig.Windows) > 0 {
+		dst.DefaultSessionConfig.Windows = src.DefaultSessionConfig.Windows
 	}
 	dst.SessionConfigs = append(dst.SessionConfigs, src.SessionConfigs...)
 	dst.WindowConfigs = append(dst.WindowConfigs, src.WindowConfigs...)

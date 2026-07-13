@@ -117,9 +117,11 @@ jobs:
 
       - name: Build release assets
         shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          version='${{ steps.meta.outputs.version }}'
+          version="$VERSION"
           module='github.com/fullerzz/herdr-plugin-sesh/internal/app'
           mkdir -p dist/release dist/work
           targets=(
@@ -157,10 +159,13 @@ jobs:
 
       - name: Generate release notes
         shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          tag='${{ steps.meta.outputs.tag }}'
-          version='${{ steps.meta.outputs.version }}'
+          tag="$TAG"
+          version="$VERSION"
           {
             echo "# herdr-plugin-sesh ${tag}"
             echo
