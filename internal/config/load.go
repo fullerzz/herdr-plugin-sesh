@@ -82,8 +82,11 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		return err
 	}
 	var probe struct {
-		StrictMode  bool     `toml:"strict_mode"`
-		ImportPaths []string `toml:"import"`
+		StrictMode           bool     `toml:"strict_mode"`
+		ImportPaths          []string `toml:"import"`
+		DefaultSessionConfig struct {
+			PreviewCommand *string `toml:"preview_command"`
+		} `toml:"default_session"`
 	}
 	_ = toml.Unmarshal(data, &probe)
 	dec := toml.NewDecoder(bytes.NewReader(data))
@@ -104,11 +107,11 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 			return err
 		}
 	}
-	merge(dst, next)
+	merge(dst, next, probe.DefaultSessionConfig.PreviewCommand != nil)
 	return nil
 }
 
-func merge(dst *Config, src Config) {
+func merge(dst *Config, src Config, previewCommandSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -148,7 +151,7 @@ func merge(dst *Config, src Config) {
 	if src.DefaultSessionConfig.Tmuxinator != "" {
 		dst.DefaultSessionConfig.Tmuxinator = src.DefaultSessionConfig.Tmuxinator
 	}
-	if src.DefaultSessionConfig.PreviewCommand != "" {
+	if previewCommandSet {
 		dst.DefaultSessionConfig.PreviewCommand = src.DefaultSessionConfig.PreviewCommand
 	}
 	if len(src.DefaultSessionConfig.Windows) > 0 {

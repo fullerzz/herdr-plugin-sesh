@@ -104,6 +104,26 @@ placeholder = "Search workspaces"
 	}
 }
 
+func TestLoadExplicitEmptyPreviewCommandRestoresDefault(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), `[default_session]
+preview_command = "printf extra {}"
+`)
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, `import = ["extra.toml"]
+
+[default_session]
+preview_command = ""
+`)
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
+	}
+}
+
 func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	cfg := Default()
 	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
