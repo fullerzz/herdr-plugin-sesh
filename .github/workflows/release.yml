@@ -99,6 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       commit: ${{ needs.test.outputs.commit }}
