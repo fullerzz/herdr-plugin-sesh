@@ -2,6 +2,8 @@
 
 Sesh-style smart workspace/session management for Herdr.
 
+Based on [sesh](https://github.com/joshmedeski/sesh) by Josh Medeski.
+
 This plugin maps Sesh concepts onto Herdr:
 
 - Sesh session -> Herdr workspace
