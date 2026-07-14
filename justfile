@@ -40,6 +40,10 @@ test:
     @echo "{{ BOLD + BLUE + BG_BLACK }} Running tests...{{ NORMAL }}"
     gotestsum --format-icons=octicons --format=pkgname -- -race ./...
 
+# Exercise release tag resolution against a same-named branch/tag collision
+test-release-ref:
+    bash .github/scripts/test-release-ref.sh
+
 # Run all checks for code changes
-check: lint fmt-check test
+check: lint fmt-check test test-release-ref
     @echo "{{ BOLD + GREEN + BG_BLACK }} All checks passed!{{ NORMAL }}"
