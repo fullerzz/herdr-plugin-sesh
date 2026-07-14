@@ -2,6 +2,7 @@ package startup
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -46,11 +47,19 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 	}
 	paneID := firstPane
 	if paneID == "" {
-		pane, err := client.PaneCurrent(ctx)
+		panes, err := client.PaneList(ctx, p.WorkspaceID)
 		if err != nil {
 			return err
 		}
-		paneID = pane.ID
+		for _, pane := range panes {
+			if pane.ID != "" && pane.WorkspaceID == p.WorkspaceID {
+				paneID = pane.ID
+				break
+			}
+		}
+		if paneID == "" {
+			return fmt.Errorf("no pane available in workspace %q", p.WorkspaceID)
+		}
 	}
 	return client.PaneRun(ctx, paneID, config.SubstitutePath(p.Session.StartupCommand, path))
 }

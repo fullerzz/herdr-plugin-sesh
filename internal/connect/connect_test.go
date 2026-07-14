@@ -38,6 +38,46 @@ func TestConnectCreatesWorkspaceForConfigSession(t *testing.T) {
 	}
 }
 
+func TestConnectNoFocusScopesStartupCommandToCreatedWorkspace(t *testing.T) {
+	f := &herdr.FakeClient{
+		Workspaces: []herdr.Workspace{{ID: "existing-workspace"}},
+		Panes: []herdr.Pane{
+			{ID: "existing-pane", WorkspaceID: "existing-workspace"},
+			{ID: "new-pane", WorkspaceID: "new-workspace"},
+		},
+	}
+	session := model.Session{Source: "config", Name: "api", Path: "/tmp/api", StartupCommand: "echo ready"}
+	if _, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.CreatedWorkspaces) != 1 || f.CreatedWorkspaces[0].Focus {
+		t.Fatalf("created workspaces: %#v", f.CreatedWorkspaces)
+	}
+	if len(f.PaneRuns) != 1 || f.PaneRuns[0] != "new-pane:echo ready" {
+		t.Fatalf("pane runs: %#v", f.PaneRuns)
+	}
+}
+
+func TestConnectFocusedScopesStartupCommandToCreatedWorkspace(t *testing.T) {
+	f := &herdr.FakeClient{
+		Workspaces: []herdr.Workspace{{ID: "existing-workspace"}},
+		Panes: []herdr.Pane{
+			{ID: "existing-pane", WorkspaceID: "existing-workspace"},
+			{ID: "new-pane", WorkspaceID: "new-workspace"},
+		},
+	}
+	session := model.Session{Source: "config", Name: "api", Path: "/tmp/api", StartupCommand: "echo ready"}
+	if _, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.CreatedWorkspaces) != 1 || !f.CreatedWorkspaces[0].Focus {
+		t.Fatalf("created workspaces: %#v", f.CreatedWorkspaces)
+	}
+	if len(f.PaneRuns) != 1 || f.PaneRuns[0] != "new-pane:echo ready" {
+		t.Fatalf("pane runs: %#v", f.PaneRuns)
+	}
+}
+
 func TestConnectUsesExpandedConfigSessionPath(t *testing.T) {
 	cfg := config.Config{SessionConfigs: []config.SessionConfig{{Name: "api", Path: "~/projects/api"}}}
 	got, err := sources.ConfigSessions{Config: cfg, Home: "/home/zach"}.List(context.Background())
