@@ -35,3 +35,15 @@ func TestApplySkipsDisabledStartup(t *testing.T) {
 		t.Fatalf("unexpected pane runs: %#v", f.PaneRuns)
 	}
 }
+
+func TestApplyFailsClearlyWhenOnlyOffTargetPaneExists(t *testing.T) {
+	f := &herdr.FakeClient{Panes: []herdr.Pane{{ID: "existing-pane", WorkspaceID: "existing-workspace"}}}
+	s := model.Session{Path: "/tmp/app", StartupCommand: "echo hi"}
+	err := Apply(context.Background(), f, Plan{WorkspaceID: "new-workspace", Session: s})
+	if err == nil || err.Error() != `no pane available in workspace "new-workspace"` {
+		t.Fatalf("error = %v", err)
+	}
+	if len(f.PaneRuns) != 0 {
+		t.Fatalf("unexpected pane runs: %#v", f.PaneRuns)
+	}
+}
