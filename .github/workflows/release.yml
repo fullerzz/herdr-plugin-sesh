@@ -12,12 +12,17 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
     name: Test before release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release-ref.outputs.tag }}
+      commit: ${{ steps.verify-ref.outputs.commit }}
     steps:
       - name: Resolve release ref
         id: release-ref
@@ -25,27 +30,56 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
-          REF_NAME: ${{ github.ref_name }}
+          EVENT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             tag="$INPUT_TAG"
+            if [ -z "$tag" ]; then
+              echo 'Release tag is required' >&2
+              exit 1
+            fi
+            ref="refs/tags/$tag"
           else
-            tag="$REF_NAME"
+            ref="$EVENT_REF"
+            case "$ref" in
+              refs/tags/*) tag=${ref#refs/tags/} ;;
+              *) echo "Release ref must be a tag, got: $ref" >&2; exit 1 ;;
+            esac
           fi
           case "$tag" in
             v*) ;;
             *) echo "Release tag must start with v, got: $tag" >&2; exit 1 ;;
           esac
+          if [[ ! "$tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+            echo "Release tag must match project-safe syntax: $tag" >&2
+            exit 1
+          fi
+          if ! git check-ref-format "$ref" >/dev/null; then
+            echo "Invalid release tag ref: $ref" >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout workflow source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ steps.release-ref.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify and check out requested tag commit
+        id: verify-ref
+        shell: bash
+        env:
+          RELEASE_REF: ${{ steps.release-ref.outputs.ref }}
+        run: |
+          set -euo pipefail
+          commit=$(bash .github/scripts/checkout-release-ref.sh "$RELEASE_REF")
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -60,38 +94,35 @@ jobs:
           ./bin/herdr-sesh --version
 
   release:
-    name: Build and publish release
+    name: Build release assets
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      commit: ${{ needs.test.outputs.commit }}
     steps:
-      - name: Resolve release ref
-        id: release-ref
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.test.outputs.commit }}
+          persist-credentials: false
+
+      - name: Verify immutable release commit
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-          REF_NAME: ${{ github.ref_name }}
+          EXPECTED_COMMIT: ${{ needs.test.outputs.commit }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            tag="$INPUT_TAG"
-          else
-            tag="$REF_NAME"
+          head=$(git rev-parse HEAD)
+          if [ "$head" != "$EXPECTED_COMMIT" ]; then
+            echo "Checked-out HEAD $head does not match verified release commit $EXPECTED_COMMIT" >&2
+            exit 1
           fi
-          case "$tag" in
-            v*) ;;
-            *) echo "Release tag must start with v, got: $tag" >&2; exit 1 ;;
-          esac
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.release-ref.outputs.tag }}
-          fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -100,7 +131,7 @@ jobs:
         id: meta
         shell: bash
         env:
-          TAG: ${{ steps.release-ref.outputs.tag }}
+          TAG: ${{ needs.test.outputs.tag }}
         run: |
           set -euo pipefail
           tag="$TAG"
@@ -155,13 +186,14 @@ jobs:
             --config testdata/sesh.toml \
             >/tmp/herdr-sesh-release-list.json
           test -s /tmp/herdr-sesh-release-list.json
-          (cd dist/release && sha256sum *.tar.gz > checksums.txt)
+          (cd dist/release && sha256sum -- *.tar.gz > checksums.txt)
 
       - name: Generate release notes
         shell: bash
         env:
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ needs.test.outputs.commit }}
         run: |
           set -euo pipefail
           tag="$TAG"
@@ -178,6 +210,7 @@ jobs:
             echo "cd herdr-plugin-sesh"
             echo "git checkout ${tag}"
             echo 'go build -o bin/herdr-sesh ./cmd/herdr-sesh'
+            # shellcheck disable=SC2016 # Keep $PWD literal in the generated instructions.
             echo 'herdr plugin link "$PWD"'
             echo '```'
             echo
@@ -189,20 +222,61 @@ jobs:
             echo "- checksums.txt"
             echo
             echo "Version: ${version}"
-            echo "Commit: ${GITHUB_SHA}"
+            echo "Commit: ${COMMIT}"
           } > dist/release/RELEASE_NOTES.md
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: herdr-plugin-sesh-${{ steps.meta.outputs.tag }}
           path: dist/release/*
 
+  publish:
+    name: Publish GitHub release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
+          TAG: ${{ needs.release.outputs.tag }}
+          EXPECTED_COMMIT: ${{ needs.release.outputs.commit }}
         run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "herdr-plugin-sesh-${TAG}" \
+            --dir dist/release
+
+          if ! object=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" \
+            --jq '[.object.type, .object.sha] | @tsv'); then
+            echo "Requested release tag is no longer available: refs/tags/$TAG" >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r object_type remote_commit <<< "$object"
+          while [ "$object_type" = tag ]; do
+            if ! object=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/tags/${remote_commit}" \
+              --jq '[.object.type, .object.sha] | @tsv'); then
+              echo "Could not peel requested release tag refs/tags/$TAG" >&2
+              exit 1
+            fi
+            IFS=$'\t' read -r object_type remote_commit <<< "$object"
+          done
+          if [ "$object_type" != commit ]; then
+            echo "Requested release tag does not peel to a commit: refs/tags/$TAG" >&2
+            exit 1
+          fi
+          if [ "$remote_commit" != "$EXPECTED_COMMIT" ]; then
+            echo "Requested release tag moved from $EXPECTED_COMMIT to $remote_commit" >&2
+            exit 1
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" \
               --title "$TAG" \
