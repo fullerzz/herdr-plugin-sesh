@@ -188,6 +188,16 @@ jobs:
           test -s /tmp/herdr-sesh-release-list.json
           (cd dist/release && sha256sum -- *.tar.gz > checksums.txt)
 
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          version: v2.13.1
+          config: cliff.toml
+          args: --current --strip header --verbose
+        env:
+          OUTPUT: dist/release/CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
       - name: Generate release notes
         shell: bash
         env:
@@ -202,6 +212,8 @@ jobs:
             echo "# herdr-plugin-sesh ${tag}"
             echo
             echo "Sesh-style smart workspace/session management for Herdr."
+            echo
+            cat dist/release/CHANGELOG.md
             echo
             echo "## Install from GitHub"
             echo
@@ -219,6 +231,7 @@ jobs:
             for file in dist/release/*.tar.gz; do
               echo "- $(basename "$file")"
             done
+            echo "- CHANGELOG.md"
             echo "- checksums.txt"
             echo
             echo "Version: ${version}"
