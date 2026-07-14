@@ -25,8 +25,13 @@ func Load(opts LoadOptions) (Config, string, error) {
 	if path == "" {
 		return cfg, "", nil
 	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return cfg, path, err
+	}
+	path = filepath.Clean(path)
 	seen := map[string]bool{}
-	if err := loadInto(&cfg, path, seen); err != nil {
+	if err := loadInto(&cfg, path, seen, false); err != nil {
 		return cfg, path, err
 	}
 	attachDefaults(&cfg)
@@ -67,7 +72,7 @@ func ResolvePath(opts LoadOptions) (string, error) {
 	return "", nil
 }
 
-func loadInto(dst *Config, path string, seen map[string]bool) error {
+func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -90,11 +95,13 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		TUI struct {
 			Prompt      *string `toml:"prompt"`
 			Placeholder *string `toml:"placeholder"`
+			ShowIcons   *bool   `toml:"show_icons"`
 		} `toml:"tui"`
 	}
 	_ = toml.Unmarshal(data, &probe)
+	strict = strict || probe.StrictMode
 	dec := toml.NewDecoder(bytes.NewReader(data))
-	if probe.StrictMode {
+	if strict {
 		dec.DisallowUnknownFields()
 	}
 	var next Config
@@ -107,7 +114,7 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		if !filepath.IsAbs(ip) {
 			ip = filepath.Join(base, ip)
 		}
-		if err := loadInto(dst, ip, seen); err != nil {
+		if err := loadInto(dst, ip, seen, strict); err != nil {
 			return err
 		}
 	}
@@ -115,11 +122,12 @@ func loadInto(dst *Config, path string, seen map[string]bool) error {
 		probe.DefaultSessionConfig.PreviewCommand != nil,
 		probe.TUI.Prompt != nil,
 		probe.TUI.Placeholder != nil,
+		probe.TUI.ShowIcons != nil,
 	)
 	return nil
 }
 
-func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet bool) {
+func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -138,11 +146,8 @@ func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet
 	if src.SeparatorAware {
 		dst.SeparatorAware = true
 	}
-	if src.TmuxCommand != "" {
-		dst.TmuxCommand = src.TmuxCommand
-	}
-	if src.TUI.ShowIcons {
-		dst.TUI.ShowIcons = true
+	if showIconsSet {
+		dst.TUI.ShowIcons = src.TUI.ShowIcons
 	}
 	if promptSet {
 		dst.TUI.Prompt = src.TUI.Prompt
@@ -153,17 +158,8 @@ func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet
 	if src.DefaultSessionConfig.StartupCommand != "" {
 		dst.DefaultSessionConfig.StartupCommand = src.DefaultSessionConfig.StartupCommand
 	}
-	if src.DefaultSessionConfig.Tmuxp != "" {
-		dst.DefaultSessionConfig.Tmuxp = src.DefaultSessionConfig.Tmuxp
-	}
-	if src.DefaultSessionConfig.Tmuxinator != "" {
-		dst.DefaultSessionConfig.Tmuxinator = src.DefaultSessionConfig.Tmuxinator
-	}
 	if previewCommandSet {
 		dst.DefaultSessionConfig.PreviewCommand = src.DefaultSessionConfig.PreviewCommand
-	}
-	if len(src.DefaultSessionConfig.Windows) > 0 {
-		dst.DefaultSessionConfig.Windows = src.DefaultSessionConfig.Windows
 	}
 	dst.SessionConfigs = append(dst.SessionConfigs, src.SessionConfigs...)
 	dst.WindowConfigs = append(dst.WindowConfigs, src.WindowConfigs...)
@@ -220,6 +216,6 @@ func InitConfig(dir string) (string, error) {
 	if err == nil {
 		return p, nil
 	}
-	starter := fmt.Sprintf("#:schema https://github.com/joshmedeski/sesh/raw/main/sesh.schema.json\n\n[default_session]\npreview_command = %q\n\n# [[session]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n", DefaultPreviewCommand)
+	starter := fmt.Sprintf("[default_session]\npreview_command = %q\n\n# [[session]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n", DefaultPreviewCommand)
 	return p, os.WriteFile(p, []byte(starter), 0600)
 }

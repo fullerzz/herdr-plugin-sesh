@@ -3,7 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +46,37 @@ func TestLoadStrictRejectsUnknown(t *testing.T) {
 		t.Fatal("expected strict error")
 	}
 }
+
+func TestLoadStrictRejectsUnsupportedSeshKeys(t *testing.T) {
+	tests := map[string]string{
+		"tmux command":               "tmux_command = \"psmux\"\n",
+		"default session windows":    "[default_session]\nwindows = [\"git\"]\n",
+		"default session tmuxp":      "[default_session]\ntmuxp = \"project.yaml\"\n",
+		"default session tmuxinator": "[default_session]\ntmuxinator = \"project\"\n",
+		"session tmuxp":              "[[session]]\nname = \"api\"\npath = \"/tmp/api\"\ntmuxp = \"project.yaml\"\n",
+		"session tmuxinator":         "[[session]]\nname = \"api\"\npath = \"/tmp/api\"\ntmuxinator = \"project\"\n",
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "sesh.toml")
+			mustWrite(t, p, "strict_mode = true\n"+body)
+			if _, _, err := Load(LoadOptions{Path: p}); err == nil {
+				t.Fatal("expected strict error")
+			}
+		})
+	}
+}
+
+func TestLoadStrictRejectsUnsupportedSeshKeysInImports(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), "tmux_command = \"psmux\"\n")
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, "strict_mode = true\nimport = [\"extra.toml\"]\n")
+	if _, _, err := Load(LoadOptions{Path: p}); err == nil {
+		t.Fatal("expected strict error from imported config")
+	}
+}
+
 func TestLoadImportOrder(t *testing.T) {
 	d := t.TempDir()
 	mustWrite(t, filepath.Join(d, "extra.toml"), `[[session]]
@@ -68,7 +99,6 @@ func TestLoadMergesNestedConfigTablesFieldByField(t *testing.T) {
 	mustWrite(t, filepath.Join(d, "extra.toml"), `[default_session]
 startup_command = "git status"
 preview_command = "printf extra {}"
-windows = ["git"]
 
 [tui]
 prompt = "Extra> "
@@ -92,9 +122,6 @@ placeholder = "Search workspaces"
 	}
 	if cfg.DefaultSessionConfig.PreviewCommand != "printf extra {}" {
 		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
-	if want := []string{"git"}; !reflect.DeepEqual(cfg.DefaultSessionConfig.Windows, want) {
-		t.Fatalf("windows = %#v, want %#v", cfg.DefaultSessionConfig.Windows, want)
 	}
 	if cfg.TUI.Prompt != "Extra> " {
 		t.Fatalf("prompt = %q", cfg.TUI.Prompt)
@@ -146,6 +173,20 @@ placeholder = ""
 	}
 }
 
+func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_icons = true\n")
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_icons = false\n")
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.ShowIcons {
+		t.Fatal("show_icons = true, want false")
+	}
+}
+
 func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	cfg := Default()
 	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
@@ -153,6 +194,21 @@ func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	}
 	if DefaultPreviewCommand != "eza --icons=always -la {}" {
 		t.Fatalf("default preview command = %q", DefaultPreviewCommand)
+	}
+}
+
+func TestInitConfigDoesNotAdvertiseUnsupportedSeshSchema(t *testing.T) {
+	p, err := InitConfig(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // p is returned from InitConfig using a test-owned temporary directory.
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "sesh.schema.json") {
+		t.Fatalf("starter config advertises the full Sesh schema:\n%s", data)
 	}
 }
 

@@ -67,6 +67,7 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	}, Options{
 		Prompt:      "Find> ",
 		Placeholder: "Search sessions",
+		ShowIcons:   true,
 	})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = updated.(teaModel)
@@ -77,6 +78,19 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestTeaModelShowIconsControlsSourceIcons(t *testing.T) {
+	items := []model.Session{{Source: "herdr", Name: "api"}}
+	withoutIcons := newTeaModel(items, Options{}).View()
+	if strings.Contains(withoutIcons, herdrSourceIcon) {
+		t.Fatalf("view unexpectedly contains source icon:\n%s", withoutIcons)
+	}
+
+	withIcons := newTeaModel(items, Options{ShowIcons: true}).View()
+	if !strings.Contains(withIcons, herdrSourceIcon+" herdr") {
+		t.Fatalf("view missing source icon:\n%s", withIcons)
 	}
 }
 
@@ -97,7 +111,7 @@ func TestRowUsesSourceCategoryColors(t *testing.T) {
 		{source: "dir", color: "38;5;176"},
 	}
 	for _, tt := range tests {
-		got := row(model.Session{Source: tt.source, Name: tt.source}, false, 80)
+		got := row(model.Session{Source: tt.source, Name: tt.source}, false, 80, true)
 		if !strings.Contains(got, tt.color) {
 			t.Fatalf("row for source %q missing color %s:\n%q", tt.source, tt.color, got)
 		}
@@ -180,7 +194,7 @@ func TestSelectedRowHighlightDoesNotResetBeforeContent(t *testing.T) {
 		lipgloss.SetColorProfile(prev)
 	})
 
-	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh"}, true, 80)
+	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh"}, true, 80, true)
 	if !strings.Contains(got, "48;5;63") {
 		t.Fatalf("selected row missing highlight background:\n%q", got)
 	}

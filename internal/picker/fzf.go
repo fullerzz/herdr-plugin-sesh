@@ -131,7 +131,7 @@ func fzfLabel(s sessionmodel.Session) string {
 }
 
 func fzfSourceBadge(source string) string {
-	return "\x1b[1;38;5;" + sourceBadgeColor(source) + "m" + fzfField(sourceBadge(source)) + "\x1b[0m"
+	return "\x1b[1;38;5;" + sourceBadgeColor(source) + "m" + fzfField(sourceBadge(source, true)) + "\x1b[0m"
 }
 
 func fzfSearchField(s sessionmodel.Session, separatorAware bool) string {

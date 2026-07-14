@@ -16,24 +16,21 @@ type Config struct {
 	WildcardConfigs      []WildcardConfig     `toml:"wildcard"`
 	DirLength            int                  `toml:"dir_length"`
 	SeparatorAware       bool                 `toml:"separator_aware"`
-	TmuxCommand          string               `toml:"tmux_command"`
 	TUI                  TUIConfig            `toml:"tui"`
 }
 
 type DefaultSessionConfig struct {
-	StartupCommand string   `toml:"startup_command"`
-	Tmuxp          string   `toml:"tmuxp"`
-	Tmuxinator     string   `toml:"tmuxinator"`
-	PreviewCommand string   `toml:"preview_command"`
-	Windows        []string `toml:"windows"`
+	StartupCommand string `toml:"startup_command"`
+	PreviewCommand string `toml:"preview_command"`
 }
 
 type SessionConfig struct {
 	DefaultSessionConfig
 
-	Name                string `toml:"name"`
-	Path                string `toml:"path"`
-	DisableStartCommand bool   `toml:"disable_startup_command"`
+	Name                string   `toml:"name"`
+	Path                string   `toml:"path"`
+	DisableStartCommand *bool    `toml:"disable_startup_command"`
+	Windows             []string `toml:"windows"`
 }
 
 type TUIConfig struct {

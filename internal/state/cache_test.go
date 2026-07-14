@@ -10,10 +10,10 @@ import (
 func TestSessionCacheUsesFreshEntries(t *testing.T) {
 	d := t.TempDir()
 	want := []model.Session{{Source: "config", Name: "api", Path: "/tmp/api"}}
-	if err := SaveSessionCache(d, want, time.Now()); err != nil {
+	if err := SaveSessionCache(d, "/tmp/sesh.toml", want, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := LoadSessionCache(d, 5*time.Second, time.Now())
+	got, ok, err := LoadSessionCache(d, "/tmp/sesh.toml", 5*time.Second, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,10 +24,10 @@ func TestSessionCacheUsesFreshEntries(t *testing.T) {
 
 func TestSessionCacheIgnoresStaleEntries(t *testing.T) {
 	d := t.TempDir()
-	if err := SaveSessionCache(d, []model.Session{{Name: "old"}}, time.Unix(0, 0)); err != nil {
+	if err := SaveSessionCache(d, "", []model.Session{{Name: "old"}}, time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := LoadSessionCache(d, time.Second, time.Unix(10, 0))
+	got, ok, err := LoadSessionCache(d, "", time.Second, time.Unix(10, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestSessionCacheIgnoresStaleEntries(t *testing.T) {
 }
 
 func TestSessionCacheMissWhenMissing(t *testing.T) {
-	got, ok, err := LoadSessionCache(t.TempDir(), time.Second, time.Now())
+	got, ok, err := LoadSessionCache(t.TempDir(), "", time.Second, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,10 +47,10 @@ func TestSessionCacheMissWhenMissing(t *testing.T) {
 }
 
 func TestSessionCacheNoopsWithoutStateDir(t *testing.T) {
-	if err := SaveSessionCache("", []model.Session{{Name: "api"}}, time.Now()); err != nil {
+	if err := SaveSessionCache("", "", []model.Session{{Name: "api"}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := LoadSessionCache("", time.Second, time.Now())
+	got, ok, err := LoadSessionCache("", "", time.Second, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

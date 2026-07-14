@@ -68,7 +68,8 @@ prototype uses a `bat` preview for items with an existing directory path.
 
 ## Configuration
 
-The plugin reads Sesh-compatible TOML from:
+The plugin reads the supported Sesh-style TOML subset documented in
+[`docs/config.md`](docs/config.md) from:
 
 1. `--config PATH`
 2. `HERDR_SESH_CONFIG`
