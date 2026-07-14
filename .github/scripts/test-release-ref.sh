@@ -16,6 +16,11 @@ if ! grep -Fq 'if [ "$remote_commit" != "$EXPECTED_COMMIT" ]; then' "$workflow";
   echo 'publish must reject a tag that moved after build verification' >&2
   exit 1
 fi
+# shellcheck disable=SC2016 # Match the workflow's literal GitHub expression.
+if ! grep -Fq 'GH_REPO: ${{ github.repository }}' "$workflow"; then
+  echo 'publish must provide repository context to gh release commands' >&2
+  exit 1
+fi
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.
 if ! grep -Fq 'if [[ ! "$tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then' "$workflow"; then
   echo 'release workflow must reject tags outside the project-safe syntax' >&2
