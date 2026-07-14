@@ -85,12 +85,16 @@ func (a *App) collect(ctx context.Context, cfg config.Config, target string) ([]
 	hs := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}
 	srcs := []sources.Source{ignoreSource{hs}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
 	if target != "" {
-		srcs = append(srcs, sources.DirectPath{Path: target})
+		srcs = append(srcs, sources.DirectPath{
+			Path:  target,
+			Label: namer.Namer{}.Name(ctx, target, cfg.DirLength),
+		})
 	}
 	merged, err := sources.Merge(ctx, srcs, cfg.SortOrder, cfg.Blacklist, false, true)
 	if err != nil {
 		return nil, err
 	}
+	sources.ApplyConfig(&merged, cfg, "")
 	return merged.Ordered(), nil
 }
 
@@ -114,12 +118,13 @@ func (a *App) list(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg, err := a.loadConfig(*cfgPath)
+	cfg, resolvedConfigPath, err := config.Load(config.LoadOptions{Path: *cfgPath})
 	if err != nil {
 		return err
 	}
-	if cfg.Cache {
-		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), 5*time.Second, time.Now()); err != nil {
+	cacheable := cfg.Cache && !*blacklisted && *hideDup
+	if cacheable {
+		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
 			a.warnf("ignoring session cache: %v", err)
 		} else if ok {
 			return a.printSessions(cached, *jsonOut)
@@ -129,9 +134,10 @@ func (a *App) list(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	sources.ApplyConfig(&ss, cfg, "")
 	sessions := ss.Ordered()
-	if cfg.Cache {
-		if err := state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), sessions, time.Now()); err != nil {
+	if cacheable {
+		if err := state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, sessions, time.Now()); err != nil {
 			a.warnf("could not save session cache: %v", err)
 		}
 	}
@@ -182,6 +188,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		Output:                a.Out,
 		Prompt:                cfg.TUI.Prompt,
 		Placeholder:           cfg.TUI.Placeholder,
+		ShowIcons:             cfg.TUI.ShowIcons,
 		SeparatorAware:        cfg.SeparatorAware,
 		DefaultPreviewCommand: cfg.DefaultSessionConfig.PreviewCommand,
 	}

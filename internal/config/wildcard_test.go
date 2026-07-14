@@ -10,6 +10,9 @@ func TestWildcardOneLevelAndRecursive(t *testing.T) {
 	if MatchWildcard("~/projects/*", "/home/zach/projects/team/api", home) {
 		t.Fatal("one-level should not match nested")
 	}
+	if !MatchWildcard("~/projects/**", "/home/zach/projects", home) {
+		t.Fatal("recursive should match base directory")
+	}
 	if !MatchWildcard("~/projects/**", "/home/zach/projects/team/api", home) {
 		t.Fatal("recursive should match nested")
 	}

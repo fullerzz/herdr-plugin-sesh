@@ -15,6 +15,7 @@ type Session struct {
 	StartupCommand        string         `json:"startup_command,omitempty"`
 	PreviewCommand        string         `json:"preview_command,omitempty"`
 	DisableStartupCommand bool           `json:"disable_startup_command,omitempty"`
+	DisableStartupSet     bool           `json:"-"`
 	WindowNames           []string       `json:"window_names,omitempty"`
 	WindowConfigs         []WindowConfig `json:"-"`
 	Score                 float64        `json:"score,omitempty"`

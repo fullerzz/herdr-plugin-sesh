@@ -115,6 +115,7 @@ type Options struct {
 	Output                io.Writer
 	Prompt                string
 	Placeholder           string
+	ShowIcons             bool
 	SeparatorAware        bool
 	DefaultPreviewCommand string
 	FZFCommand            string
@@ -148,6 +149,7 @@ type teaModel struct {
 	previewKey string
 
 	defaultPreviewCommand string
+	showIcons             bool
 }
 
 type previewMsg struct {
@@ -174,7 +176,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	input.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	input.Focus()
-	m := teaModel{list: list, input: input, defaultPreviewCommand: opts.DefaultPreviewCommand}
+	m := teaModel{list: list, input: input, defaultPreviewCommand: opts.DefaultPreviewCommand, showIcons: opts.ShowIcons}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
 		m.preview = "Loading preview..."
@@ -285,7 +287,7 @@ func (m teaModel) listView(width, visibleRows int) string {
 			b.WriteString(moreStyle.Render("...") + "\n")
 		}
 		for i := start; i < end; i++ {
-			b.WriteString(row(m.list.Filtered[i], i == m.list.Selected, width))
+			b.WriteString(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons))
 		}
 		if end < len(m.list.Filtered) {
 			b.WriteString(moreStyle.Render("...") + "\n")
@@ -407,7 +409,7 @@ func fixedVisualLines(text string, width, count int) string {
 	return strings.Join(lines, "\n")
 }
 
-func row(s sessionmodel.Session, selected bool, width int) string {
+func row(s sessionmodel.Session, selected bool, width int, showIcons bool) string {
 	cursor := " "
 	if selected {
 		cursor = ">"
@@ -417,7 +419,7 @@ func row(s sessionmodel.Session, selected bool, width int) string {
 		label = s.Path
 	}
 	source := s.Source
-	badgeText := sourceBadge(source)
+	badgeText := sourceBadge(source, showIcons)
 	badge := sourceBadgeStyle(source).Render(badgeText)
 	path := ""
 	showPath := s.Path != "" && s.Path != label
@@ -436,7 +438,13 @@ func row(s sessionmodel.Session, selected bool, width int) string {
 	return rowStyle.Width(width-2).Render(line) + "\n"
 }
 
-func sourceBadge(source string) string {
+func sourceBadge(source string, showIcons bool) string {
+	if !showIcons {
+		if source == "" {
+			return "[session]"
+		}
+		return "[" + source + "]"
+	}
 	switch source {
 	case "herdr":
 		return herdrSourceIcon + " herdr"
