@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
+    "config:best-practices",
     "mergeConfidence:all-badges",
     "helpers:githubDigestChangelogs"
   ],
@@ -9,7 +9,7 @@
     "fullerzz"
   ],
   "minimumReleaseAge": "1 day",
-  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
   "rebaseWhen": "behind-base-branch",
   "prCreation": "not-pending",
   "internalChecksFilter": "strict",
