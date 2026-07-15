@@ -1,10 +1,12 @@
-## v0.1.2 (2026-07-15)
+## v0.1.3 (2026-07-15)
 
 ### 🐛 Bug Fixes
 
 - **ci**: Skip unsupported private attestations ([56e6c69](https://github.com/fullerzz/herdr-plugin-sesh/commit/56e6c69b8050d59b4f936af723c0d0840f6aa047))
 
 - **go-deps**: Update go dependencies to v2 ([#33](https://github.com/fullerzz/herdr-plugin-sesh/issues/33)) ([0ffb140](https://github.com/fullerzz/herdr-plugin-sesh/commit/0ffb140f9503132ebcfcdca3d9d6a5f1cb3882e7))
+
+- **justfile**: Push release commit and tag atomically ([ddaaab6](https://github.com/fullerzz/herdr-plugin-sesh/commit/ddaaab61a0e5d8c53f077fa5bd625db403800edb))
 
 
 
@@ -22,7 +24,9 @@
 
 - **justfile**: Add release recipe to justfile ([92d8090](https://github.com/fullerzz/herdr-plugin-sesh/commit/92d8090396904634addd8601d3351f774cdfa777))
 
-- Release v0.1.2 ([c0b2d12](https://github.com/fullerzz/herdr-plugin-sesh/commit/c0b2d127ae230d1e27fb474ad438bf08c389311c))
+- Release v0.1.2 ([1098d09](https://github.com/fullerzz/herdr-plugin-sesh/commit/1098d098ea04bc090f930e02ce88cbd080e17efa))
+
+- Release v0.1.3 ([236b917](https://github.com/fullerzz/herdr-plugin-sesh/commit/236b917f4875399fd6013a408e67794fcdc09216))
 
 
 ## v0.1.1 (2026-07-15)
