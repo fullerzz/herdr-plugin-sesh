@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	sessionmodel "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	previewpkg "github.com/fullerzz/herdr-plugin-sesh/internal/preview"
@@ -122,7 +122,7 @@ type Options struct {
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
-	popts := []tea.ProgramOption{tea.WithAltScreen()}
+	var popts []tea.ProgramOption
 	if opts.Output != nil {
 		popts = append(popts, tea.WithOutput(opts.Output))
 	}
@@ -171,10 +171,12 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	input := textinput.New()
 	input.Prompt = prompt
 	input.Placeholder = placeholder
-	input.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("63")).Bold(true)
-	input.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
-	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	input.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	styles := input.Styles()
+	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("63")).Bold(true)
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	styles.Cursor.Color = lipgloss.Color("63")
+	input.SetStyles(styles)
 	input.Focus()
 	m := teaModel{list: list, input: input, defaultPreviewCommand: opts.DefaultPreviewCommand, showIcons: opts.ShowIcons}
 	if current, ok := list.Current(); ok {
@@ -205,7 +207,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = size.Height
 		return m, nil
 	}
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -213,22 +215,22 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(cmd, previewCmd)
 	}
-	switch key.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+	switch key.String() {
+	case "ctrl+c", "esc":
 		return m, tea.Quit
-	case tea.KeyEnter:
+	case "enter":
 		if choice, ok := m.list.Current(); ok {
 			m.choice = choice
 			m.chosen = true
 		}
 		return m, tea.Quit
-	case tea.KeyUp, tea.KeyCtrlP:
+	case "up", "ctrl+p":
 		m.list.Move(-1)
 		return m.refreshPreview()
-	case tea.KeyDown, tea.KeyCtrlN:
+	case "down", "ctrl+n":
 		m.list.Move(1)
 		return m.refreshPreview()
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		m.input.SetValue("")
 		m.list.Filter("")
 		return m.refreshPreview()
@@ -241,7 +243,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m teaModel) View() string {
+func (m teaModel) View() tea.View {
 	width := m.contentWidth()
 	listWidth, previewWidth := previewLayout(width)
 	previewLines := m.previewBodyLines()
@@ -254,8 +256,8 @@ func (m teaModel) View() string {
 	b.WriteString(m.header(width))
 	b.WriteString("\n\n")
 	input := m.input
-	input.Width = maxInt(8, width-lipgloss.Width(input.Prompt)-4)
-	b.WriteString(inputBoxStyle.Width(width - 2).Render(input.View()))
+	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-4))
+	b.WriteString(inputBoxStyle.Width(width).Render(input.View()))
 	b.WriteString("\n\n")
 	list := m.listView(listWidth, listRows)
 	if previewWidth > 0 {
@@ -267,13 +269,15 @@ func (m teaModel) View() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Width(width).Render("Enter select  Up/Down move  Ctrl+U clear  Esc cancel"))
-	return strings.Repeat("\n", pickerTopPadding) + panelStyle.Width(width+4).Render(b.String())
+	view := tea.NewView(strings.Repeat("\n", pickerTopPadding) + panelStyle.Width(width+6).Render(b.String()))
+	view.AltScreen = true
+	return view
 }
 
 func (m teaModel) listView(width, visibleRows int) string {
 	var b strings.Builder
 	if len(m.list.Filtered) == 0 {
-		b.WriteString(emptyStyle.Width(width - 2).Render("No matching workspaces"))
+		b.WriteString(emptyStyle.Width(width).Render("No matching workspaces"))
 	} else {
 		start := 0
 		if m.list.Selected >= visibleRows {
@@ -341,7 +345,7 @@ func (m teaModel) previewView(width, maxLines int) string {
 	text = fixedVisualLines(text, bodyWidth, maxLines)
 	height := maxLines + previewTitleRows
 	return previewBoxStyle.
-		Width(width - 2).
+		Width(width).
 		Height(height).
 		MaxWidth(width).
 		Render(titleStyle.Render("preview") + "\n" + text)
@@ -433,9 +437,9 @@ func row(s sessionmodel.Session, selected bool, width int, showIcons bool) strin
 			path = lipgloss.NewStyle().Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
 		}
 		line = rowText(cursor, badgeText, label, path)
-		return selectedRowStyle.Width(width-2).Render(line) + "\n"
+		return selectedRowStyle.Width(width).Render(line) + "\n"
 	}
-	return rowStyle.Width(width-2).Render(line) + "\n"
+	return rowStyle.Width(width).Render(line) + "\n"
 }
 
 func sourceBadge(source string, showIcons bool) string {
