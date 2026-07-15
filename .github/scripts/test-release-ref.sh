@@ -41,6 +41,10 @@ if ! grep -Fq 'cp README.md LICENSE herdr-plugin.toml build_plugin.sh' "$workflo
   echo 'release archives must include the manifest build script' >&2
   exit 1
 fi
+if ! grep -Fq "echo 'bash build_plugin.sh'" "$workflow"; then
+  echo 'generated source-install instructions must inject the manifest version' >&2
+  exit 1
+fi
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.
 if ! grep -Fq 'if [ "$manifest_version" != "$version" ]; then' "$changelog_workflow"; then
   echo 'changelog workflow must reject tags that do not match the manifest version' >&2

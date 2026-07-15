@@ -242,7 +242,7 @@ jobs:
             echo "git clone https://github.com/fullerzz/herdr-plugin-sesh.git"
             echo "cd herdr-plugin-sesh"
             echo "git checkout ${tag}"
-            echo 'go build -o bin/herdr-sesh ./cmd/herdr-sesh'
+            echo 'bash build_plugin.sh'
             # shellcheck disable=SC2016 # Keep $PWD literal in the generated instructions.
             echo 'herdr plugin link "$PWD"'
             echo '```'
