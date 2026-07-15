@@ -15,12 +15,6 @@ contexts = ["workspace", "pane"]
 command = ["./bin/herdr-sesh", "plugin", "open-picker"]
 
 [[actions]]
-id = "connect-root"
-title = "Connect to Git Root"
-contexts = ["workspace", "pane"]
-command = ["./bin/herdr-sesh", "root", "--connect"]
-
-[[actions]]
 id = "last"
 title = "Switch to Previous Workspace"
 contexts = ["workspace", "pane"]
