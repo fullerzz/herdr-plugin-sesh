@@ -98,7 +98,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     permissions:
+      attestations: write
       contents: read
+      id-token: write
       pull-requests: read
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
@@ -189,6 +191,11 @@ jobs:
             >/tmp/herdr-sesh-release-list.json
           test -s /tmp/herdr-sesh-release-list.json
           (cd dist/release && sha256sum -- *.tar.gz > checksums.txt)
+
+      - name: Attest build provenance
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-checksums: dist/release/checksums.txt
 
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
@@ -303,7 +310,6 @@ jobs:
             gh release edit "$TAG" \
               --title "$TAG" \
               --notes-file dist/release/RELEASE_NOTES.md
-            gh release upload "$TAG" dist/release/* --clobber
           else
             gh release create "$TAG" dist/release/* \
               --verify-tag \
