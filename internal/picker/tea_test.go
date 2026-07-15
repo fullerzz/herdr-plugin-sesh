@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/bubbles/v2/cursor"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
@@ -18,13 +18,13 @@ func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 		{Name: "api-service", Path: "/tmp/api"},
 		{Name: "web", Path: "/tmp/web"},
 	}, Options{SeparatorAware: true})
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("api service")})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'a', Text: "api service"})
 	m = updated.(teaModel)
 	cur, ok := m.list.Current()
 	if !ok || cur.Name != "api-service" {
 		t.Fatalf("current = %#v ok=%v", cur, ok)
 	}
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(teaModel)
 	if cmd == nil || !m.chosen || m.choice.Name != "api-service" {
 		t.Fatalf("chosen=%v choice=%#v cmd=%v", m.chosen, m.choice, cmd)
@@ -33,7 +33,7 @@ func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 
 func TestTeaModelMovesSelection(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	cur, ok := m.list.Current()
 	if !ok || cur.Name != "web" {
@@ -73,7 +73,7 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	m = updated.(teaModel)
 	updated, _ = m.Update(previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)())
 	m = updated.(teaModel)
-	view := m.View()
+	view := ansi.Strip(m.View().Content)
 	for _, want := range []string{"herdr workspace picker", "3/3 matches", "Find> ", "Search sessions", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview", "preview content", "Enter select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
@@ -83,24 +83,18 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 
 func TestTeaModelShowIconsControlsSourceIcons(t *testing.T) {
 	items := []model.Session{{Source: "herdr", Name: "api"}}
-	withoutIcons := newTeaModel(items, Options{}).View()
+	withoutIcons := ansi.Strip(newTeaModel(items, Options{}).View().Content)
 	if strings.Contains(withoutIcons, herdrSourceIcon) {
 		t.Fatalf("view unexpectedly contains source icon:\n%s", withoutIcons)
 	}
 
-	withIcons := newTeaModel(items, Options{ShowIcons: true}).View()
+	withIcons := ansi.Strip(newTeaModel(items, Options{ShowIcons: true}).View().Content)
 	if !strings.Contains(withIcons, herdrSourceIcon+" herdr") {
 		t.Fatalf("view missing source icon:\n%s", withIcons)
 	}
 }
 
 func TestRowUsesSourceCategoryColors(t *testing.T) {
-	prev := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.ANSI256)
-	t.Cleanup(func() {
-		lipgloss.SetColorProfile(prev)
-	})
-
 	tests := []struct {
 		source string
 		color  string
@@ -129,7 +123,7 @@ func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 
 func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{})
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	if cmd == nil || !strings.Contains(m.preview, "Loading preview") {
 		t.Fatalf("cmd=%v preview=%q", cmd, m.preview)
@@ -155,7 +149,7 @@ func TestPreviewViewUsesConstantHeight(t *testing.T) {
 	if !strings.Contains(long, "...") {
 		t.Fatalf("long preview missing truncation marker:\n%s", long)
 	}
-	if last := strings.Split(long, "\n")[lipgloss.Height(long)-1]; !strings.HasPrefix(last, "+") || !strings.HasSuffix(last, "+") {
+	if last := ansi.Strip(strings.Split(long, "\n")[lipgloss.Height(long)-1]); !strings.HasPrefix(last, "+") || !strings.HasSuffix(last, "+") {
 		t.Fatalf("preview bottom border was clipped:\n%s", long)
 	}
 }
@@ -171,7 +165,7 @@ func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 	if got := m.previewBodyLines(); got <= defaultVisibleRows {
 		t.Fatalf("preview body lines=%d, want more than fallback %d", got, defaultVisibleRows)
 	}
-	view := m.View()
+	view := ansi.Strip(m.View().Content)
 	if got, want := lipgloss.Height(view), 40; got != want {
 		t.Fatalf("view height=%d, want %d", got, want)
 	}
@@ -188,12 +182,6 @@ func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 }
 
 func TestSelectedRowHighlightDoesNotResetBeforeContent(t *testing.T) {
-	prev := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.ANSI256)
-	t.Cleanup(func() {
-		lipgloss.SetColorProfile(prev)
-	})
-
 	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh"}, true, 80, true)
 	if !strings.Contains(got, "48;5;63") {
 		t.Fatalf("selected row missing highlight background:\n%q", got)
