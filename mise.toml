@@ -1,10 +1,10 @@
 [tools]
 go = "1.26"
-cargo-binstall = "1.17.7"
+cargo-binstall = "1.21.0"
 golangci-lint = "v2.12.2"
 gotestsum = "1.13.0"
 just = "1.56.0"
-fzf = "0.73.1"
+fzf = "0.74.0"
 bat = "0.26.1"
-eza = "0.23.4"
+eza = "0.23.5"
 git-cliff = "2.13.1"
