@@ -1,6 +1,6 @@
 [tools]
 go = "1.26"
-cargo-binstall = "1.17.7"
+cargo-binstall = "1.21.0"
 golangci-lint = "v2.12.2"
 gotestsum = "1.13.0"
 just = "1.56.0"
