@@ -4,6 +4,7 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 workflow="$repo_root/.github/workflows/release.yml"
+changelog_workflow="$repo_root/.github/workflows/changelog.yml"
 helper="$repo_root/.github/scripts/checkout-release-ref.sh"
 
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.
@@ -24,6 +25,21 @@ fi
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.
 if ! grep -Fq 'if [[ ! "$tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then' "$workflow"; then
   echo 'release workflow must reject tags outside the project-safe syntax' >&2
+  exit 1
+fi
+# shellcheck disable=SC2016 # Match the workflow's literal shell variables.
+if ! grep -Fq 'test "$("$binary" --version)" = "herdr-sesh ${version}"' "$workflow"; then
+  echo 'release workflow must verify the packaged binary version' >&2
+  exit 1
+fi
+# shellcheck disable=SC2016 # Match the workflow's literal shell variables.
+if ! grep -Fq 'test "$packaged_version" = "$version"' "$workflow"; then
+  echo 'release workflow must verify the packaged manifest version' >&2
+  exit 1
+fi
+# shellcheck disable=SC2016 # Match the workflow's literal shell variables.
+if ! grep -Fq 'if [ "$manifest_version" != "$version" ]; then' "$changelog_workflow"; then
+  echo 'changelog workflow must reject tags that do not match the manifest version' >&2
   exit 1
 fi
 

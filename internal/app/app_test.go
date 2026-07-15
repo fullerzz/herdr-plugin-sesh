@@ -22,7 +22,7 @@ func TestVersionCommand(t *testing.T) {
 	if err := a.Run(context.Background(), []string{"--version"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(out.String()) != "herdr-sesh 0.1.0-dev" {
+	if strings.TrimSpace(out.String()) != "herdr-sesh dev" {
 		t.Fatalf("got %q", out.String())
 	}
 }

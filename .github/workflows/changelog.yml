@@ -18,6 +18,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify version
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          manifest_version=$(awk -F'"' '
+            /^version = / { print $2; exit }
+          ' herdr-plugin.toml)
+          if [ "$manifest_version" != "$version" ]; then
+            echo "Tag mismatch: $TAG != manifest $manifest_version" >&2
+            exit 1
+          fi
+
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
         with:

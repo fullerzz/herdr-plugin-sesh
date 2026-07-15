@@ -183,10 +183,16 @@ jobs:
           smoke_dir=$(mktemp -d)
           smoke_name="herdr-sesh_${version}_linux_amd64"
           tar -xzf "dist/release/${smoke_name}.tar.gz" -C "$smoke_dir"
-          test -x "$smoke_dir/${smoke_name}/bin/herdr-sesh"
-          grep -Fq './bin/herdr-sesh' "$smoke_dir/${smoke_name}/herdr-plugin.toml"
-          "$smoke_dir/${smoke_name}/bin/herdr-sesh" --version
-          "$smoke_dir/${smoke_name}/bin/herdr-sesh" list --json \
+          binary="$smoke_dir/${smoke_name}/bin/herdr-sesh"
+          manifest="$smoke_dir/${smoke_name}/herdr-plugin.toml"
+          test -x "$binary"
+          grep -Fq './bin/herdr-sesh' "$manifest"
+          packaged_version=$(awk -F'"' '
+            /^version = / { print $2; exit }
+          ' "$manifest")
+          test "$packaged_version" = "$version"
+          test "$("$binary" --version)" = "herdr-sesh ${version}"
+          "$binary" list --json \
             --config testdata/sesh.toml \
             >/tmp/herdr-sesh-release-list.json
           test -s /tmp/herdr-sesh-release-list.json
