@@ -1,3 +1,28 @@
+## v0.1.1 (2026-07-15)
+
+### 🐛 Bug Fixes
+
+- **ci**: Allow changelog pull request reads ([bb738a2](https://github.com/fullerzz/herdr-plugin-sesh/commit/bb738a2f8978a8cb0281b90fe79cbfb6975c9176))
+
+- **ci**: Generate release notes from full history ([0065a48](https://github.com/fullerzz/herdr-plugin-sesh/commit/0065a48f9952020dd9ab3e843b0a2f8f86be82c0))
+
+- Enforce plugin release version consistency ([#32](https://github.com/fullerzz/herdr-plugin-sesh/issues/32)) ([4b19ef1](https://github.com/fullerzz/herdr-plugin-sesh/commit/4b19ef1fa996da5c75fc07bbbf84164ae2db1fea))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- Release v0.1.1 ([324aa76](https://github.com/fullerzz/herdr-plugin-sesh/commit/324aa76a145ffffddeded26f78a3344f53890562))
+
+
+
+### 🎡 Continuous Integration
+
+- Persist changelog on release tags ([c9d80e1](https://github.com/fullerzz/herdr-plugin-sesh/commit/c9d80e1ead22ad79a056936016732dee07b45e54))
+
+- Attest release build provenance ([a525211](https://github.com/fullerzz/herdr-plugin-sesh/commit/a52521133d94d000b025f4caf017fa4dc9188e23))
+
+
 ## v0.1.0 (2026-07-14)
 
 ### 🚀 Features
