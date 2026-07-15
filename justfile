@@ -44,6 +44,29 @@ test:
 test-release-ref:
     bash .github/scripts/test-release-ref.sh
 
+# Validate, tag, and trigger the GitHub release workflow
+[confirm("Create and push release " + tag + "?")]
+release $tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    expected_tag="v$(sed -nE 's/^version = "([^"]+)".*/\1/p' herdr-plugin.toml)"
+    if [[ "$tag" != "$expected_tag" ]]; then
+        echo "Tag mismatch: $tag != manifest $expected_tag" >&2
+        exit 1
+    fi
+    if [[ -n "$(git status --porcelain)" ]]; then
+        echo "Working tree must be clean before releasing" >&2
+        exit 1
+    fi
+
+    just check
+    just build
+    ./bin/herdr-sesh --version
+    ./bin/herdr-sesh list --json --config testdata/sesh.toml >/dev/null
+    git tag -a "$tag" -m "Release $tag"
+    git push origin "refs/tags/$tag"
+
 # Run all checks for code changes
 check: lint fmt-check test test-release-ref
     @echo "{{ BOLD + GREEN + BG_BLACK }} All checks passed!{{ NORMAL }}"
