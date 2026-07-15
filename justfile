@@ -65,7 +65,7 @@ release $tag:
     ./bin/herdr-sesh --version
     ./bin/herdr-sesh list --json --config testdata/sesh.toml >/dev/null
     git tag -a "$tag" -m "Release $tag"
-    git push origin "refs/tags/$tag"
+    git push --atomic origin HEAD "refs/tags/$tag"
 
 # Run all checks for code changes
 check: lint fmt-check test test-release-ref
