@@ -1,0 +1,50 @@
+name: Changelog
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  update-changelog:
+    name: Update changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          version: v2.13.1
+          config: cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Prepare main branch update
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp CHANGELOG.md "$RUNNER_TEMP/CHANGELOG.md"
+          git fetch origin main
+          git switch -C main origin/main
+          cp "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
+
+      - name: Commit and push changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "docs(CHANGELOG): update CHANGELOG.md [skip ci]"
+          git push origin HEAD:main
