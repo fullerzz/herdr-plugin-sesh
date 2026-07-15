@@ -199,6 +199,7 @@ jobs:
           (cd dist/release && sha256sum -- *.tar.gz > checksums.txt)
 
       - name: Attest build provenance
+        if: github.event.repository.visibility == 'public'
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         with:
           subject-checksums: dist/release/checksums.txt
