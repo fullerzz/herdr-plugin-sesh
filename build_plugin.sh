@@ -11,4 +11,9 @@ if [ -z "$version" ]; then
   exit 1
 fi
 
-exec herdr plugin install fullerzz/herdr-plugin-sesh --ref "v$version" --yes
+mkdir -p "$repo_root/bin"
+cd "$repo_root"
+exec go build \
+  -ldflags "-X github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=$version" \
+  -o bin/herdr-sesh \
+  ./cmd/herdr-sesh
