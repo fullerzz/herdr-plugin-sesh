@@ -1,106 +1,144 @@
-# herdr-plugin-sesh
+# Sesh for Herdr
 
-Sesh-style smart workspace/session management for Herdr.
+A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and
+session manager for [Herdr](https://herdr.dev/).
 
-Based on [sesh](https://github.com/joshmedeski/sesh) by Josh Medeski.
+`herdr-plugin-sesh` combines running Herdr workspaces, configured sessions, and
+zoxide history in one searchable overlay. Selecting an item focuses its
+existing workspace or creates a new one with the configured startup command and
+tabs.
 
-This plugin maps Sesh concepts onto Herdr:
+## Features
 
-- Sesh session -> Herdr workspace
-- Sesh window -> Herdr tab
-- Sesh picker -> Herdr overlay pane
+- Search active Herdr workspaces, Sesh-style TOML sessions, and zoxide history
+  from a native terminal picker.
+- Focus an existing workspace or create one from a configured session or
+  directory.
+- Apply startup commands, previews, and named Herdr tabs to new workspaces.
+- Filter, sort, deduplicate, and optionally cache session results.
+- Jump directly to the previously focused workspace.
+- Clone a Git repository and connect to it in one command.
+- Use the built-in picker by default or opt into the experimental fzf picker.
 
-## Build
+Sesh concepts map onto Herdr as follows:
+
+| Sesh | Herdr |
+| --- | --- |
+| Session | Workspace |
+| Window | Tab |
+| Picker | Overlay pane |
+
+## Requirements
+
+- [Herdr](https://herdr.dev/docs/installation/) 0.7.0 or newer
+- Linux or macOS
+- Git and Go 1.26.4 or newer for Herdr's source-based plugin installation
+- Optional: `zoxide` for directory history and `eza` for the default preview
+- Optional: `fzf` and `bat` for the experimental fzf picker
+
+## Installation
+
+Install the plugin directly from GitHub:
 
 ```bash
-mise install
-just check
-just build
+herdr plugin install fullerzz/herdr-plugin-sesh
 ```
 
-Tool versions for local validation are pinned in `mise.toml`.
+Herdr previews the plugin manifest and build command before installation. To
+skip the confirmation in a non-interactive environment, add `--yes`. To pin a
+release, add `--ref v0.1.1`.
 
-## Install for local use
+This repository is also discoverable through the
+[Herdr plugin marketplace](https://herdr.dev/plugins/) via the `herdr-plugin`
+GitHub topic. Marketplace listings are automatic and are not endorsements or
+security reviews.
 
-Build the plugin binary, link this checkout into Herdr, then initialize the
-plugin-owned config file:
+## Quick start
 
-```bash
-just install-plugin
-herdr plugin config-dir fullerzz.sesh
-HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config init
-```
-
-Herdr creates the plugin config and state directories during `plugin link`.
-`herdr-sesh config init` writes `sesh.toml` under `HERDR_PLUGIN_CONFIG_DIR`
-when Herdr invokes the plugin; when run manually it falls back to
-`~/.config/herdr-sesh/sesh.toml`.
-
-Verify the linked plugin:
+Open the picker through the installed plugin action:
 
 ```bash
-herdr plugin action list --plugin fullerzz.sesh
 herdr plugin action invoke fullerzz.sesh.open-picker
-herdr plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay
-herdr plugin log list --plugin fullerzz.sesh
 ```
 
-## Commands
+You can also open its overlay pane directly:
 
 ```bash
-herdr-sesh list --json
-herdr-sesh connect /path/to/project
-herdr-sesh preview /path/to/project
-herdr-sesh clone git@github.com:owner/repo.git
-herdr-sesh root --connect
-herdr-sesh last
-herdr-sesh window
-herdr-sesh window /path/to/project
-herdr-sesh plugin open-picker
-herdr-sesh picker
-herdr-sesh picker --fzf
-herdr-sesh config path
-herdr-sesh config init
+herdr plugin pane open \
+  --plugin fullerzz.sesh \
+  --entrypoint picker \
+  --placement overlay
 ```
 
-Use `herdr-sesh picker --fzf` or `HERDR_SESH_PICKER=fzf herdr-sesh picker`
-to try the fzf-backed picker prototype. The native picker defaults to
-`eza --icons=always -la {}` and honors configured `preview_command` values; the fzf
-prototype uses a `bat` preview for items with an existing directory path.
+See [Keybindings](docs/keybindings.md) to bind the picker and previous-workspace
+actions in your Herdr configuration.
 
 ## Configuration
 
-The plugin reads the supported Sesh-style TOML subset documented in
-[`docs/config.md`](docs/config.md) from:
+Configuration is optional. Without a config file, the picker still includes
+running Herdr workspaces and zoxide results when zoxide is available.
+
+The plugin reads a supported subset of Sesh-style TOML from the first available
+location:
 
 1. `--config PATH`
 2. `HERDR_SESH_CONFIG`
 3. `${HERDR_PLUGIN_CONFIG_DIR}/sesh.toml`
 4. `~/.config/sesh/sesh.toml` as a migration fallback
 
-Initialize a starter config:
-
-```bash
-herdr-sesh config init
-```
-
-For Herdr-managed plugin config, use the directory printed by:
+Ask Herdr for the managed configuration directory:
 
 ```bash
 herdr plugin config-dir fullerzz.sesh
 ```
 
-## Repository
+See the [configuration reference](docs/config.md) for supported settings and a
+complete example.
 
-Canonical source lives at <https://github.com/fullerzz/herdr-plugin-sesh>.
-Herdr's managed `plugin install` command accepts GitHub shorthand sources; use
-the `herdr-plugin` topic and matching `v*` tags for Herdr marketplace
-discovery.
+## CLI
+
+The plugin binary also exposes its underlying operations directly:
+
+| Command | Purpose |
+| --- | --- |
+| `herdr-sesh picker` | Open the native workspace picker. |
+| `herdr-sesh picker --fzf` | Open the experimental fzf picker. |
+| `herdr-sesh list --json` | List merged session sources as JSON. |
+| `herdr-sesh connect TARGET` | Focus or create a workspace for a name, path, or ID. |
+| `herdr-sesh preview TARGET` | Render the configured preview for a session. |
+| `herdr-sesh clone REPOSITORY` | Clone a repository and connect to its workspace. |
+| `herdr-sesh root --connect` | Connect to the current Git repository root. |
+| `herdr-sesh last` | Focus the previously used workspace. |
+| `herdr-sesh window [PATH]` | List tabs or create one for a path. |
+| `herdr-sesh config path` | Print the resolved plugin config path. |
+| `herdr-sesh config init` | Create a starter config if one does not exist. |
+
+The binary lives inside Herdr's managed plugin checkout after installation; the
+plugin actions are the normal entry points for day-to-day use.
+
+## Local development
+
+Tool versions are pinned in [`mise.toml`](mise.toml), and common tasks live in
+the [`justfile`](justfile).
+
+```bash
+mise install
+just check
+just install-plugin
+```
+
+`just install-plugin` builds the binary and links the current checkout into
+Herdr. Verify the local plugin with:
+
+```bash
+herdr plugin action list --plugin fullerzz.sesh
+herdr plugin log list --plugin fullerzz.sesh
+```
 
 ## Release
 
-Release tags must start with `v` and match `version` in `herdr-plugin.toml`.
-Before tagging, run the same validation expected in CI:
+Release tags must begin with `v` and match `version` in
+[`herdr-plugin.toml`](herdr-plugin.toml). Before tagging a release, run:
 
 ```bash
 just check
@@ -108,3 +146,7 @@ just build
 ./bin/herdr-sesh --version
 ./bin/herdr-sesh list --json --config testdata/sesh.toml
 ```
+
+## License
+
+Licensed under the [MIT License](LICENSE).
