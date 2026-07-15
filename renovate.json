@@ -1,6 +1,44 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
-  ]
+    "config:recommended",
+    "mergeConfidence:all-badges",
+    "helpers:githubDigestChangelogs"
+  ],
+  "reviewers": [
+    "fullerzz"
+  ],
+  "minimumReleaseAge": "1 day",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "rebaseWhen": "behind-base-branch",
+  "prCreation": "not-pending",
+  "internalChecksFilter": "strict",
+  "pruneStaleBranches": true,
+  "osvVulnerabilityAlerts": true,
+  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "packageRules": [
+    {
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "go dependencies",
+      "semanticCommitScope": "go-deps",
+      "semanticCommitType": "fix",
+      "minimumReleaseAgeBehaviour": "timestamp-required",
+      "postUpdateOptions": [
+        "gomodTidy"
+      ]
+    },
+    {
+      "matchCategories": [
+        "ci"
+      ],
+      "groupName": "CI dependencies",
+      "semanticCommitScope": "ci-deps",
+      "semanticCommitType": "ci"
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true
+  }
 }
