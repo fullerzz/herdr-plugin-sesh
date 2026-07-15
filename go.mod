@@ -3,9 +3,9 @@ module github.com/fullerzz/herdr-plugin-sesh
 go 1.26.4
 
 require (
-	github.com/charmbracelet/bubbles v0.21.1
-	github.com/charmbracelet/bubbletea v1.3.10
-	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/bubbles/v2 v2.1.1
+	github.com/charmbracelet/bubbletea/v2 v2.0.8
+	github.com/charmbracelet/lipgloss/v2 v2.0.5
 	github.com/muesli/termenv v0.16.0
 	github.com/pelletier/go-toml/v2 v2.4.1
 )
