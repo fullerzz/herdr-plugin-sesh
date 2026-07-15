@@ -4,6 +4,7 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 workflow="$repo_root/.github/workflows/release.yml"
+changelog_workflow="$repo_root/.github/workflows/changelog.yml"
 helper="$repo_root/.github/scripts/checkout-release-ref.sh"
 
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.
@@ -26,9 +27,55 @@ if ! grep -Fq 'if [[ ! "$tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then' "$work
   echo 'release workflow must reject tags outside the project-safe syntax' >&2
   exit 1
 fi
+# shellcheck disable=SC2016 # Match the workflow's literal shell variables.
+if ! grep -Fq 'test "$("$binary" --version)" = "herdr-sesh ${version}"' "$workflow"; then
+  echo 'release workflow must verify the packaged binary version' >&2
+  exit 1
+fi
+# shellcheck disable=SC2016 # Match the workflow's literal shell variables.
+if ! grep -Fq 'test "$packaged_version" = "$version"' "$workflow"; then
+  echo 'release workflow must verify the packaged manifest version' >&2
+  exit 1
+fi
+if ! grep -Fq 'cp README.md LICENSE herdr-plugin.toml build_plugin.sh' "$workflow"; then
+  echo 'release archives must include the manifest build script' >&2
+  exit 1
+fi
+if ! grep -Fq "echo 'bash build_plugin.sh'" "$workflow"; then
+  echo 'generated source-install instructions must inject the manifest version' >&2
+  exit 1
+fi
+# shellcheck disable=SC2016 # Match the workflow's literal shell variables.
+if ! grep -Fq 'if [ "$manifest_version" != "$version" ]; then' "$changelog_workflow"; then
+  echo 'changelog workflow must reject tags that do not match the manifest version' >&2
+  exit 1
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+
+fake_bin="$tmp/bin"
+mkdir -p "$fake_bin"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$*"' >"$fake_bin/herdr"
+chmod +x "$fake_bin/herdr"
+manifest_version=$(awk -F'"' '
+  /^version = / { print $2; exit }
+' "$repo_root/herdr-plugin.toml")
+if ! grep -Fq 'command = ["bash", "build_plugin.sh"]' "$repo_root/herdr-plugin.toml"; then
+  echo 'manifest build must use the version-injecting build script' >&2
+  exit 1
+fi
+(cd "$tmp" && bash "$repo_root/build_plugin.sh")
+if [ "$("$repo_root/bin/herdr-sesh" --version)" != "herdr-sesh ${manifest_version}" ]; then
+  echo 'manifest build must inject the manifest version into the binary' >&2
+  exit 1
+fi
+install_command=$(cd "$tmp" && PATH="$fake_bin:$PATH" "$repo_root/install_plugin.sh")
+expected_install="plugin install fullerzz/herdr-plugin-sesh --ref v${manifest_version} --yes"
+if [ "$install_command" != "$expected_install" ]; then
+  echo "installer must pin the manifest release: got $install_command" >&2
+  exit 1
+fi
 
 git -C "$tmp" init -q
 git -C "$tmp" config user.email test@example.com

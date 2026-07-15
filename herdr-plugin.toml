@@ -6,7 +6,7 @@ description = "Sesh-style smart workspace/session manager for Herdr"
 platforms = ["linux", "macos"]
 
 [[build]]
-command = ["go", "build", "-o", "bin/herdr-sesh", "./cmd/herdr-sesh"]
+command = ["bash", "build_plugin.sh"]
 
 [[actions]]
 id = "open-picker"

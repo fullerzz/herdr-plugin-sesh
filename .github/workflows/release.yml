@@ -177,16 +177,22 @@ jobs:
                 -ldflags "-s -w -X ${module}.Version=${version}" \
                 -o "$out" \
                 ./cmd/herdr-sesh
-            cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"
+            cp README.md LICENSE herdr-plugin.toml build_plugin.sh "dist/work/${name}/"
             tar -C dist/work -czf "dist/release/${name}.tar.gz" "$name"
           done
           smoke_dir=$(mktemp -d)
           smoke_name="herdr-sesh_${version}_linux_amd64"
           tar -xzf "dist/release/${smoke_name}.tar.gz" -C "$smoke_dir"
-          test -x "$smoke_dir/${smoke_name}/bin/herdr-sesh"
-          grep -Fq './bin/herdr-sesh' "$smoke_dir/${smoke_name}/herdr-plugin.toml"
-          "$smoke_dir/${smoke_name}/bin/herdr-sesh" --version
-          "$smoke_dir/${smoke_name}/bin/herdr-sesh" list --json \
+          binary="$smoke_dir/${smoke_name}/bin/herdr-sesh"
+          manifest="$smoke_dir/${smoke_name}/herdr-plugin.toml"
+          test -x "$binary"
+          grep -Fq './bin/herdr-sesh' "$manifest"
+          packaged_version=$(awk -F'"' '
+            /^version = / { print $2; exit }
+          ' "$manifest")
+          test "$packaged_version" = "$version"
+          test "$("$binary" --version)" = "herdr-sesh ${version}"
+          "$binary" list --json \
             --config testdata/sesh.toml \
             >/tmp/herdr-sesh-release-list.json
           test -s /tmp/herdr-sesh-release-list.json
@@ -236,7 +242,7 @@ jobs:
             echo "git clone https://github.com/fullerzz/herdr-plugin-sesh.git"
             echo "cd herdr-plugin-sesh"
             echo "git checkout ${tag}"
-            echo 'go build -o bin/herdr-sesh ./cmd/herdr-sesh'
+            echo 'bash build_plugin.sh'
             # shellcheck disable=SC2016 # Keep $PWD literal in the generated instructions.
             echo 'herdr plugin link "$PWD"'
             echo '```'

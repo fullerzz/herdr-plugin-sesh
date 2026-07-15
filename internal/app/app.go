@@ -25,7 +25,7 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
 
-var Version = "0.1.0-dev"
+var Version = "dev"
 
 type App struct {
 	Out io.Writer
