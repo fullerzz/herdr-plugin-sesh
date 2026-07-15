@@ -27,8 +27,11 @@ jobs:
       - name: Download modules
         run: go mod download
 
-      - name: Repo checks
-        run: just check
+      - name: Run tests
+        run: just test
+
+      - name: Test release ref resolution
+        run: just test-release-ref
 
       - name: Build
         run: just build
