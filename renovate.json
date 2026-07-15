@@ -30,6 +30,12 @@
       ]
     },
     {
+      "matchManagers": [
+        "mise"
+      ],
+      "groupName": "mise tools"
+    },
+    {
       "matchCategories": [
         "ci"
       ],
