@@ -67,6 +67,10 @@ var (
 
 	selectedLabelStyle = rowLabelStyle.Bold(true)
 
+	matchStyle = lipgloss.NewStyle().
+			Foreground(violetColor).
+			Bold(true)
+
 	selectionRailStyle = lipgloss.NewStyle().
 				Foreground(skyColor).
 				Bold(true)
@@ -267,7 +271,7 @@ func (m teaModel) listView(width, visibleRows int) string {
 			lines = append(lines, moreStyle.Render(fmt.Sprintf("↑ %d more", start)))
 		}
 		for i := start; i < end; i++ {
-			lines = append(lines, strings.TrimSuffix(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons), "\n"))
+			lines = append(lines, strings.TrimSuffix(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons, m.list.Query), "\n"))
 		}
 		if moreBelow {
 			lines = append(lines, moreStyle.Render(fmt.Sprintf("↓ %d more", len(m.list.Filtered)-end)))
@@ -425,7 +429,7 @@ func fixedVisualLines(text string, width, count int) string {
 	return strings.Join(lines, "\n")
 }
 
-func row(s sessionmodel.Session, selected bool, width int, showIcons bool) string {
+func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
 	rail := "  "
 	if selected {
 		rail = selectionRailStyle.Render("┃ ")
@@ -459,11 +463,32 @@ func row(s sessionmodel.Session, selected bool, width int, showIcons bool) strin
 	if selected {
 		labelStyle = selectedLabelStyle
 	}
-	line := rail + status + badge + labelStyle.Render(fitPlain(label, nameWidth))
+	line := rail + status + badge + highlightMatches(label, query, nameWidth, labelStyle)
 	if showPath {
-		line += "  " + pathStyle.Render(fitPlain(path, pathWidth))
+		line += "  " + highlightMatches(path, query, pathWidth, pathStyle)
 	}
 	return fitLine(line, width) + "\n"
+}
+
+func highlightMatches(text, query string, width int, baseStyle lipgloss.Style) string {
+	text = fitPlain(text, width)
+	if query == "" {
+		return baseStyle.Render(text)
+	}
+
+	lowerText, lowerQuery := strings.ToLower(text), strings.ToLower(query)
+	var rendered strings.Builder
+	for {
+		index := strings.Index(lowerText, lowerQuery)
+		if index < 0 {
+			rendered.WriteString(baseStyle.Render(text))
+			return rendered.String()
+		}
+		rendered.WriteString(baseStyle.Render(text[:index]))
+		rendered.WriteString(matchStyle.Render(text[index : index+len(lowerQuery)]))
+		text = text[index+len(lowerQuery):]
+		lowerText = lowerText[index+len(lowerQuery):]
+	}
 }
 
 func sourceBadge(source string, showIcons bool) string {
