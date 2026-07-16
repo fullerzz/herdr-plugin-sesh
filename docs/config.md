@@ -44,6 +44,10 @@ the state directory.
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 
+Moving between workspaces stretches the cyan selection rail into a short violet
+trail. Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) to keep selection
+instantaneous without drawing the trail.
+
 Open Herdr workspaces show the agent state reported by Herdr when the picker
 opens: green `●` working, amber `◆` blocked, muted `○` idle, and violet `✓`
 done. Workspaces with an unknown state have no indicator.

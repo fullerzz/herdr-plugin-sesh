@@ -42,6 +42,115 @@ func TestTeaModelMovesSelection(t *testing.T) {
 	}
 }
 
+func TestTeaModelSmearsRapidSelectionMoves(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}, {Name: "docs"}}, Options{})
+	for range 2 {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = updated.(teaModel)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(ansi.Strip(m.listView(40, 3)), "\n"), "\n")
+	for i, want := range []string{"╷ ", "│ ", "┃ "} {
+		if !strings.HasPrefix(lines[i], want) {
+			t.Fatalf("row %d = %q, want rail %q\n%s", i, lines[i], want, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestTeaModelSmearRetracts(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	oldPreview := renderPreview
+	renderPreview = func(context.Context, model.Session, string) (string, error) { return "preview", nil }
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	if !strings.HasPrefix(ansi.Strip(m.listView(40, 2)), "╷ ") {
+		t.Fatalf("moving selection did not start the smear:\n%s", ansi.Strip(m.listView(40, 2)))
+	}
+
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("move command = %T, want preview and animation batch", msg)
+	}
+	tickHandled := false
+	for _, child := range batch {
+		msg := child()
+		if _, ok := msg.(previewMsg); ok {
+			continue
+		}
+		updated, _ = m.Update(msg)
+		m = updated.(teaModel)
+		tickHandled = true
+	}
+	if !tickHandled {
+		t.Fatal("move batch did not contain an animation tick")
+	}
+	if view := ansi.Strip(m.listView(40, 2)); strings.HasPrefix(view, "╷ ") {
+		t.Fatalf("smear remained after settling:\n%s", view)
+	}
+}
+
+func TestTeaModelCapsSmearSettleTime(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	items := make([]model.Session, 100)
+	for i := range items {
+		items[i] = model.Session{Name: "workspace"}
+	}
+	m := newTeaModel(items, Options{})
+	for range len(items) - 1 {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = updated.(teaModel)
+	}
+
+	for ticks := 1; m.smearActive; ticks++ {
+		if ticks > 3 {
+			t.Fatalf("smear still active after %d settle ticks", ticks-1)
+		}
+		updated, _ := m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+}
+
+func TestTeaModelQueryChangeClearsSmear(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{
+		{Name: "workspace-0"},
+		{Name: "workspace-1"},
+		{Name: "workspace-2"},
+		{Name: "workspace-3"},
+	}, Options{})
+	m.list.Selected = 2
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'w', Text: "workspace"})
+	m = updated.(teaModel)
+
+	view := ansi.Strip(m.listView(40, 4))
+	if strings.Contains(view, "╵ ") || strings.Contains(view, "│ ") {
+		t.Fatalf("query change left a smear on reordered rows:\n%s", view)
+	}
+}
+
+func TestTeaModelReducedMotionSkipsSmear(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+
+	current, ok := m.list.Current()
+	if !ok || current.Name != "web" {
+		t.Fatalf("current = %#v ok=%v", current, ok)
+	}
+	view := ansi.Strip(m.listView(40, 2))
+	if strings.Contains(view, "╷ ") || strings.Contains(view, "│ ") {
+		t.Fatalf("reduced motion rendered a smear:\n%s", view)
+	}
+}
+
 func TestTeaModelForwardsTextInputNonKeyMessages(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
 	updated, cmd := m.Update(cursor.Blink())

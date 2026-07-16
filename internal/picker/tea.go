@@ -39,6 +39,8 @@ const (
 	rowSourceWidth     = 10
 	rowNameMinWidth    = 12
 	rowNameMaxWidth    = 28
+	smearMaxLength     = 3
+	smearFrameInterval = 35 * time.Millisecond
 	herdrSourceIcon    = "\U000f0cc6"
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
@@ -78,6 +80,9 @@ var (
 	selectionRailStyle = lipgloss.NewStyle().
 				Foreground(skyColor).
 				Bold(true)
+
+	smearTrailStyle = lipgloss.NewStyle().
+			Foreground(violetColor)
 
 	pathStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
@@ -129,6 +134,10 @@ type teaModel struct {
 	choice sessionmodel.Session
 	chosen bool
 
+	smearTail    int
+	smearActive  bool
+	reduceMotion bool
+
 	preview    string
 	previewKey string
 
@@ -148,6 +157,8 @@ type agentStatusesMsg struct {
 	statuses map[string]string
 	err      error
 }
+
+type smearTickMsg struct{}
 
 func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	list := New(items)
@@ -170,12 +181,14 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	styles.Cursor.Color = skyColor
 	input.SetStyles(styles)
 	input.Focus()
+	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
 		list:                  list,
 		input:                 input,
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
+		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 	}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
@@ -206,6 +219,21 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, scheduleStatusRefresh()
 	}
+	if _, ok := msg.(smearTickMsg); ok {
+		if !m.smearActive {
+			return m, nil
+		}
+		if m.smearTail < m.list.Selected {
+			m.smearTail++
+		} else if m.smearTail > m.list.Selected {
+			m.smearTail--
+		}
+		if m.smearTail == m.list.Selected {
+			m.smearActive = false
+			return m, nil
+		}
+		return m, smearTick()
+	}
 	if preview, ok := msg.(previewMsg); ok {
 		if preview.key == m.previewKey {
 			m.preview = preview.text
@@ -221,7 +249,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.list.Filter(m.input.Value())
+		m = m.filter(m.input.Value())
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(cmd, previewCmd)
 	}
@@ -235,19 +263,17 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case "up", "ctrl+p":
-		m.list.Move(-1)
-		return m.refreshPreview()
+		return m.moveSelection(-1)
 	case "down", "ctrl+n":
-		m.list.Move(1)
-		return m.refreshPreview()
+		return m.moveSelection(1)
 	case "ctrl+u":
 		m.input.SetValue("")
-		m.list.Filter("")
+		m = m.filter("")
 		return m.refreshPreview()
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.list.Filter(m.input.Value())
+		m = m.filter(m.input.Value())
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(cmd, previewCmd)
 	}
@@ -313,7 +339,11 @@ func (m teaModel) listView(width, visibleRows int) string {
 			lines = append(lines, moreStyle.Render(fmt.Sprintf("↑ %d more", start)))
 		}
 		for i := start; i < end; i++ {
-			lines = append(lines, strings.TrimSuffix(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons, m.list.Query), "\n"))
+			line := strings.TrimSuffix(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons, m.list.Query), "\n")
+			if rail := m.smearRail(i); rail != "" {
+				line = smearTrailStyle.Render(rail+" ") + strings.TrimPrefix(line, "  ")
+			}
+			lines = append(lines, line)
 		}
 		if moreBelow {
 			lines = append(lines, moreStyle.Render(fmt.Sprintf("↓ %d more", len(m.list.Filtered)-end)))
@@ -423,6 +453,58 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 	m.previewKey = key
 	m.preview = "Loading preview..."
 	return m, previewCommand(key, current, m.defaultPreviewCommand)
+}
+
+func (m teaModel) moveSelection(delta int) (teaModel, tea.Cmd) {
+	previous := m.list.Selected
+	m.list.Move(delta)
+	var tick tea.Cmd
+	if m.list.Selected != previous && !m.reduceMotion && !m.smearActive {
+		m.smearTail = previous
+		m.smearActive = true
+		tick = smearTick()
+	}
+	if m.smearActive {
+		m.smearTail = min(maxInt(m.smearTail, m.list.Selected-smearMaxLength), m.list.Selected+smearMaxLength)
+	}
+	m, previewCmd := m.refreshPreview()
+	return m, tea.Batch(previewCmd, tick)
+}
+
+func (m teaModel) filter(query string) teaModel {
+	queryChanged := query != m.list.Query
+	m.list.Filter(query)
+	if queryChanged && m.smearActive {
+		m.smearTail = m.list.Selected
+	}
+	return m
+}
+
+func (m teaModel) smearRail(index int) string {
+	selected := m.list.Selected
+	if !m.smearActive || m.smearTail == selected {
+		return ""
+	}
+	if m.smearTail < selected {
+		if index < m.smearTail || index >= selected {
+			return ""
+		}
+		if index == m.smearTail {
+			return "╷"
+		}
+		return "│"
+	}
+	if index <= selected || index > m.smearTail {
+		return ""
+	}
+	if index == m.smearTail {
+		return "╵"
+	}
+	return "│"
+}
+
+func smearTick() tea.Cmd {
+	return tea.Tick(smearFrameInterval, func(time.Time) tea.Msg { return smearTickMsg{} })
 }
 
 func previewCommand(key string, s sessionmodel.Session, defaultPreviewCommand string) tea.Cmd {
