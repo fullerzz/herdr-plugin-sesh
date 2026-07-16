@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
 	tea "charm.land/bubbletea/v2"
@@ -261,6 +262,20 @@ func TestListViewHighlightsCaseInsensitiveQueryMatches(t *testing.T) {
 
 	got := m.listView(80, 1)
 	want := lipgloss.NewStyle().Foreground(violetColor).Bold(true).Render("API")
+	if matches := strings.Count(got, want); matches != 2 {
+		t.Fatalf("highlighted matches=%d, want 2:\n%q", matches, got)
+	}
+}
+
+func TestListViewPreservesUnicodeWhenHighlightingFoldedMatch(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "workspace-Ⱥ", Path: "/tmp/workspace-Ⱥ"}}, Options{})
+	m.list.Filter("ⱥ")
+
+	got := m.listView(80, 1)
+	want := matchStyle.Render("Ⱥ")
+	if !utf8.ValidString(got) {
+		t.Fatalf("highlighted row is invalid UTF-8: %q", got)
+	}
 	if matches := strings.Count(got, want); matches != 2 {
 		t.Fatalf("highlighted matches=%d, want 2:\n%q", matches, got)
 	}

@@ -476,19 +476,23 @@ func highlightMatches(text, query string, width int, baseStyle lipgloss.Style) s
 		return baseStyle.Render(text)
 	}
 
-	lowerText, lowerQuery := strings.ToLower(text), strings.ToLower(query)
+	textRunes := []rune(text)
+	queryRunes := []rune(query)
 	var rendered strings.Builder
-	for {
-		index := strings.Index(lowerText, lowerQuery)
-		if index < 0 {
-			rendered.WriteString(baseStyle.Render(text))
-			return rendered.String()
+	plainStart := 0
+	for index := 0; index+len(queryRunes) <= len(textRunes); {
+		matchEnd := index + len(queryRunes)
+		if !strings.EqualFold(string(textRunes[index:matchEnd]), query) {
+			index++
+			continue
 		}
-		rendered.WriteString(baseStyle.Render(text[:index]))
-		rendered.WriteString(matchStyle.Render(text[index : index+len(lowerQuery)]))
-		text = text[index+len(lowerQuery):]
-		lowerText = lowerText[index+len(lowerQuery):]
+		rendered.WriteString(baseStyle.Render(string(textRunes[plainStart:index])))
+		rendered.WriteString(matchStyle.Render(string(textRunes[index:matchEnd])))
+		index = matchEnd
+		plainStart = matchEnd
 	}
+	rendered.WriteString(baseStyle.Render(string(textRunes[plainStart:])))
+	return rendered.String()
 }
 
 func sourceBadge(source string, showIcons bool) string {
