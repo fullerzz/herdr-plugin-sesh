@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
 	tea "charm.land/bubbletea/v2"
@@ -111,7 +112,7 @@ func TestRowUsesSourceCategoryColors(t *testing.T) {
 		{source: "dir", color: "38;2;187;154;247"},
 	}
 	for _, tt := range tests {
-		got := row(model.Session{Source: tt.source, Name: tt.source}, false, 80, true)
+		got := row(model.Session{Source: tt.source, Name: tt.source}, false, 80, true, "")
 		if !strings.Contains(got, tt.color) {
 			t.Fatalf("row for source %q missing color %s:\n%q", tt.source, tt.color, got)
 		}
@@ -130,13 +131,13 @@ func TestRowUsesAgentStatusIndicators(t *testing.T) {
 		{status: "done", glyph: "✓", color: "38;2;187;154;247"},
 	}
 	for _, tt := range tests {
-		got := row(model.Session{Source: "herdr", Name: "api", AgentStatus: tt.status}, false, 80, true)
+		got := row(model.Session{Source: "herdr", Name: "api", AgentStatus: tt.status}, false, 80, true, "")
 		if !strings.Contains(ansi.Strip(got), tt.glyph) || !strings.Contains(got, tt.color) {
 			t.Fatalf("row for status %q missing glyph/color:\n%q", tt.status, got)
 		}
 	}
 	for _, status := range []string{"", "unknown", "future"} {
-		got := ansi.Strip(row(model.Session{Source: "herdr", Name: "api", AgentStatus: status}, false, 80, true))
+		got := ansi.Strip(row(model.Session{Source: "herdr", Name: "api", AgentStatus: status}, false, 80, true, ""))
 		if strings.ContainsAny(got, "●◆○✓") {
 			t.Fatalf("row for status %q unexpectedly contains indicator: %q", status, got)
 		}
@@ -151,14 +152,14 @@ func TestRowCompactsHomeAndNeverWraps(t *testing.T) {
 		Path:        "/Users/picker/Code/Go/workspace-with-a-path-that-is-longer-than-the-row",
 		AgentStatus: "working",
 	}
-	wide := ansi.Strip(strings.TrimSuffix(row(s, true, 76, true), "\n"))
+	wide := ansi.Strip(strings.TrimSuffix(row(s, true, 76, true, ""), "\n"))
 	if strings.Contains(wide, "\n") || lipgloss.Width(wide) != 76 {
 		t.Fatalf("wide row width=%d or wrapped:\n%q", lipgloss.Width(wide), wide)
 	}
 	if !strings.Contains(wide, "~/Code/Go/") || strings.Contains(wide, "/Users/picker") {
 		t.Fatalf("wide row did not compact home path: %q", wide)
 	}
-	narrow := ansi.Strip(strings.TrimSuffix(row(s, false, 48, true), "\n"))
+	narrow := ansi.Strip(strings.TrimSuffix(row(s, false, 48, true, ""), "\n"))
 	if strings.Contains(narrow, "~/") || strings.Contains(narrow, "/Users/picker") {
 		t.Fatalf("narrow row should omit its path: %q", narrow)
 	}
@@ -240,7 +241,7 @@ func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 }
 
 func TestSelectedRowUsesRailAndPreservesSourceColor(t *testing.T) {
-	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh", AgentStatus: "working"}, true, 80, true)
+	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh", AgentStatus: "working"}, true, 80, true, "")
 	plain := ansi.Strip(got)
 	if !strings.Contains(plain, "┃") {
 		t.Fatalf("selected row missing navigation rail:\n%q", got)
@@ -252,6 +253,31 @@ func TestSelectedRowUsesRailAndPreservesSourceColor(t *testing.T) {
 	}
 	if strings.Contains(got, "48;2;") || strings.Contains(got, "48;5;") {
 		t.Fatalf("selected row should not use a background fill:\n%q", got)
+	}
+}
+
+func TestListViewHighlightsCaseInsensitiveQueryMatches(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "workspace-API", Path: "/tmp/workspace-API"}}, Options{})
+	m.list.Filter("api")
+
+	got := m.listView(80, 1)
+	want := lipgloss.NewStyle().Foreground(violetColor).Bold(true).Render("API")
+	if matches := strings.Count(got, want); matches != 2 {
+		t.Fatalf("highlighted matches=%d, want 2:\n%q", matches, got)
+	}
+}
+
+func TestListViewPreservesUnicodeWhenHighlightingFoldedMatch(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "workspace-Ⱥ", Path: "/tmp/workspace-Ⱥ"}}, Options{})
+	m.list.Filter("ⱥ")
+
+	got := m.listView(80, 1)
+	want := matchStyle.Render("Ⱥ")
+	if !utf8.ValidString(got) {
+		t.Fatalf("highlighted row is invalid UTF-8: %q", got)
+	}
+	if matches := strings.Count(got, want); matches != 2 {
+		t.Fatalf("highlighted matches=%d, want 2:\n%q", matches, got)
 	}
 }
 
