@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -18,7 +19,10 @@ import (
 	previewpkg "github.com/fullerzz/herdr-plugin-sesh/internal/preview"
 )
 
-const defaultVisibleRows = 12
+const (
+	defaultVisibleRows    = 12
+	statusRefreshInterval = time.Second
+)
 
 const (
 	defaultPrompt      = "Sesh> "
@@ -98,6 +102,7 @@ type Options struct {
 	SeparatorAware        bool
 	DefaultPreviewCommand string
 	FZFCommand            string
+	RefreshAgentStatuses  func() (map[string]string, error)
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
@@ -129,11 +134,19 @@ type teaModel struct {
 
 	defaultPreviewCommand string
 	showIcons             bool
+	refreshAgentStatuses  func() (map[string]string, error)
 }
 
 type previewMsg struct {
 	key  string
 	text string
+}
+
+type statusRefreshTickMsg struct{}
+
+type agentStatusesMsg struct {
+	statuses map[string]string
+	err      error
 }
 
 func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
@@ -157,7 +170,13 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	styles.Cursor.Color = skyColor
 	input.SetStyles(styles)
 	input.Focus()
-	m := teaModel{list: list, input: input, defaultPreviewCommand: opts.DefaultPreviewCommand, showIcons: opts.ShowIcons}
+	m := teaModel{
+		list:                  list,
+		input:                 input,
+		defaultPreviewCommand: opts.DefaultPreviewCommand,
+		showIcons:             opts.ShowIcons,
+		refreshAgentStatuses:  opts.RefreshAgentStatuses,
+	}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
 		m.preview = "Loading preview..."
@@ -170,11 +189,23 @@ func (m teaModel) Init() tea.Cmd {
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
 		cmds = append(cmds, previewCommand(m.previewKey, current, m.defaultPreviewCommand))
 	}
+	if m.refreshAgentStatuses != nil {
+		cmds = append(cmds, scheduleStatusRefresh())
+	}
 	return tea.Batch(cmds...)
 }
 
 //nolint:ireturn // Bubble Tea's Model interface requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(statusRefreshTickMsg); ok {
+		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses)
+	}
+	if statuses, ok := msg.(agentStatusesMsg); ok {
+		if statuses.err == nil {
+			m.list.UpdateAgentStatuses(statuses.statuses)
+		}
+		return m, scheduleStatusRefresh()
+	}
 	if preview, ok := msg.(previewMsg); ok {
 		if preview.key == m.previewKey {
 			m.preview = preview.text
@@ -219,6 +250,17 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.Filter(m.input.Value())
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(cmd, previewCmd)
+	}
+}
+
+func scheduleStatusRefresh() tea.Cmd {
+	return tea.Tick(statusRefreshInterval, func(time.Time) tea.Msg { return statusRefreshTickMsg{} })
+}
+
+func refreshAgentStatusesCommand(refresh func() (map[string]string, error)) tea.Cmd {
+	return func() tea.Msg {
+		statuses, err := refresh()
+		return agentStatusesMsg{statuses: statuses, err: err}
 	}
 }
 

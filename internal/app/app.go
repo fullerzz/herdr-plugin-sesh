@@ -197,6 +197,18 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if *fzfPicker || strings.EqualFold(os.Getenv("HERDR_SESH_PICKER"), "fzf") {
 		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
 	} else {
+		client := herdr.NewCLIClient()
+		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
+			workspaces, err := client.WorkspaceList(ctx)
+			if err != nil {
+				return nil, err
+			}
+			statuses := make(map[string]string, len(workspaces))
+			for _, workspace := range workspaces {
+				statuses[workspace.ID] = workspace.AgentStatus
+			}
+			return statuses, nil
+		}
 		selected, ok, err = pickerpkg.Run(sessions, pickOpts)
 	}
 	if err != nil || !ok {
