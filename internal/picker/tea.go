@@ -3,12 +3,16 @@ package picker
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	sessionmodel "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	previewpkg "github.com/fullerzz/herdr-plugin-sesh/internal/preview"
@@ -20,93 +24,64 @@ const (
 	defaultPrompt      = "Sesh> "
 	defaultPlaceholder = "Filter workspaces"
 	defaultWidth       = 80
-	minContentWidth    = 36
-	maxContentWidth    = 132
 	previewSplitWidth  = 92
 	minPreviewWidth    = 36
 	maxPreviewWidth    = 52
 	previewTitleRows   = 1
-	previewBorderRows  = 2
-	pickerTopPadding   = 1
-	pickerChromeRows   = 14 + pickerTopPadding
+	pickerChromeRows   = 8
 	compactPreviewBody = 6
+	horizontalPadding  = 2
+	rowPathMinWidth    = 60
+	rowSourceWidth     = 10
+	rowNameMinWidth    = 12
+	rowNameMaxWidth    = 28
 	herdrSourceIcon    = "\U000f0cc6"
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
 )
 
 var (
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.Border{
-			Top:         "-",
-			Bottom:      "-",
-			Left:        "|",
-			Right:       "|",
-			TopLeft:     "+",
-			TopRight:    "+",
-			BottomLeft:  "+",
-			BottomRight: "+",
-		}).
-		BorderForeground(lipgloss.Color("63")).
-		Padding(1, 2)
+	skyColor    = lipgloss.Color("#7DCFFF")
+	violetColor = lipgloss.Color("#BB9AF7")
+	greenColor  = lipgloss.Color("#9ECE6A")
+	amberColor  = lipgloss.Color("#E0AF68")
+	textColor   = lipgloss.Color("#C0CAF5")
+	mutedColor  = lipgloss.Color("#565F89")
 
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("63")).
+			Foreground(violetColor).
 			Bold(true)
 
 	countStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
+			Foreground(mutedColor)
 
-	inputBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.Border{
-			Top:         "-",
-			Bottom:      "-",
-			Left:        "|",
-			Right:       "|",
-			TopLeft:     "+",
-			TopRight:    "+",
-			BottomLeft:  "+",
-			BottomRight: "+",
-		}).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1)
+	sectionStyle = lipgloss.NewStyle().
+			Foreground(violetColor).
+			Bold(true)
 
-	previewBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.Border{
-			Top:         "-",
-			Bottom:      "-",
-			Left:        "|",
-			Right:       "|",
-			TopLeft:     "+",
-			TopRight:    "+",
-			BottomLeft:  "+",
-			BottomRight: "+",
-		}).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1)
+	ruleStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
 
-	rowStyle = lipgloss.NewStyle().
-			Padding(0, 1)
+	rowLabelStyle = lipgloss.NewStyle().
+			Foreground(textColor)
 
-	selectedRowStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("230")).
-				Background(lipgloss.Color("63")).
-				Bold(true).
-				Padding(0, 1)
+	selectedLabelStyle = rowLabelStyle.Bold(true)
+
+	selectionRailStyle = lipgloss.NewStyle().
+				Foreground(skyColor).
+				Bold(true)
 
 	pathStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
+			Foreground(mutedColor)
 
 	emptyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("203")).
-			Padding(1, 1)
+			Foreground(amberColor)
 
 	moreStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
-			Padding(0, 1)
+			Foreground(mutedColor)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
+			Foreground(mutedColor)
 )
 
 var renderPreview = previewpkg.Render
@@ -172,10 +147,10 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	input.Prompt = prompt
 	input.Placeholder = placeholder
 	styles := input.Styles()
-	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("63")).Bold(true)
-	styles.Focused.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
-	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	styles.Cursor.Color = lipgloss.Color("63")
+	styles.Focused.Prompt = lipgloss.NewStyle().Foreground(skyColor).Bold(true)
+	styles.Focused.Text = lipgloss.NewStyle().Foreground(textColor)
+	styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(mutedColor)
+	styles.Cursor.Color = skyColor
 	input.SetStyles(styles)
 	input.Focus()
 	m := teaModel{list: list, input: input, defaultPreviewCommand: opts.DefaultPreviewCommand, showIcons: opts.ShowIcons}
@@ -246,69 +221,92 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m teaModel) View() tea.View {
 	width := m.contentWidth()
 	listWidth, previewWidth := previewLayout(width)
-	previewLines := m.previewBodyLines()
-	listRows := previewLines
-	if previewWidth == 0 {
-		previewLines = compactPreviewBody
-		listRows = defaultVisibleRows
-	}
-	var b strings.Builder
-	b.WriteString(m.header(width))
-	b.WriteString("\n\n")
+	lines := []string{"", m.header(width), horizontalRule(width)}
 	input := m.input
-	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-4))
-	b.WriteString(inputBoxStyle.Width(width).Render(input.View()))
-	b.WriteString("\n\n")
-	list := m.listView(listWidth, listRows)
+	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
+	lines = append(lines, fitLine(input.View(), width), horizontalRule(width))
+
 	if previewWidth > 0 {
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", m.previewView(previewWidth, previewLines)))
+		previewLines := m.previewBodyLines()
+		list := sectionStyle.Render("WORKSPACES") + "\n" + m.listView(listWidth, previewLines)
+		preview := m.previewView(previewWidth, previewLines)
+		lines = append(lines, strings.Split(joinPanels(list, preview, listWidth, previewWidth), "\n")...)
 	} else {
-		b.WriteString(list)
-		b.WriteString("\n")
-		b.WriteString(m.previewView(width, previewLines))
+		listRows, previewLines := m.stackedBodyLines()
+		lines = append(lines, sectionStyle.Render("WORKSPACES"))
+		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
+		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Width(width).Render("Enter select  Up/Down move  Ctrl+U clear  Esc cancel"))
-	view := tea.NewView(strings.Repeat("\n", pickerTopPadding) + panelStyle.Width(width+6).Render(b.String()))
+	lines = append(lines,
+		horizontalRule(width),
+		helpStyle.Render("enter select   ↑/↓ move   ctrl+u clear   esc close"),
+		"",
+	)
+	framed := make([]string, len(lines))
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		framed[i] = strings.Repeat(" ", horizontalPadding) + fitLine(line, width) + strings.Repeat(" ", horizontalPadding)
+	}
+	view := tea.NewView(strings.Join(framed, "\n"))
 	view.AltScreen = true
 	return view
 }
 
 func (m teaModel) listView(width, visibleRows int) string {
-	var b strings.Builder
+	if visibleRows < 1 {
+		return ""
+	}
+	lines := make([]string, 0, visibleRows)
 	if len(m.list.Filtered) == 0 {
-		b.WriteString(emptyStyle.Width(width).Render("No matching workspaces"))
+		lines = append(lines, emptyStyle.Render("No matching workspaces"))
 	} else {
-		start := 0
-		if m.list.Selected >= visibleRows {
-			start = m.list.Selected - visibleRows + 1
-		}
-		end := start + visibleRows
-		if end > len(m.list.Filtered) {
-			end = len(m.list.Filtered)
-		}
-		if start > 0 {
-			b.WriteString(moreStyle.Render("...") + "\n")
+		start, end, moreAbove, moreBelow := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
+		if moreAbove {
+			lines = append(lines, moreStyle.Render(fmt.Sprintf("↑ %d more", start)))
 		}
 		for i := start; i < end; i++ {
-			b.WriteString(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons))
+			lines = append(lines, strings.TrimSuffix(row(m.list.Filtered[i], i == m.list.Selected, width, m.showIcons), "\n"))
 		}
-		if end < len(m.list.Filtered) {
-			b.WriteString(moreStyle.Render("...") + "\n")
+		if moreBelow {
+			lines = append(lines, moreStyle.Render(fmt.Sprintf("↓ %d more", len(m.list.Filtered)-end)))
 		}
 	}
-	return b.String()
+	for len(lines) < visibleRows {
+		lines = append(lines, "")
+	}
+	if len(lines) > visibleRows {
+		lines = lines[:visibleRows]
+	}
+	for i := range lines {
+		lines[i] = fitLine(lines[i], width)
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func (m teaModel) previewBodyLines() int {
 	if m.height == 0 {
 		return defaultVisibleRows
 	}
-	lines := m.height - pickerChromeRows
+	lines := m.height - pickerChromeRows - previewTitleRows
 	if lines < compactPreviewBody {
 		return compactPreviewBody
 	}
 	return lines
+}
+
+func (m teaModel) stackedBodyLines() (int, int) {
+	if m.height == 0 {
+		return defaultVisibleRows, compactPreviewBody
+	}
+	const stackedChromeRows = 10
+	available := m.height - stackedChromeRows
+	if available < 2 {
+		return 1, 1
+	}
+	previewLines := min(compactPreviewBody, maxInt(1, available/3))
+	return maxInt(1, available-previewLines), previewLines
 }
 
 func (m teaModel) contentWidth() int {
@@ -316,24 +314,21 @@ func (m teaModel) contentWidth() int {
 	if width == 0 {
 		width = defaultWidth
 	}
-	width -= 6
-	if width < minContentWidth {
-		width = minContentWidth
-	}
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
-	return width
+	return maxInt(1, width-horizontalPadding*2)
 }
 
 func (m teaModel) header(width int) string {
-	title := titleStyle.Render("herdr workspace picker")
-	count := countStyle.Render(fmt.Sprintf("%d/%d matches", len(m.list.Filtered), len(m.list.All)))
+	title := titleStyle.Render("herdr / sesh")
+	countText := fmt.Sprintf("%d workspaces", len(m.list.All))
+	if m.list.Query != "" {
+		countText = fmt.Sprintf("%d/%d workspaces", len(m.list.Filtered), len(m.list.All))
+	}
+	count := countStyle.Render(countText)
 	gap := width - lipgloss.Width(title) - lipgloss.Width(count)
 	if gap < 1 {
 		gap = 1
 	}
-	return title + strings.Repeat(" ", gap) + count
+	return fitLine(title+strings.Repeat(" ", gap)+count, width)
 }
 
 func (m teaModel) previewView(width, maxLines int) string {
@@ -341,14 +336,31 @@ func (m teaModel) previewView(width, maxLines int) string {
 	if text == "" {
 		text = "No preview available"
 	}
-	bodyWidth := maxInt(8, width-4)
-	text = fixedVisualLines(text, bodyWidth, maxLines)
-	height := maxLines + previewTitleRows
-	return previewBoxStyle.
-		Width(width).
-		Height(height).
-		MaxWidth(width).
-		Render(titleStyle.Render("preview") + "\n" + text)
+	text = fixedVisualLines(text, width, maxLines)
+	lines := append([]string{m.previewTitle()}, strings.Split(text, "\n")...)
+	for i := range lines {
+		lines[i] = fitLine(lines[i], width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m teaModel) previewTitle() string {
+	title := sectionStyle.Render("PREVIEW")
+	current, ok := m.list.Current()
+	if !ok {
+		return title
+	}
+	label := current.Name
+	if label == "" {
+		label = compactHome(current.Path)
+	}
+	if label != "" {
+		title += countStyle.Render(" · " + label)
+	}
+	if _, status := agentStatusIndicator(current.AgentStatus); status != "" {
+		title += agentStatusStyle(current.AgentStatus).Render(" · " + status)
+	}
+	return title
 }
 
 func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
@@ -382,7 +394,7 @@ func previewCommand(key string, s sessionmodel.Session, defaultPreviewCommand st
 }
 
 func previewLayout(width int) (int, int) {
-	if width < previewSplitWidth {
+	if width < previewSplitWidth-horizontalPadding*2 {
 		return width, 0
 	}
 	previewWidth := width / 2
@@ -392,7 +404,7 @@ func previewLayout(width int) (int, int) {
 	if previewWidth < minPreviewWidth {
 		previewWidth = minPreviewWidth
 	}
-	return width - previewWidth - 2, previewWidth
+	return width - previewWidth - 3, previewWidth
 }
 
 func fixedVisualLines(text string, width, count int) string {
@@ -414,32 +426,44 @@ func fixedVisualLines(text string, width, count int) string {
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool) string {
-	cursor := " "
+	rail := "  "
 	if selected {
-		cursor = ">"
+		rail = selectionRailStyle.Render("┃ ")
 	}
 	label := s.Name
 	if label == "" {
-		label = s.Path
+		label = compactHome(s.Path)
 	}
-	source := s.Source
-	badgeText := sourceBadge(source, showIcons)
-	badge := sourceBadgeStyle(source).Render(badgeText)
-	path := ""
-	showPath := s.Path != "" && s.Path != label
+	statusGlyph, _ := agentStatusIndicator(s.AgentStatus)
+	status := "  "
+	if statusGlyph != "" {
+		status = agentStatusStyle(s.AgentStatus).Render(statusGlyph + " ")
+	}
+	badge := sourceBadgeStyle(s.Source).Render(fitPlain(sourceBadge(s.Source, showIcons), rowSourceWidth))
+	remaining := maxInt(1, width-lipgloss.Width(rail)-2-rowSourceWidth)
+	path := compactHome(s.Path)
+	showPath := width >= rowPathMinWidth && path != "" && path != label
+	nameWidth := remaining
+	pathWidth := 0
 	if showPath {
-		path = pathStyle.Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
-	}
-	line := rowText(cursor, badge, label, path)
-	if selected {
-		path = ""
-		if showPath {
-			path = lipgloss.NewStyle().Inline(true).MaxWidth(maxInt(8, width/2)).Render(s.Path)
+		available := maxInt(1, remaining-2)
+		nameWidth = min(rowNameMaxWidth, maxInt(rowNameMinWidth, available*2/5))
+		if nameWidth >= available {
+			showPath = false
+			nameWidth = remaining
+		} else {
+			pathWidth = available - nameWidth
 		}
-		line = rowText(cursor, badgeText, label, path)
-		return selectedRowStyle.Width(width).Render(line) + "\n"
 	}
-	return rowStyle.Width(width).Render(line) + "\n"
+	labelStyle := rowLabelStyle
+	if selected {
+		labelStyle = selectedLabelStyle
+	}
+	line := rail + status + badge + labelStyle.Render(fitPlain(label, nameWidth))
+	if showPath {
+		line += "  " + pathStyle.Render(fitPlain(path, pathWidth))
+	}
+	return fitLine(line, width) + "\n"
 }
 
 func sourceBadge(source string, showIcons bool) string {
@@ -464,7 +488,22 @@ func sourceBadge(source string, showIcons bool) string {
 }
 
 func sourceBadgeStyle(source string) lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(sourceBadgeColor(source))).Bold(true)
+	return lipgloss.NewStyle().Foreground(sourceBadgeTerminalColor(source)).Bold(true)
+}
+
+func sourceBadgeTerminalColor(source string) color.Color {
+	color := mutedColor
+	switch source {
+	case "herdr":
+		color = skyColor
+	case "config":
+		color = amberColor
+	case "zoxide":
+		color = greenColor
+	case "dir":
+		color = violetColor
+	}
+	return color
 }
 
 func sourceBadgeColor(source string) string {
@@ -482,11 +521,120 @@ func sourceBadgeColor(source string) string {
 	return color
 }
 
-func rowText(cursor, badge, label, path string) string {
-	if path == "" {
-		return fmt.Sprintf("%s %s %s", cursor, badge, label)
+func agentStatusIndicator(status string) (string, string) {
+	switch status {
+	case "working":
+		return "●", "working"
+	case "blocked":
+		return "◆", "blocked"
+	case "idle":
+		return "○", "idle"
+	case "done":
+		return "✓", "done"
+	default:
+		return "", ""
 	}
-	return fmt.Sprintf("%s %s %s  %s", cursor, badge, label, path)
+}
+
+func agentStatusStyle(status string) lipgloss.Style {
+	color := mutedColor
+	switch status {
+	case "working":
+		color = greenColor
+	case "blocked":
+		color = amberColor
+	case "done":
+		color = violetColor
+	}
+	return lipgloss.NewStyle().Foreground(color).Bold(true)
+}
+
+func compactHome(path string) string {
+	if path == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	cleanPath := filepath.Clean(path)
+	cleanHome := filepath.Clean(home)
+	if cleanPath == cleanHome {
+		return "~"
+	}
+	prefix := cleanHome + string(filepath.Separator)
+	if strings.HasPrefix(cleanPath, prefix) {
+		return "~" + cleanPath[len(cleanHome):]
+	}
+	return path
+}
+
+func horizontalRule(width int) string {
+	return ruleStyle.Render(strings.Repeat("─", maxInt(1, width)))
+}
+
+func fitLine(line string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	line = ansi.Truncate(line, width, "…")
+	return line + strings.Repeat(" ", maxInt(0, width-lipgloss.Width(line)))
+}
+
+func fitPlain(text string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	text = ansi.Truncate(text, width, "…")
+	return text + strings.Repeat(" ", maxInt(0, width-lipgloss.Width(text)))
+}
+
+func joinPanels(left, right string, leftWidth, rightWidth int) string {
+	leftLines := strings.Split(strings.TrimSuffix(left, "\n"), "\n")
+	rightLines := strings.Split(strings.TrimSuffix(right, "\n"), "\n")
+	height := max(len(leftLines), len(rightLines))
+	lines := make([]string, height)
+	divider := ruleStyle.Render("│")
+	for i := range height {
+		var leftLine, rightLine string
+		if i < len(leftLines) {
+			leftLine = leftLines[i]
+		}
+		if i < len(rightLines) {
+			rightLine = rightLines[i]
+		}
+		lines[i] = fitLine(leftLine, leftWidth) + " " + divider + " " + fitLine(rightLine, rightWidth)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func listWindow(total, selected, height int) (start, end int, moreAbove, moreBelow bool) {
+	if total <= 0 || height <= 0 {
+		return 0, 0, false, false
+	}
+	if total <= height {
+		return 0, total, false, false
+	}
+	if height == 1 {
+		selected = min(maxInt(0, selected), total-1)
+		return selected, selected + 1, false, false
+	}
+	if height == 2 {
+		selected = min(maxInt(0, selected), total-1)
+		if selected < total-1 {
+			return selected, selected + 1, false, true
+		}
+		return selected, selected + 1, true, false
+	}
+	if selected < height-1 {
+		return 0, height - 1, false, true
+	}
+	if selected >= total-(height-1) {
+		return total - (height - 1), total, true, false
+	}
+	itemRows := height - 2
+	start = selected - itemRows + 1
+	return start, start + itemRows, true, true
 }
 
 func maxInt(a, b int) int {

@@ -9,7 +9,7 @@ import (
 
 func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {
 	src := HerdrWorkspaces{Client: &herdr.FakeClient{
-		Workspaces: []herdr.Workspace{{ID: "w1", Label: "api", ActiveTabID: "w1:t2"}},
+		Workspaces: []herdr.Workspace{{ID: "w1", Label: "api", ActiveTabID: "w1:t2", AgentStatus: "working"}},
 		Panes: []herdr.Pane{
 			{ID: "p1", WorkspaceID: "w1", TabID: "w1:t1", ForegroundCWD: "/tmp/wrong"},
 			{ID: "p2", WorkspaceID: "w1", TabID: "w1:t2", CWD: "/tmp/api"},
@@ -20,7 +20,7 @@ func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessions := got.Ordered()
-	if len(sessions) != 1 || sessions[0].Path != "/tmp/api" {
+	if len(sessions) != 1 || sessions[0].Path != "/tmp/api" || sessions[0].AgentStatus != "working" {
 		t.Fatalf("sessions=%#v", sessions)
 	}
 }

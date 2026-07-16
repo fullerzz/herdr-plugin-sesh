@@ -44,6 +44,10 @@ the state directory.
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 
+Open Herdr workspaces show the agent state reported by Herdr when the picker
+opens: green `●` working, amber `◆` blocked, muted `○` idle, and violet `✓`
+done. Workspaces with an unknown state have no indicator.
+
 ## Session behavior
 
 `[default_session]` supports only:
