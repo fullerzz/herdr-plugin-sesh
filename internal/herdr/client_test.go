@@ -44,23 +44,23 @@ func TestCLIClientConstructsWorkspaceCreateNoFocus(t *testing.T) {
 }
 
 func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
-	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api"}]}}`)}}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api","agent_status":"working"}]}}`)}}
 	got, err := c.WorkspaceList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" {
+	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "working" {
 		t.Fatalf("workspaces=%#v", got)
 	}
 }
 
 func TestCLIClientDecodesWorkspaceListArray(t *testing.T) {
-	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1","label":"api"}]`)}}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1","label":"api","agent_status":"blocked"}]`)}}
 	got, err := c.WorkspaceList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" {
+	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "blocked" {
 		t.Fatalf("workspaces=%#v", got)
 	}
 }

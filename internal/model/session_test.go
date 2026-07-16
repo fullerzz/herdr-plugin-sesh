@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestSessionJSONOmitsInternalWindowConfigs(t *testing.T) {
-	s := Session{Source: "config", Name: "api", Path: "/tmp/api", WindowConfigs: []WindowConfig{{Name: "dev"}}}
+func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
+	s := Session{Source: "config", Name: "api", Path: "/tmp/api", AgentStatus: "working", WindowConfigs: []WindowConfig{{Name: "dev"}}}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -18,6 +18,9 @@ func TestSessionJSONOmitsInternalWindowConfigs(t *testing.T) {
 	}
 	if strings.Contains(got, "WindowConfigs") || strings.Contains(got, "window_configs") {
 		t.Fatalf("json leaked internal window configs: %s", got)
+	}
+	if strings.Contains(got, "AgentStatus") || strings.Contains(got, "agent_status") {
+		t.Fatalf("json leaked internal agent status: %s", got)
 	}
 }
 
@@ -30,5 +33,9 @@ func TestKeyIsStableAndSourceScoped(t *testing.T) {
 	}
 	if Key(a) == Key(c) {
 		t.Fatalf("expected source-scoped key, got %q", Key(a))
+	}
+	b.AgentStatus = "working"
+	if Key(a) != Key(b) {
+		t.Fatalf("expected status-independent key, got %q and %q", Key(a), Key(b))
 	}
 }

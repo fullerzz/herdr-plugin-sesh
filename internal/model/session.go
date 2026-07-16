@@ -18,6 +18,7 @@ type Session struct {
 	DisableStartupSet     bool           `json:"-"`
 	WindowNames           []string       `json:"window_names,omitempty"`
 	WindowConfigs         []WindowConfig `json:"-"`
+	AgentStatus           string         `json:"-"`
 	Score                 float64        `json:"score,omitempty"`
 	Attached              bool           `json:"attached,omitempty"`
 }

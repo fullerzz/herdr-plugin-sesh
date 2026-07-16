@@ -17,6 +17,7 @@ type Workspace struct {
 	CWD           string `json:"cwd"`
 	ForegroundCWD string `json:"foreground_cwd"`
 	ActiveTabID   string `json:"active_tab_id"`
+	AgentStatus   string `json:"agent_status"`
 }
 type Tab struct {
 	ID          string `json:"id"`

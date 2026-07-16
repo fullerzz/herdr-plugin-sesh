@@ -25,7 +25,7 @@ func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
 	}
 	for _, w := range ws {
 		path := workspacePath(w, panes)
-		out.Add(model.Session{Source: "herdr", Name: w.Label, Path: path, WorkspaceID: w.ID})
+		out.Add(model.Session{Source: "herdr", Name: w.Label, Path: path, WorkspaceID: w.ID, AgentStatus: w.AgentStatus})
 	}
 	return out, nil
 }
