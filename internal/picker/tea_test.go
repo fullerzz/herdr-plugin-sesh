@@ -190,6 +190,35 @@ func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	}
 }
 
+func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1", AgentStatus: "working"},
+		{Source: "config", Name: "local", Path: "/tmp/local"},
+	}, Options{RefreshAgentStatuses: func() (map[string]string, error) {
+		return map[string]string{"w1": "blocked"}, nil
+	}})
+	m.list.Filter("api")
+
+	updated, cmd := m.Update(statusRefreshTickMsg{})
+	m = updated.(teaModel)
+	if cmd == nil {
+		t.Fatal("status refresh tick did not fetch statuses")
+	}
+
+	updated, next := m.Update(cmd())
+	m = updated.(teaModel)
+	current, ok := m.list.Current()
+	if !ok || current.AgentStatus != "blocked" {
+		t.Fatalf("current=%#v ok=%v", current, ok)
+	}
+	if m.list.Query != "api" || len(m.list.Filtered) != 1 {
+		t.Fatalf("query=%q filtered=%#v", m.list.Query, m.list.Filtered)
+	}
+	if next == nil {
+		t.Fatal("status refresh did not schedule the next tick")
+	}
+}
+
 func TestPreviewViewUsesConstantHeight(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
 	m.preview = "one line"

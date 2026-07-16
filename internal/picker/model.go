@@ -49,6 +49,14 @@ func (m *Model) Move(delta int) {
 	m.Selected += delta
 	m.clampSelected()
 }
+func (m *Model) UpdateAgentStatuses(statuses map[string]string) {
+	for i := range m.All {
+		if m.All[i].WorkspaceID != "" {
+			m.All[i].AgentStatus = statuses[m.All[i].WorkspaceID]
+		}
+	}
+	m.Filter(m.Query)
+}
 func (m *Model) clampSelected() {
 	if m.Selected >= len(m.Filtered) {
 		m.Selected = len(m.Filtered) - 1
