@@ -1,3 +1,50 @@
+## v0.2.0 (2026-07-16)
+
+### 🚀 Features
+
+- Refresh workspace navigator with agent status ([#48](https://github.com/fullerzz/herdr-plugin-sesh/issues/48)) ([6dce622](https://github.com/fullerzz/herdr-plugin-sesh/commit/6dce622f79e4d53c12ad86e0ef66d3a7c3c7128d))
+
+
+
+### 🐛 Bug Fixes
+
+- Pin eza to cargo release ([30e902c](https://github.com/fullerzz/herdr-plugin-sesh/commit/30e902c351d6d1704bbd8c3c93da3b6e569bd630))
+
+- **ci**: Pin lint workflow actions ([3b98737](https://github.com/fullerzz/herdr-plugin-sesh/commit/3b987377315a017edda5e8a9f435a76bfdc4ea45))
+
+- **ci**: Avoid duplicate lint checks ([83cd108](https://github.com/fullerzz/herdr-plugin-sesh/commit/83cd1088a9ced1090d62f83e328c0ca8ef806707))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- **deps**: Update dependency just to v1.56.0 ([#42](https://github.com/fullerzz/herdr-plugin-sesh/issues/42)) ([699af8d](https://github.com/fullerzz/herdr-plugin-sesh/commit/699af8de2dd9eb44f32a51c9f1d5e9bba1407e6a))
+
+- **renovate**: Group mise tool updates ([#44](https://github.com/fullerzz/herdr-plugin-sesh/issues/44)) ([0172ae4](https://github.com/fullerzz/herdr-plugin-sesh/commit/0172ae42172b8f06375cafd784f5d60fe277fc44))
+
+- **deps**: Update mise tools ([#45](https://github.com/fullerzz/herdr-plugin-sesh/issues/45)) ([4acc471](https://github.com/fullerzz/herdr-plugin-sesh/commit/4acc471250769c7296a57756d75abf006f0ea8e3))
+
+- **renovate**: Update renovate config preset to use best-practices ([df03d20](https://github.com/fullerzz/herdr-plugin-sesh/commit/df03d208a7171f2d161c245620e48ebdaedc1d01))
+
+- Release v0.2.0 ([d3589f5](https://github.com/fullerzz/herdr-plugin-sesh/commit/d3589f521d86fdf32d953b9ebcd60f54567705a4))
+
+
+
+### 🎡 Continuous Integration
+
+- **ci-deps**: Update ci dependencies ([#35](https://github.com/fullerzz/herdr-plugin-sesh/issues/35)) ([d9396ab](https://github.com/fullerzz/herdr-plugin-sesh/commit/d9396ab0712b1a1b674cff88d8cbc7d1b98f4842))
+
+- Add gitleaks workflow ([#36](https://github.com/fullerzz/herdr-plugin-sesh/issues/36)) ([ecdba80](https://github.com/fullerzz/herdr-plugin-sesh/commit/ecdba8024db87d9fdaa1dee1b546b2a10f4cdd21))
+
+- **ci-deps**: Update actions/checkout action to v7 ([#43](https://github.com/fullerzz/herdr-plugin-sesh/issues/43)) ([69deee8](https://github.com/fullerzz/herdr-plugin-sesh/commit/69deee8b1b79e08d70803edf462ee3a8bcc1e91e))
+
+- Add golangci-lint workflow ([cf1389c](https://github.com/fullerzz/herdr-plugin-sesh/commit/cf1389c75fdc2300d48be431fd617c8c0a250862))
+
+- Preserve lint checks for manual runs ([fa629cb](https://github.com/fullerzz/herdr-plugin-sesh/commit/fa629cb45dcfc5bc6165811e447a89034401aded))
+
+- **ci-deps**: Pin dependencies ([#47](https://github.com/fullerzz/herdr-plugin-sesh/issues/47)) ([f173bfa](https://github.com/fullerzz/herdr-plugin-sesh/commit/f173bfa879a9473391ed0726adb582a3cafa3c35))
+
+
 ## v0.1.3 (2026-07-15)
 
 ### 🐛 Bug Fixes
