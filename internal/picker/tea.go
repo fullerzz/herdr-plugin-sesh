@@ -39,8 +39,6 @@ const (
 	rowSourceWidth     = 10
 	rowNameMinWidth    = 12
 	rowNameMaxWidth    = 28
-	smearMaxLength     = 3
-	smearFrameInterval = 35 * time.Millisecond
 	filterLineIndex    = 3
 	listFirstRowIndex  = 6
 	herdrSourceIcon    = "\U000f0cc6"
@@ -55,6 +53,7 @@ var (
 	amberColor  = lipgloss.Color("#E0AF68")
 	textColor   = lipgloss.Color("#C0CAF5")
 	mutedColor  = lipgloss.Color("#565F89")
+	ghostColor  = lipgloss.Color("#737AA2")
 
 	titleStyle = lipgloss.NewStyle().
 			Foreground(violetColor).
@@ -145,6 +144,7 @@ type teaModel struct {
 	focusSmearDirection int
 	focusSmearActive    bool
 	reduceMotion        bool
+	smear               smearPreset
 
 	preview    string
 	previewKey string
@@ -167,6 +167,13 @@ type agentStatusesMsg struct {
 }
 
 type smearTickMsg struct{}
+
+type smearPreset struct {
+	name          string
+	frameInterval time.Duration
+	maxLength     int
+	headGlyph     string
+}
 
 func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	list := New(items)
@@ -197,6 +204,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		showIcons:             opts.ShowIcons,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
+		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
@@ -214,6 +222,70 @@ func (m teaModel) Init() tea.Cmd {
 		cmds = append(cmds, scheduleStatusRefresh())
 	}
 	return tea.Batch(cmds...)
+}
+
+func newSmearPreset(name string) smearPreset {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "gooey":
+		return smearPreset{name: "gooey", frameInterval: 45 * time.Millisecond, maxLength: 4, headGlyph: "█"}
+	case "ghost":
+		return smearPreset{name: "ghost", frameInterval: 55 * time.Millisecond, maxLength: 3, headGlyph: "◆"}
+	default:
+		return smearPreset{name: "crisp", frameInterval: 22 * time.Millisecond, maxLength: 2, headGlyph: "┃"}
+	}
+}
+
+func (p smearPreset) column(start, step, steps, direction int) int {
+	remaining := steps - step
+	switch p.name {
+	case "gooey":
+		if direction < 0 {
+			return start * (steps*steps - step*step) / (steps * steps)
+		}
+		return start * remaining * remaining / (steps * steps)
+	case "ghost":
+		return start * (steps*steps*steps - 3*step*step*steps + 2*step*step*step) / (steps * steps * steps)
+	default:
+		return start * remaining / steps
+	}
+}
+
+func (p smearPreset) headStyle() lipgloss.Style {
+	if p.name == "ghost" {
+		return lipgloss.NewStyle().Foreground(ghostColor)
+	}
+	return selectionRailStyle
+}
+
+func (p smearPreset) trailStyle(age int) lipgloss.Style {
+	switch p.name {
+	case "gooey":
+		if age > 1 {
+			return lipgloss.NewStyle().Foreground(mutedColor)
+		}
+		return smearTrailStyle
+	case "ghost":
+		return lipgloss.NewStyle().Foreground(ghostColor)
+	default:
+		return smearTrailStyle
+	}
+}
+
+func (p smearPreset) trailGlyph(age int, diagonal bool) string {
+	switch p.name {
+	case "gooey":
+		if age > 1 {
+			return "▒"
+		}
+		return "▓"
+	case "ghost":
+		return "·"
+	default:
+		if diagonal {
+			return "╱"
+		}
+		return "│"
+	}
 }
 
 //nolint:ireturn // Bubble Tea's Model interface requires this return shape.
@@ -238,7 +310,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusSmearActive = false
 				return m, nil
 			}
-			return m, smearTick()
+			return m, m.smearTick()
 		}
 		if !m.smearActive {
 			return m, nil
@@ -252,7 +324,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.smearActive = false
 			return m, nil
 		}
-		return m, smearTick()
+		return m, m.smearTick()
 	}
 	if preview, ok := msg.(previewMsg); ok {
 		if preview.key == m.previewKey {
@@ -386,9 +458,10 @@ func (m teaModel) listView(width, visibleRows int) string {
 		}
 		for i := start; i < end; i++ {
 			selected := m.listFocused && !m.focusSmearActive && i == m.list.Selected
-			line := strings.TrimSuffix(row(m.list.Filtered[i], selected, width, m.showIcons, m.list.Query), "\n")
-			if rail := m.smearRail(i); rail != "" {
-				line = smearTrailStyle.Render(rail+" ") + strings.TrimPrefix(line, "  ")
+			selectedRail := m.smear.headStyle().Render(m.smear.headGlyph + " ")
+			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.list.Query, selectedRail), "\n")
+			if rail, age := m.smearRail(i); rail != "" {
+				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
 			}
 			lines = append(lines, line)
 		}
@@ -525,7 +598,7 @@ func (m teaModel) focusList() (teaModel, tea.Cmd) {
 	m.focusSmearSteps = maxInt(1, listFirstRowIndex+selectedLine-filterLineIndex)
 	m.focusSmearDirection = 1
 	m.focusSmearActive = true
-	return m, smearTick()
+	return m, m.smearTick()
 }
 
 func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
@@ -540,7 +613,7 @@ func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
 	m.focusSmearStep = m.focusSmearSteps
 	m.focusSmearDirection = -1
 	m.focusSmearActive = true
-	return m, smearTick()
+	return m, m.smearTick()
 }
 
 func (m teaModel) focusInput() (teaModel, tea.Cmd) {
@@ -562,25 +635,25 @@ func (m teaModel) renderFocusSmear(lines []string, width int) {
 		return
 	}
 	head := min(m.focusSmearStep, m.focusSmearSteps)
-	start, end := maxInt(0, head-smearMaxLength+1), head
+	start, end := maxInt(0, head-m.smear.maxLength+1), head
 	if m.focusSmearDirection < 0 {
-		start, end = head, min(m.focusSmearSteps, head+smearMaxLength-1)
+		start, end = head, min(m.focusSmearSteps, head+m.smear.maxLength-1)
 	}
 	for step := start; step <= end; step++ {
 		lineIndex := filterLineIndex + step
 		if lineIndex < 0 || lineIndex >= len(lines) {
 			continue
 		}
-		column := m.focusSmearStart * (m.focusSmearSteps - step) / m.focusSmearSteps
-		glyph := selectionRailStyle.Render("┃")
+		column := m.smear.column(m.focusSmearStart, step, m.focusSmearSteps, m.focusSmearDirection)
+		glyph := m.smear.headStyle().Render(m.smear.headGlyph)
 		if step != head {
-			glyph = "│"
 			nextStep := step + m.focusSmearDirection
-			nextColumn := m.focusSmearStart * (m.focusSmearSteps - nextStep) / m.focusSmearSteps
-			if nextColumn != column {
-				glyph = "╱"
+			nextColumn := m.smear.column(m.focusSmearStart, nextStep, m.focusSmearSteps, m.focusSmearDirection)
+			age := step - head
+			if age < 0 {
+				age = -age
 			}
-			glyph = smearTrailStyle.Render(glyph)
+			glyph = m.smear.trailStyle(age).Render(m.smear.trailGlyph(age, nextColumn != column))
 		}
 		lines[lineIndex] = overlayCell(lines[lineIndex], column, glyph, width)
 	}
@@ -593,10 +666,10 @@ func (m teaModel) moveSelection(delta int) (teaModel, tea.Cmd) {
 	if m.list.Selected != previous && !m.reduceMotion && !m.smearActive {
 		m.smearTail = previous
 		m.smearActive = true
-		tick = smearTick()
+		tick = m.smearTick()
 	}
 	if m.smearActive {
-		m.smearTail = min(maxInt(m.smearTail, m.list.Selected-smearMaxLength), m.list.Selected+smearMaxLength)
+		m.smearTail = min(maxInt(m.smearTail, m.list.Selected-m.smear.maxLength), m.list.Selected+m.smear.maxLength)
 	}
 	m, previewCmd := m.refreshPreview()
 	return m, tea.Batch(previewCmd, tick)
@@ -611,31 +684,41 @@ func (m teaModel) filter(query string) teaModel {
 	return m
 }
 
-func (m teaModel) smearRail(index int) string {
+func (m teaModel) smearRail(index int) (string, int) {
 	selected := m.list.Selected
 	if !m.smearActive || m.smearTail == selected {
-		return ""
+		return "", 0
+	}
+	age := selected - index
+	if age < 0 {
+		age = -age
 	}
 	if m.smearTail < selected {
 		if index < m.smearTail || index >= selected {
-			return ""
+			return "", 0
+		}
+		if m.smear.name != "crisp" {
+			return m.smear.trailGlyph(age, false), age
 		}
 		if index == m.smearTail {
-			return "╷"
+			return "╷", age
 		}
-		return "│"
+		return "│", age
 	}
 	if index <= selected || index > m.smearTail {
-		return ""
+		return "", 0
+	}
+	if m.smear.name != "crisp" {
+		return m.smear.trailGlyph(age, false), age
 	}
 	if index == m.smearTail {
-		return "╵"
+		return "╵", age
 	}
-	return "│"
+	return "│", age
 }
 
-func smearTick() tea.Cmd {
-	return tea.Tick(smearFrameInterval, func(time.Time) tea.Msg { return smearTickMsg{} })
+func (m teaModel) smearTick() tea.Cmd {
+	return tea.Tick(m.smear.frameInterval, func(time.Time) tea.Msg { return smearTickMsg{} })
 }
 
 func overlayCell(line string, column int, cell string, width int) string {
@@ -691,9 +774,13 @@ func fixedVisualLines(text string, width, count int) string {
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
+	return rowWithRail(s, selected, width, showIcons, query, selectionRailStyle.Render("┃ "))
+}
+
+func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons bool, query, selectedRail string) string {
 	rail := "  "
 	if selected {
-		rail = selectionRailStyle.Render("┃ ")
+		rail = selectedRail
 	}
 	label := s.Name
 	if label == "" {

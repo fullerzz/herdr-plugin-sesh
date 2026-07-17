@@ -2,6 +2,7 @@ package picker
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -13,6 +14,13 @@ import (
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
+
+func TestMain(m *testing.M) {
+	if err := os.Setenv("HERDR_SESH_SMEAR_PRESET", "crisp"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
 
 func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 	m := newTeaModel([]model.Session{
@@ -123,6 +131,100 @@ func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
 	}
 	if !m.input.Focused() || strings.Contains(ansi.Strip(m.listView(40, 2)), "┃") {
 		t.Fatalf("cursor did not settle in the filter:\n%s", ansi.Strip(m.View().Content))
+	}
+}
+
+func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	t.Setenv("HERDR_SESH_SMEAR_PRESET", "gooey")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = updated.(teaModel)
+
+	columns := make([]int, 0, 3)
+	for frame := range 3 {
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		column := visualColumn(lines[listFirstRowIndex-frame], "█")
+		if column < 0 {
+			t.Fatalf("frame %d missing Gooey cursor:\n%s", frame, strings.Join(lines, "\n"))
+		}
+		columns = append(columns, column)
+		if frame < 2 {
+			updated, _ = m.Update(smearTickMsg{})
+			m = updated.(teaModel)
+		}
+	}
+
+	firstMove := columns[1] - columns[0]
+	secondMove := columns[2] - columns[1]
+	if firstMove <= secondMove {
+		t.Fatalf("reverse Gooey movement accelerated into the input: columns=%v moves=%d,%d", columns, firstMove, secondMove)
+	}
+}
+
+func TestTeaModelSmearPresets(t *testing.T) {
+	tests := []struct {
+		name          string
+		head          string
+		transferTrail []string
+		rowTrail      string
+		rowTrailCells int
+	}{
+		{name: "crisp", head: "┃", transferTrail: []string{"╱"}, rowTrail: "╷│╵", rowTrailCells: 2},
+		{name: "gooey", head: "█", transferTrail: []string{"▓", "▒"}, rowTrail: "▓▒", rowTrailCells: 4},
+		{name: "ghost", head: "◆", transferTrail: []string{"·"}, rowTrail: "·", rowTrailCells: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HERDR_SESH_SMEAR_PRESET", tt.name)
+			items := make([]model.Session, 6)
+			for i := range items {
+				items[i] = model.Session{Name: "workspace"}
+			}
+			m := newTeaModel(items, Options{})
+			updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			m = updated.(teaModel)
+			for range 2 {
+				updated, _ = m.Update(smearTickMsg{})
+				m = updated.(teaModel)
+			}
+			transfer := ansi.Strip(m.View().Content)
+			for _, glyph := range append([]string{tt.head}, tt.transferTrail...) {
+				if !strings.Contains(transfer, glyph) {
+					t.Fatalf("%s transfer missing %q:\n%s", tt.name, glyph, transfer)
+				}
+			}
+
+			for range 10 {
+				updated, _ = m.Update(smearTickMsg{})
+				m = updated.(teaModel)
+			}
+			if view := ansi.Strip(m.listView(40, 6)); !strings.Contains(view, tt.head) {
+				t.Fatalf("%s settled cursor missing %q:\n%s", tt.name, tt.head, view)
+			}
+			for range len(items) - 1 {
+				updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+				m = updated.(teaModel)
+			}
+			rowView := ansi.Strip(m.listView(40, 6))
+			trailCells := 0
+			for _, glyph := range rowView {
+				if strings.ContainsRune(tt.rowTrail, glyph) {
+					trailCells++
+				}
+			}
+			if trailCells != tt.rowTrailCells {
+				t.Fatalf("%s row trail cells=%d, want %d:\n%s", tt.name, trailCells, tt.rowTrailCells, rowView)
+			}
+		})
 	}
 }
 
