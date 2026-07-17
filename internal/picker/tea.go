@@ -390,16 +390,29 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		fallthrough
 	default:
-		var focusCmd tea.Cmd
-		if m.listFocused {
-			m, focusCmd = m.focusInput()
-		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		m = m.filter(m.input.Value())
-		m, previewCmd := m.refreshPreview()
-		return m, tea.Batch(focusCmd, cmd, previewCmd)
+		return m.updateInput(msg)
 	}
+}
+
+func (m teaModel) updateInput(msg tea.Msg) (teaModel, tea.Cmd) {
+	var focusCmd tea.Cmd
+	smearing := false
+	if m.listFocused {
+		m, focusCmd = m.smearToInput()
+		smearing = m.focusSmearActive
+		if smearing {
+			m.input.Focus()
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	if smearing {
+		m.input.Blur()
+		m.focusSmearStart = m.inputCursorColumn()
+	}
+	m = m.filter(m.input.Value())
+	m, previewCmd := m.refreshPreview()
+	return m, tea.Batch(focusCmd, cmd, previewCmd)
 }
 
 func scheduleStatusRefresh() tea.Cmd {

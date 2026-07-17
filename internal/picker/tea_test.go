@@ -160,6 +160,30 @@ func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
 	}
 }
 
+func TestTeaModelTypingTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	m.list.Selected = 1
+	m.listFocused = true
+	m.input.Blur()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	m = updated.(teaModel)
+	if m.input.Value() != "w" || m.list.Query != "w" {
+		t.Fatalf("typed key was not applied during transfer: input=%q query=%q", m.input.Value(), m.list.Query)
+	}
+	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
+		t.Fatalf("typing skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
+	}
+
+	updated, _ = m.Update(smearTickMsg{})
+	m = updated.(teaModel)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if column := visualColumn(lines[listFirstRowIndex], "┃"); column <= horizontalPadding {
+		t.Fatalf("typed cursor did not smear up-right: column=%d\n%s", column, strings.Join(lines, "\n"))
+	}
+}
+
 func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	items := make([]model.Session, 40)
