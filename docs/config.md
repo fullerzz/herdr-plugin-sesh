@@ -44,6 +44,17 @@ the state directory.
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 
+Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
+
+| Preset | Effect |
+| --- | --- |
+| `crisp` | Fast cyan rail with a short violet line trail. This is the default. |
+| `gooey` | Slower block cursor with a longer shaded trail and eased movement. |
+| `ghost` | Soft diamond cursor with a dotted, low-contrast trail. |
+
+Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) to keep cursor movement
+instantaneous without drawing any preset's trail.
+
 Open Herdr workspaces show the agent state reported by Herdr when the picker
 opens: green `●` working, amber `◆` blocked, muted `○` idle, and violet `✓`
 done. Workspaces with an unknown state have no indicator.

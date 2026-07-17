@@ -2,6 +2,7 @@ package picker
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -13,6 +14,13 @@ import (
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
+
+func TestMain(m *testing.M) {
+	if err := os.Setenv("HERDR_SESH_SMEAR_PRESET", "crisp"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
 
 func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 	m := newTeaModel([]model.Session{
@@ -36,9 +44,408 @@ func TestTeaModelMovesSelection(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
 	cur, ok := m.list.Current()
 	if !ok || cur.Name != "web" {
 		t.Fatalf("current = %#v ok=%v", cur, ok)
+	}
+}
+
+func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
+	m = updated.(teaModel)
+	if view := ansi.Strip(m.listView(40, 2)); strings.Contains(view, "┃") {
+		t.Fatalf("list cursor visible while filter is focused:\n%s", view)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	if m.input.Focused() {
+		t.Fatal("filter remained focused after moving into the list")
+	}
+	if m.list.Selected != 0 {
+		t.Fatalf("selected row=%d, want first filtered row", m.list.Selected)
+	}
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	startColumn := visualColumn(lines[3], "┃")
+	wantStartColumn := horizontalPadding + lipgloss.Width(defaultPrompt+"work")
+	if startColumn != wantStartColumn {
+		t.Fatalf("transfer cursor column=%d, want typed-text endpoint %d:\n%s", startColumn, wantStartColumn, strings.Join(lines, "\n"))
+	}
+
+	updated, _ = m.Update(smearTickMsg{})
+	m = updated.(teaModel)
+	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
+	nextColumn := visualColumn(lines[4], "┃")
+	if nextColumn < horizontalPadding || nextColumn >= startColumn {
+		t.Fatalf("transfer cursor did not move down-left: start=%d next=%d\n%s", startColumn, nextColumn, strings.Join(lines, "\n"))
+	}
+
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+	view := ansi.Strip(m.View().Content)
+	if strings.Count(view, "┃") != 1 || !strings.Contains(ansi.Strip(m.listView(40, 2)), "┃") {
+		t.Fatalf("cursor did not settle as the single list rail:\n%s", view)
+	}
+}
+
+func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = updated.(teaModel)
+	if m.input.Focused() {
+		t.Fatal("filter refocused before the reverse smear completed")
+	}
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	startColumn := visualColumn(lines[listFirstRowIndex], "┃")
+	if startColumn != horizontalPadding {
+		t.Fatalf("reverse cursor column=%d, want list rail %d:\n%s", startColumn, horizontalPadding, strings.Join(lines, "\n"))
+	}
+
+	updated, _ = m.Update(smearTickMsg{})
+	m = updated.(teaModel)
+	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
+	nextColumn := visualColumn(lines[listFirstRowIndex-1], "┃")
+	if nextColumn <= startColumn {
+		t.Fatalf("reverse cursor did not move up-right: start=%d next=%d\n%s", startColumn, nextColumn, strings.Join(lines, "\n"))
+	}
+
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+	if !m.input.Focused() || strings.Contains(ansi.Strip(m.listView(40, 2)), "┃") {
+		t.Fatalf("cursor did not settle in the filter:\n%s", ansi.Strip(m.View().Content))
+	}
+}
+
+func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = updated.(teaModel)
+	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
+		t.Fatalf("right arrow skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
+	}
+
+	updated, _ = m.Update(smearTickMsg{})
+	m = updated.(teaModel)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if column := visualColumn(lines[listFirstRowIndex-1], "┃"); column <= horizontalPadding {
+		t.Fatalf("right-arrow cursor did not smear up-right: column=%d\n%s", column, strings.Join(lines, "\n"))
+	}
+}
+
+func TestTeaModelTypingTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	m.list.Selected = 1
+	m.listFocused = true
+	m.input.Blur()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	m = updated.(teaModel)
+	if m.input.Value() != "w" || m.list.Query != "w" {
+		t.Fatalf("typed key was not applied during transfer: input=%q query=%q", m.input.Value(), m.list.Query)
+	}
+	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
+		t.Fatalf("typing skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
+	}
+
+	updated, _ = m.Update(smearTickMsg{})
+	m = updated.(teaModel)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if column := visualColumn(lines[listFirstRowIndex], "┃"); column <= horizontalPadding {
+		t.Fatalf("typed cursor did not smear up-right: column=%d\n%s", column, strings.Join(lines, "\n"))
+	}
+}
+
+func TestTeaModelPasteTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	m.listFocused = true
+	m.input.Blur()
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "workspace"})
+	m = updated.(teaModel)
+	if m.input.Value() != "workspace" || m.list.Query != "workspace" {
+		t.Fatalf("pasted text was not applied during transfer: input=%q query=%q", m.input.Value(), m.list.Query)
+	}
+	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
+		t.Fatalf("paste skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
+	}
+}
+
+func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	items := make([]model.Session, 40)
+	for i := range items {
+		items[i] = model.Session{Name: "workspace"}
+	}
+	m := newTeaModel(items, Options{})
+	m.width = 100
+	m.height = 100
+	m.list.Selected = 30
+	m.listFocused = true
+	m.input.Blur()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = updated.(teaModel)
+	distance := m.focusSmearSteps
+	wantDistance := listFirstRowIndex + m.list.Selected - filterLineIndex
+	if distance != wantDistance {
+		t.Fatalf("transfer distance=%d, want selected-row distance %d", distance, wantDistance)
+	}
+	previousStep := m.focusSmearStep
+	ticks := 0
+	largestAdvance := 0
+	for m.focusSmearActive {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+		ticks++
+		largestAdvance = max(largestAdvance, previousStep-m.focusSmearStep)
+		previousStep = m.focusSmearStep
+	}
+
+	if ticks >= distance || largestAdvance <= 1 {
+		t.Fatalf("long transfer did not accelerate: distance=%d ticks=%d largestAdvance=%d", distance, ticks, largestAdvance)
+	}
+}
+
+func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	t.Setenv("HERDR_SESH_SMEAR_PRESET", "gooey")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = updated.(teaModel)
+
+	columns := make([]int, 0, 3)
+	for frame := range 3 {
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		column := visualColumn(lines[listFirstRowIndex-frame], "█")
+		if column < 0 {
+			t.Fatalf("frame %d missing Gooey cursor:\n%s", frame, strings.Join(lines, "\n"))
+		}
+		columns = append(columns, column)
+		if frame < 2 {
+			updated, _ = m.Update(smearTickMsg{})
+			m = updated.(teaModel)
+		}
+	}
+
+	firstMove := columns[1] - columns[0]
+	secondMove := columns[2] - columns[1]
+	if firstMove <= secondMove {
+		t.Fatalf("reverse Gooey movement accelerated into the input: columns=%v moves=%d,%d", columns, firstMove, secondMove)
+	}
+}
+
+func TestTeaModelSmearPresets(t *testing.T) {
+	tests := []struct {
+		name          string
+		head          string
+		transferTrail []string
+		rowTrail      string
+		rowTrailCells int
+	}{
+		{name: "crisp", head: "┃", transferTrail: []string{"╱"}, rowTrail: "╷│╵", rowTrailCells: 2},
+		{name: "gooey", head: "█", transferTrail: []string{"▓", "▒"}, rowTrail: "▓▒", rowTrailCells: 4},
+		{name: "ghost", head: "◆", transferTrail: []string{"·"}, rowTrail: "·", rowTrailCells: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HERDR_SESH_SMEAR_PRESET", tt.name)
+			items := make([]model.Session, 6)
+			for i := range items {
+				items[i] = model.Session{Name: "workspace"}
+			}
+			m := newTeaModel(items, Options{})
+			updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			m = updated.(teaModel)
+			for range 2 {
+				updated, _ = m.Update(smearTickMsg{})
+				m = updated.(teaModel)
+			}
+			transfer := ansi.Strip(m.View().Content)
+			for _, glyph := range append([]string{tt.head}, tt.transferTrail...) {
+				if !strings.Contains(transfer, glyph) {
+					t.Fatalf("%s transfer missing %q:\n%s", tt.name, glyph, transfer)
+				}
+			}
+
+			for range 10 {
+				updated, _ = m.Update(smearTickMsg{})
+				m = updated.(teaModel)
+			}
+			if view := ansi.Strip(m.listView(40, 6)); !strings.Contains(view, tt.head) {
+				t.Fatalf("%s settled cursor missing %q:\n%s", tt.name, tt.head, view)
+			}
+			for range len(items) - 1 {
+				updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+				m = updated.(teaModel)
+			}
+			rowView := ansi.Strip(m.listView(40, 6))
+			trailCells := 0
+			for _, glyph := range rowView {
+				if strings.ContainsRune(tt.rowTrail, glyph) {
+					trailCells++
+				}
+			}
+			if trailCells != tt.rowTrailCells {
+				t.Fatalf("%s row trail cells=%d, want %d:\n%s", tt.name, trailCells, tt.rowTrailCells, rowView)
+			}
+		})
+	}
+}
+
+func TestTeaModelSmearsRapidSelectionMoves(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}, {Name: "docs"}}, Options{})
+	m.listFocused = true
+	m.input.Blur()
+	for range 2 {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = updated.(teaModel)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(ansi.Strip(m.listView(40, 3)), "\n"), "\n")
+	for i, want := range []string{"╷ ", "│ ", "┃ "} {
+		if !strings.HasPrefix(lines[i], want) {
+			t.Fatalf("row %d = %q, want rail %q\n%s", i, lines[i], want, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestTeaModelSmearRetracts(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	oldPreview := renderPreview
+	renderPreview = func(context.Context, model.Session, string) (string, error) { return "preview", nil }
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	m.listFocused = true
+	m.input.Blur()
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	if !strings.HasPrefix(ansi.Strip(m.listView(40, 2)), "╷ ") {
+		t.Fatalf("moving selection did not start the smear:\n%s", ansi.Strip(m.listView(40, 2)))
+	}
+
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("move command = %T, want preview and animation batch", msg)
+	}
+	tickHandled := false
+	for _, child := range batch {
+		msg := child()
+		if _, ok := msg.(previewMsg); ok {
+			continue
+		}
+		updated, _ = m.Update(msg)
+		m = updated.(teaModel)
+		tickHandled = true
+	}
+	if !tickHandled {
+		t.Fatal("move batch did not contain an animation tick")
+	}
+	if view := ansi.Strip(m.listView(40, 2)); strings.HasPrefix(view, "╷ ") {
+		t.Fatalf("smear remained after settling:\n%s", view)
+	}
+}
+
+func TestTeaModelCapsSmearSettleTime(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	items := make([]model.Session, 100)
+	for i := range items {
+		items[i] = model.Session{Name: "workspace"}
+	}
+	m := newTeaModel(items, Options{})
+	m.listFocused = true
+	m.input.Blur()
+	for range len(items) - 1 {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = updated.(teaModel)
+	}
+
+	for ticks := 1; m.smearActive; ticks++ {
+		if ticks > 3 {
+			t.Fatalf("smear still active after %d settle ticks", ticks-1)
+		}
+		updated, _ := m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+}
+
+func TestTeaModelQueryChangeClearsSmear(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{
+		{Name: "workspace-0"},
+		{Name: "workspace-1"},
+		{Name: "workspace-2"},
+		{Name: "workspace-3"},
+	}, Options{})
+	m.list.Selected = 2
+	m.listFocused = true
+	m.input.Blur()
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'w', Text: "workspace"})
+	m = updated.(teaModel)
+
+	view := ansi.Strip(m.listView(40, 4))
+	if strings.Contains(view, "╵ ") || strings.Contains(view, "│ ") {
+		t.Fatalf("query change left a smear on reordered rows:\n%s", view)
+	}
+}
+
+func TestTeaModelReducedMotionSkipsSmear(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+
+	current, ok := m.list.Current()
+	if !ok || current.Name != "web" {
+		t.Fatalf("current = %#v ok=%v", current, ok)
+	}
+	view := ansi.Strip(m.listView(40, 2))
+	if strings.Contains(view, "╷ ") || strings.Contains(view, "│ ") {
+		t.Fatalf("reduced motion rendered a smear:\n%s", view)
 	}
 }
 
@@ -179,6 +586,8 @@ func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 
 func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	if cmd == nil || !strings.Contains(m.preview, "Loading preview") {
@@ -383,4 +792,12 @@ func maxLineWidth(s string) int {
 		maxWidth = max(maxWidth, lipgloss.Width(line))
 	}
 	return maxWidth
+}
+
+func visualColumn(line, marker string) int {
+	index := strings.Index(line, marker)
+	if index < 0 {
+		return -1
+	}
+	return lipgloss.Width(line[:index])
 }

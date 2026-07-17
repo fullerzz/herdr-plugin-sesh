@@ -8,6 +8,8 @@ zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command and
 tabs.
 
+![Herdr Sesh picker demo](assets/picker-demo-42.gif)
+
 ## Features
 
 - Search active Herdr workspaces, Sesh-style TOML sessions, and zoxide history
