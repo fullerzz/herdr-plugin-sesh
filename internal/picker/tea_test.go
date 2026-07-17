@@ -184,6 +184,22 @@ func TestTeaModelTypingTransfersCursorFromListToFilter(t *testing.T) {
 	}
 }
 
+func TestTeaModelPasteTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	m.listFocused = true
+	m.input.Blur()
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "workspace"})
+	m = updated.(teaModel)
+	if m.input.Value() != "workspace" || m.list.Query != "workspace" {
+		t.Fatalf("pasted text was not applied during transfer: input=%q query=%q", m.input.Value(), m.list.Query)
+	}
+	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
+		t.Fatalf("paste skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
+	}
+}
+
 func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	items := make([]model.Session, 40)

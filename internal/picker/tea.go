@@ -343,6 +343,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = size.Height
 		return m, nil
 	}
+	if _, ok := msg.(tea.PasteMsg); ok {
+		return m.updateInput(msg)
+	}
 	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		var cmd tea.Cmd
