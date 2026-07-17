@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,6 +140,7 @@ type teaModel struct {
 	smearTail           int
 	smearActive         bool
 	focusSmearStart     int
+	focusSmearFrame     int
 	focusSmearStep      int
 	focusSmearSteps     int
 	focusSmearDirection int
@@ -301,13 +303,17 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if _, ok := msg.(smearTickMsg); ok {
 		if m.focusSmearActive {
-			m.focusSmearStep += m.focusSmearDirection
-			if m.focusSmearDirection < 0 && m.focusSmearStep <= 0 {
-				m.focusSmearActive = false
-				return m.focusInput()
+			m.focusSmearFrame++
+			traveled := acceleratedFocusSmearStep(m.focusSmearSteps, m.focusSmearFrame)
+			m.focusSmearStep = traveled
+			if m.focusSmearDirection < 0 {
+				m.focusSmearStep = m.focusSmearSteps - traveled
 			}
-			if m.focusSmearStep >= m.focusSmearSteps {
+			if m.focusSmearFrame >= focusSmearFrameCount(m.focusSmearSteps) {
 				m.focusSmearActive = false
+				if m.focusSmearDirection < 0 {
+					return m.focusInput()
+				}
 				return m, nil
 			}
 			return m, m.smearTick()
@@ -590,17 +596,9 @@ func (m teaModel) focusList() (teaModel, tea.Cmd) {
 	if m.reduceMotion {
 		return m, nil
 	}
-	visibleRows := m.previewBodyLines()
-	if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
-		visibleRows, _ = m.stackedBodyLines()
-	}
-	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
-	selectedLine := m.list.Selected - start
-	if moreAbove {
-		selectedLine++
-	}
+	m.focusSmearFrame = 0
 	m.focusSmearStep = 0
-	m.focusSmearSteps = maxInt(1, listFirstRowIndex+selectedLine-filterLineIndex)
+	m.focusSmearSteps = m.focusSmearDistance()
 	m.focusSmearDirection = 1
 	m.focusSmearActive = true
 	return m, m.smearTick()
@@ -614,11 +612,41 @@ func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
 		return m, nil
 	}
 	m.focusSmearStart = m.inputCursorColumn()
-	m.focusSmearSteps = listFirstRowIndex - filterLineIndex
+	m.focusSmearFrame = 0
+	m.focusSmearSteps = m.focusSmearDistance()
 	m.focusSmearStep = m.focusSmearSteps
 	m.focusSmearDirection = -1
 	m.focusSmearActive = true
 	return m, m.smearTick()
+}
+
+func (m teaModel) focusSmearDistance() int {
+	visibleRows := m.previewBodyLines()
+	if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
+		visibleRows, _ = m.stackedBodyLines()
+	}
+	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
+	selectedLine := m.list.Selected - start
+	if moreAbove {
+		selectedLine++
+	}
+	return maxInt(1, listFirstRowIndex+selectedLine-filterLineIndex)
+}
+
+func focusSmearFrameCount(distance int) int {
+	// Constant acceleration keeps travel time proportional to sqrt(distance).
+	return min(distance, maxInt(1, int(math.Ceil(math.Sqrt(2*float64(distance))))))
+}
+
+func acceleratedFocusSmearStep(distance, frame int) int {
+	frames := focusSmearFrameCount(distance)
+	frame = min(frame, frames)
+	denominator := frames * frames
+	if frame*2 <= frames {
+		return (2*distance*frame*frame + denominator/2) / denominator
+	}
+	remaining := frames - frame
+	return distance - (2*distance*remaining*remaining+denominator/2)/denominator
 }
 
 func (m teaModel) focusInput() (teaModel, tea.Cmd) {

@@ -160,6 +160,42 @@ func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
 	}
 }
 
+func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	items := make([]model.Session, 40)
+	for i := range items {
+		items[i] = model.Session{Name: "workspace"}
+	}
+	m := newTeaModel(items, Options{})
+	m.width = 100
+	m.height = 100
+	m.list.Selected = 30
+	m.listFocused = true
+	m.input.Blur()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = updated.(teaModel)
+	distance := m.focusSmearSteps
+	wantDistance := listFirstRowIndex + m.list.Selected - filterLineIndex
+	if distance != wantDistance {
+		t.Fatalf("transfer distance=%d, want selected-row distance %d", distance, wantDistance)
+	}
+	previousStep := m.focusSmearStep
+	ticks := 0
+	largestAdvance := 0
+	for m.focusSmearActive {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+		ticks++
+		largestAdvance = max(largestAdvance, previousStep-m.focusSmearStep)
+		previousStep = m.focusSmearStep
+	}
+
+	if ticks >= distance || largestAdvance <= 1 {
+		t.Fatalf("long transfer did not accelerate: distance=%d ticks=%d largestAdvance=%d", distance, ticks, largestAdvance)
+	}
+}
+
 func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	t.Setenv("HERDR_SESH_SMEAR_PRESET", "gooey")
