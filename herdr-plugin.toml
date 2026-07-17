@@ -1,6 +1,6 @@
 id = "fullerzz.sesh"
 name = "Sesh for Herdr"
-version = "0.2.0"
+version = "0.3.0"
 min_herdr_version = "0.7.0"
 description = "Sesh-style smart workspace/session manager for Herdr"
 platforms = ["linux", "macos"]
