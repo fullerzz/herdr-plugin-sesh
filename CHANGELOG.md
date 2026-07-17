@@ -1,3 +1,26 @@
+## v0.3.0 (2026-07-17)
+
+### 🚀 Features
+
+- Highlight native picker search matches ([#49](https://github.com/fullerzz/herdr-plugin-sesh/issues/49)) ([7f4366b](https://github.com/fullerzz/herdr-plugin-sesh/commit/7f4366b86d758f2fb683ad9654579f5aa43daaa5))
+
+- Refresh agent statuses in native picker ([#50](https://github.com/fullerzz/herdr-plugin-sesh/issues/50)) ([44f297c](https://github.com/fullerzz/herdr-plugin-sesh/commit/44f297cb274e66a9fd39975070e4ce496380a616))
+
+- Add picker cursor smear animations ([#51](https://github.com/fullerzz/herdr-plugin-sesh/issues/51)) ([797f14c](https://github.com/fullerzz/herdr-plugin-sesh/commit/797f14c0ef767fe4b7f5c690f4477914e00a9dfa))
+
+
+
+### 📚 Documentation
+
+- Add github social preview card image ([46ea3b7](https://github.com/fullerzz/herdr-plugin-sesh/commit/46ea3b72465d835af054989e9673b77e2bb0f68a))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- Release v0.3.0 ([250e035](https://github.com/fullerzz/herdr-plugin-sesh/commit/250e035127db31dab7b7fe89dbe994d6342b17e9))
+
+
 ## v0.2.0 (2026-07-16)
 
 ### 🚀 Features
