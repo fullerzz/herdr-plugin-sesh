@@ -378,6 +378,11 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.filter("")
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(focusCmd, previewCmd)
+	case "right":
+		if m.listFocused {
+			return m.smearToInput()
+		}
+		fallthrough
 	default:
 		var focusCmd tea.Cmd
 		if m.listFocused {

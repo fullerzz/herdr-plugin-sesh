@@ -134,6 +134,32 @@ func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
 	}
 }
 
+func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
+	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	for range 10 {
+		updated, _ = m.Update(smearTickMsg{})
+		m = updated.(teaModel)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = updated.(teaModel)
+	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
+		t.Fatalf("right arrow skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
+	}
+
+	updated, _ = m.Update(smearTickMsg{})
+	m = updated.(teaModel)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if column := visualColumn(lines[listFirstRowIndex-1], "┃"); column <= horizontalPadding {
+		t.Fatalf("right-arrow cursor did not smear up-right: column=%d\n%s", column, strings.Join(lines, "\n"))
+	}
+}
+
 func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	t.Setenv("HERDR_SESH_SMEAR_PRESET", "gooey")
