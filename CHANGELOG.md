@@ -1,3 +1,26 @@
+## v0.3.1 (2026-07-18)
+
+### 💼 Other
+
+- Expose plugin build command ([#54](https://github.com/fullerzz/herdr-plugin-sesh/issues/54)) ([60ba957](https://github.com/fullerzz/herdr-plugin-sesh/commit/60ba9578a23d42e7e1001c03375b698459df8605))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- Setup pre-commit hooks with prek ([7bf42cd](https://github.com/fullerzz/herdr-plugin-sesh/commit/7bf42cd38b61f1351ff71ccb21718f3c9ea0431e))
+
+- Add .editorconfig ([8e924b6](https://github.com/fullerzz/herdr-plugin-sesh/commit/8e924b622431309e302cf46395c99780287b1cfa))
+
+- Release v0.3.1 ([f136da9](https://github.com/fullerzz/herdr-plugin-sesh/commit/f136da907dd099bfb07eb4cbe7c9835163200569))
+
+
+
+### 🎡 Continuous Integration
+
+- **ci-deps**: Update actions/setup-go action to v7 ([#53](https://github.com/fullerzz/herdr-plugin-sesh/issues/53)) ([f24d765](https://github.com/fullerzz/herdr-plugin-sesh/commit/f24d765c604b8c92b756ad5674f7e7d984aa12b5))
+
+
 ## v0.3.0 (2026-07-17)
 
 ### 🚀 Features
