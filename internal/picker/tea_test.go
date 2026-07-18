@@ -1407,6 +1407,45 @@ func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	}
 }
 
+func drainCmds(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		for _, c := range batch {
+			drainCmds(c)
+		}
+	}
+}
+
+func TestTeaModelReportsSelectionChanges(t *testing.T) {
+	orig := renderPreview
+	renderPreview = func(context.Context, model.Session, string) (string, error) { return "", nil }
+	defer func() { renderPreview = orig }()
+
+	var reports []string
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1", Path: "/tmp/api"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2", Path: "/tmp/web"},
+	}, Options{ReportSelection: func(id string) { reports = append(reports, id) }})
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	drainCmds(cmd)
+	if len(reports) != 1 || reports[0] != "w2" {
+		t.Fatalf("reports=%#v", reports)
+	}
+
+	updated, cmd = m.Update(tea.KeyPressMsg{Code: 'z', Text: "zzz"})
+	_ = updated.(teaModel)
+	drainCmds(cmd)
+	if len(reports) != 2 || reports[1] != "" {
+		t.Fatalf("reports=%#v", reports)
+	}
+}
+
 func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1", AgentStatus: "working"},

@@ -270,6 +270,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	var ok bool
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 	pickerWorkspaceID := currentWorkspaceID
+	highlighter := &sidebarHighlighter{client: herdr.NewCLIClient()}
 	if useFZF {
 		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
 	} else {
@@ -318,11 +319,13 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			}
 			return statuses, nil
 		}
+		pickOpts.ReportSelection = func(workspaceID string) { highlighter.Report(ctx, workspaceID) }
 		selected, ok, err = pickerpkg.Run(sessions, pickOpts)
 		for _, warning := range deferredWarnings {
 			a.warnf("%s", warning)
 		}
 	}
+	highlighter.Report(ctx, "")
 	if err != nil || !ok {
 		return err
 	}

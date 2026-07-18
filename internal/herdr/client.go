@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -99,6 +101,12 @@ type WorkspaceCreateRequest struct {
 	CWD, Label string
 	Focus      bool
 }
+type WorkspaceMetadataRequest struct {
+	WorkspaceID, Source string
+	Tokens              map[string]string
+	ClearTokens         []string
+	TTLMS               int
+}
 type TabCreateRequest struct {
 	WorkspaceID, CWD, Label string
 	Focus                   bool
@@ -108,6 +116,7 @@ type Client interface {
 	WorkspaceList(context.Context) ([]Workspace, error)
 	WorkspaceCreate(context.Context, WorkspaceCreateRequest) (Workspace, error)
 	WorkspaceFocus(context.Context, string) error
+	WorkspaceReportMetadata(context.Context, WorkspaceMetadataRequest) error
 	TabList(context.Context, string) ([]Tab, error)
 	TabCreate(context.Context, TabCreateRequest) (Tab, error)
 	TabFocus(context.Context, string) error
@@ -263,6 +272,25 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 }
 func (c *CLIClient) WorkspaceFocus(ctx context.Context, id string) error {
 	_, err := c.run(ctx, "workspace", "focus", id)
+	return err
+}
+func (c *CLIClient) WorkspaceReportMetadata(ctx context.Context, r WorkspaceMetadataRequest) error {
+	args := []string{"workspace", "report-metadata", r.WorkspaceID, "--source", r.Source}
+	keys := make([]string, 0, len(r.Tokens))
+	for k := range r.Tokens {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "--token", k+"="+r.Tokens[k])
+	}
+	for _, k := range r.ClearTokens {
+		args = append(args, "--clear-token", k)
+	}
+	if r.TTLMS > 0 {
+		args = append(args, "--ttl-ms", strconv.Itoa(r.TTLMS))
+	}
+	_, err := c.run(ctx, args...)
 	return err
 }
 func (c *CLIClient) WorkspaceClose(ctx context.Context, id string) error {

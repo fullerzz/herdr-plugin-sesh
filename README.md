@@ -26,6 +26,8 @@ tabs.
 - Jump directly to the previously focused workspace.
 - Clone a Git repository and connect to it in one command.
 - Use the built-in picker by default or opt into the experimental fzf picker.
+- Mirror the native picker selection into the Herdr sidebar with a workspace
+  metadata token (see [Sidebar selection indicator](docs/config.md#sidebar-selection-indicator)).
 
 Sesh concepts map onto Herdr as follows:
 

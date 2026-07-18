@@ -57,6 +57,31 @@ func TestCLIClientConstructsWorkspaceClose(t *testing.T) {
 	}
 }
 
+func TestCLIClientConstructsWorkspaceReportMetadata(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	err := c.WorkspaceReportMetadata(context.Background(), WorkspaceMetadataRequest{
+		WorkspaceID: "w1",
+		Source:      "fullerzz.sesh",
+		Tokens:      map[string]string{"sesh": "◀ sesh"},
+		ClearTokens: []string{"old"},
+		TTLMS:       3000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{
+		"/bin/herdr", "workspace", "report-metadata", "w1",
+		"--source", "fullerzz.sesh",
+		"--token", "sesh=◀ sesh",
+		"--clear-token", "old",
+		"--ttl-ms", "3000",
+	}}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
 func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api","agent_status":"working"}]}}`)}}
 	got, err := c.WorkspaceList(context.Background())

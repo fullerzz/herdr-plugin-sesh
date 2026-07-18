@@ -9,6 +9,7 @@ type FakeClient struct {
 	CreatedWorkspaces []WorkspaceCreateRequest
 	CreatedTabs       []TabCreateRequest
 	FocusedWorkspaces []string
+	ReportedMetadata  []WorkspaceMetadataRequest
 	FocusedTabs       []string
 	PaneRuns          []string
 	OpenedPlugins     []string
@@ -23,6 +24,10 @@ func (f *FakeClient) WorkspaceCreate(_ context.Context, r WorkspaceCreateRequest
 }
 func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
 	f.FocusedWorkspaces = append(f.FocusedWorkspaces, id)
+	return nil
+}
+func (f *FakeClient) WorkspaceReportMetadata(_ context.Context, r WorkspaceMetadataRequest) error {
+	f.ReportedMetadata = append(f.ReportedMetadata, r)
 	return nil
 }
 func (f *FakeClient) TabList(context.Context, string) ([]Tab, error) { return f.Tabs, nil }

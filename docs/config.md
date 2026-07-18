@@ -82,6 +82,28 @@ Open Herdr workspaces show the agent state reported by Herdr: an animated amber
 Jump spinner (`⢄⢂⢁⡁⡈⡐⡠`) while working, red `◉` when blocked, green `✓` when idle,
 and teal `●` when done. Workspaces with an unknown state have no indicator.
 
+## Sidebar selection indicator
+
+While the native picker is open, the highlighted entry is mirrored into the
+Herdr sidebar. When the selection lands on an existing Herdr workspace, the
+picker reports a `sesh` metadata token (value `◀ sesh`) on that workspace
+through `herdr workspace report-metadata`, clears it from the previously
+highlighted workspace, and clears everything when the picker closes. Tokens
+carry a short TTL and are renewed once per second, so the indicator disappears
+on its own if the picker exits abnormally.
+
+Herdr only renders metadata tokens that appear in its sidebar row layout. To
+show the indicator, add `$sesh` to the space rows in Herdr's `config.toml`:
+
+```toml
+[ui.sidebar.spaces]
+rows = [["state_icon", "workspace", "$sesh"], ["branch", "git_status"]]
+```
+
+Entries whose selection is not an open workspace (config sessions, zoxide
+directories) have nothing to highlight, and the experimental fzf picker does
+not report selections.
+
 ## Picker colors
 
 By default, the native picker inherits colors from Herdr's own theme so it
