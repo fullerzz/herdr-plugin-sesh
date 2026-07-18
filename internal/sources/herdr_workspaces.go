@@ -12,6 +12,14 @@ type HerdrWorkspaces struct{ Client herdr.Client }
 
 func (HerdrWorkspaces) Name() string { return "herdr" }
 func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
+	return s.list(ctx, false)
+}
+
+func (s HerdrWorkspaces) Refresh(ctx context.Context) (model.Sessions, error) {
+	return s.list(ctx, true)
+}
+
+func (s HerdrWorkspaces) list(ctx context.Context, strict bool) (model.Sessions, error) {
 	out := model.NewSessions()
 	if s.Client == nil {
 		return out, nil
@@ -22,25 +30,32 @@ func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
 	}
 	panes, err := s.Client.PaneList(ctx, "")
 	if err != nil {
+		if strict {
+			return out, err
+		}
 		panes = nil
 	}
 	tabs, err := s.Client.TabList(ctx, "")
 	if err != nil {
+		if strict {
+			return out, err
+		}
 		tabs = nil
 	}
 	for _, w := range ws {
 		path := workspacePath(w, panes)
 		out.Add(model.Session{
-			Source:         "herdr",
-			Name:           w.Label,
-			Path:           path,
-			WorkspaceID:    w.ID,
-			AgentStatus:    w.AgentStatus,
-			TabCount:       w.TabCount,
-			PaneCount:      w.PaneCount,
-			ActiveTabID:    w.ActiveTabID,
-			WorkspaceTabs:  workspaceTabs(w.ID, tabs),
-			WorkspacePanes: workspacePanes(w.ID, panes),
+			Source:          "herdr",
+			Name:            w.Label,
+			Path:            path,
+			WorkspaceID:     w.ID,
+			WorkspaceNumber: w.Number,
+			AgentStatus:     w.AgentStatus,
+			TabCount:        w.TabCount,
+			PaneCount:       w.PaneCount,
+			ActiveTabID:     w.ActiveTabID,
+			WorkspaceTabs:   workspaceTabs(w.ID, tabs),
+			WorkspacePanes:  workspacePanes(w.ID, panes),
 		})
 	}
 	return out, nil
@@ -52,7 +67,7 @@ func workspaceTabs(workspaceID string, tabs []herdr.Tab) []model.WorkspaceTab {
 		if tab.WorkspaceID != workspaceID {
 			continue
 		}
-		out = append(out, model.WorkspaceTab{ID: tab.ID, Number: tab.Number, Label: tab.Label})
+		out = append(out, model.WorkspaceTab{ID: tab.ID, Number: len(out) + 1, Label: tab.Label})
 	}
 	return out
 }

@@ -49,13 +49,20 @@ func (m *Model) Move(delta int) {
 	m.Selected += delta
 	m.clampSelected()
 }
-func (m *Model) UpdateAgentStatuses(statuses map[string]string) {
-	for i := range m.All {
-		if m.All[i].WorkspaceID != "" {
-			m.All[i].AgentStatus = statuses[m.All[i].WorkspaceID]
+func (m *Model) UpdateWorkspaceSnapshots(snapshots []model.Session) {
+	selectedID, selectedKey := "", ""
+	if current, ok := m.Current(); ok {
+		selectedID = current.WorkspaceID
+		selectedKey = model.Key(current)
+	}
+	m.All = append([]model.Session(nil), snapshots...)
+	m.Filter(m.Query)
+	for i, session := range m.Filtered {
+		if (selectedID != "" && session.WorkspaceID == selectedID) || (selectedID == "" && model.Key(session) == selectedKey) {
+			m.Selected = i
+			break
 		}
 	}
-	m.Filter(m.Query)
 }
 func (m *Model) clampSelected() {
 	if m.Selected >= len(m.Filtered) {
