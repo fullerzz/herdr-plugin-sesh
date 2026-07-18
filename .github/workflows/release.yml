@@ -177,7 +177,7 @@ jobs:
                 -ldflags "-s -w -X ${module}.Version=${version}" \
                 -o "$out" \
                 ./cmd/herdr-sesh
-            cp README.md LICENSE herdr-plugin.toml build_plugin.sh "dist/work/${name}/"
+            cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"
             tar -C dist/work -czf "dist/release/${name}.tar.gz" "$name"
           done
           smoke_dir=$(mktemp -d)
@@ -243,7 +243,7 @@ jobs:
             echo "git clone https://github.com/fullerzz/herdr-plugin-sesh.git"
             echo "cd herdr-plugin-sesh"
             echo "git checkout ${tag}"
-            echo 'bash build_plugin.sh'
+            echo "go build -ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${version} -o bin/ ./cmd/herdr-sesh"
             # shellcheck disable=SC2016 # Keep $PWD literal in the generated instructions.
             echo 'herdr plugin link "$PWD"'
             echo '```'

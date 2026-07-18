@@ -37,11 +37,11 @@ if ! grep -Fq 'test "$packaged_version" = "$version"' "$workflow"; then
   echo 'release workflow must verify the packaged manifest version' >&2
   exit 1
 fi
-if ! grep -Fq 'cp README.md LICENSE herdr-plugin.toml build_plugin.sh' "$workflow"; then
-  echo 'release archives must include the manifest build script' >&2
+if ! grep -Fq 'cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"' "$workflow"; then
+  echo 'release archives must include the plugin manifest' >&2
   exit 1
 fi
-if ! grep -Fq "echo 'bash build_plugin.sh'" "$workflow"; then
+if ! grep -Fq 'echo "go build -ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${version} -o bin/ ./cmd/herdr-sesh"' "$workflow"; then
   echo 'generated source-install instructions must inject the manifest version' >&2
   exit 1
 fi
@@ -61,11 +61,13 @@ chmod +x "$fake_bin/herdr"
 manifest_version=$(awk -F'"' '
   /^version = / { print $2; exit }
 ' "$repo_root/herdr-plugin.toml")
-if ! grep -Fq 'command = ["bash", "build_plugin.sh"]' "$repo_root/herdr-plugin.toml"; then
-  echo 'manifest build must use the version-injecting build script' >&2
+manifest_build_flag="-ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${manifest_version}"
+if ! grep -Fq '  "go",' "$repo_root/herdr-plugin.toml" ||
+  ! grep -Fq "  \"${manifest_build_flag}\"," "$repo_root/herdr-plugin.toml"; then
+  echo 'manifest build must run go build with the manifest version' >&2
   exit 1
 fi
-(cd "$tmp" && bash "$repo_root/build_plugin.sh")
+(cd "$repo_root" && go build "$manifest_build_flag" -o bin/ ./cmd/herdr-sesh)
 if [ "$("$repo_root/bin/herdr-sesh" --version)" != "herdr-sesh ${manifest_version}" ]; then
   echo 'manifest build must inject the manifest version into the binary' >&2
   exit 1
