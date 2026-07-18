@@ -37,6 +37,11 @@ if ! grep -Fq 'test "$packaged_version" = "$version"' "$workflow"; then
   echo 'release workflow must verify the packaged manifest version' >&2
   exit 1
 fi
+if ! grep -Fq 'manifest_build_flag="-ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${version}"' "$workflow" ||
+  ! grep -Fq 'if ! grep -Fq "\"${manifest_build_flag}\"," herdr-plugin.toml; then' "$workflow"; then
+  echo 'release workflow must verify the manifest build version' >&2
+  exit 1
+fi
 if ! grep -Fq 'cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"' "$workflow"; then
   echo 'release archives must include the plugin manifest' >&2
   exit 1

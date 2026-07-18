@@ -147,6 +147,11 @@ jobs:
             echo "Tag mismatch: $tag != manifest $manifest_version" >&2
             exit 1
           fi
+          manifest_build_flag="-ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${version}"
+          if ! grep -Fq "\"${manifest_build_flag}\"," herdr-plugin.toml; then
+            echo "Manifest build version mismatch: expected $manifest_build_flag" >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
