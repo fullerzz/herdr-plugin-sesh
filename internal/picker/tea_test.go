@@ -1423,26 +1423,33 @@ func TestTeaModelReportsSelectionChanges(t *testing.T) {
 	renderPreview = func(context.Context, model.Session, string) (string, error) { return "", nil }
 	defer func() { renderPreview = orig }()
 
-	var reports []string
+	type report struct {
+		seq uint64
+		id  string
+	}
+	var reports []report
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1", Path: "/tmp/api"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2", Path: "/tmp/web"},
-	}, Options{ReportSelection: func(id string) { reports = append(reports, id) }})
+	}, Options{ReportSelection: func(seq uint64, id string) { reports = append(reports, report{seq, id}) }})
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	drainCmds(cmd)
-	if len(reports) != 1 || reports[0] != "w2" {
+	if len(reports) != 1 || reports[0].id != "w2" {
 		t.Fatalf("reports=%#v", reports)
 	}
 
 	updated, cmd = m.Update(tea.KeyPressMsg{Code: 'z', Text: "zzz"})
 	_ = updated.(teaModel)
 	drainCmds(cmd)
-	if len(reports) != 2 || reports[1] != "" {
+	if len(reports) != 2 || reports[1].id != "" {
 		t.Fatalf("reports=%#v", reports)
+	}
+	if reports[1].seq <= reports[0].seq {
+		t.Fatalf("sequence not monotonic: %#v", reports)
 	}
 }
 

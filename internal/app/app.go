@@ -319,13 +319,13 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			}
 			return statuses, nil
 		}
-		pickOpts.ReportSelection = func(workspaceID string) { highlighter.Report(ctx, workspaceID) }
+		pickOpts.ReportSelection = func(seq uint64, workspaceID string) { highlighter.Report(ctx, seq, workspaceID) }
 		selected, ok, err = pickerpkg.Run(sessions, pickOpts)
 		for _, warning := range deferredWarnings {
 			a.warnf("%s", warning)
 		}
 	}
-	highlighter.Report(ctx, "")
+	highlighter.Close(ctx)
 	if err != nil || !ok {
 		return err
 	}

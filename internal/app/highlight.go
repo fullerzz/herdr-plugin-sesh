@@ -23,11 +23,34 @@ type sidebarHighlighter struct {
 	mu     sync.Mutex
 	client herdr.Client
 	last   string
+	seq    uint64
+	closed bool
 }
 
-func (h *sidebarHighlighter) Report(ctx context.Context, workspaceID string) {
+// Report applies the selection stamped with seq. Reports run on concurrent
+// goroutines and can arrive out of order; seq is assigned when the report is
+// created inside the picker's single-threaded update loop, so any report
+// older than one already applied is dropped.
+func (h *sidebarHighlighter) Report(ctx context.Context, seq uint64, workspaceID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.closed || seq <= h.seq {
+		return
+	}
+	h.seq = seq
+	h.apply(ctx, workspaceID)
+}
+
+// Close clears any remaining highlight and rejects all later reports,
+// including ones still in flight when the picker exits.
+func (h *sidebarHighlighter) Close(ctx context.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	h.apply(ctx, "")
+}
+
+func (h *sidebarHighlighter) apply(ctx context.Context, workspaceID string) {
 	if h.last != "" && h.last != workspaceID {
 		_ = h.client.WorkspaceReportMetadata(ctx, herdr.WorkspaceMetadataRequest{
 			WorkspaceID: h.last,

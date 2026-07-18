@@ -84,6 +84,9 @@ and teal `●` when done. Workspaces with an unknown state have no indicator.
 
 ## Sidebar selection indicator
 
+Requires Herdr 0.7.4 or newer, the first release with
+`herdr workspace report-metadata`.
+
 While the native picker is open, the highlighted entry is mirrored into the
 Herdr sidebar. When the selection lands on an existing Herdr workspace, the
 picker reports a `sesh` metadata token (value `◀ sesh`) on that workspace

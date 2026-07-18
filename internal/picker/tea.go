@@ -148,7 +148,7 @@ type Options struct {
 	LastWorkspaceID      string
 	LastWorkspaceUnknown bool
 	HerdrWorkspaces      []sessionmodel.Session
-	ReportSelection       func(workspaceID string)
+	ReportSelection       func(seq uint64, workspaceID string)
 }
 
 type ReloadResult struct {
@@ -218,7 +218,8 @@ type teaModel struct {
 	cancelWorkspaceClose    context.CancelFunc
 	quitAfterWorkspaceClose bool
 	closeError              string
-	reportSelection       func(workspaceID string)
+	reportSelection       func(seq uint64, workspaceID string)
+	reportSeq             uint64
 }
 
 type previewMsg struct {
@@ -305,6 +306,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 		reportSelection:       opts.ReportSelection,
+		reportSeq:             1,
 	}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
@@ -317,7 +319,7 @@ func (m teaModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
 		cmds = append(cmds, previewCommand(m.previewKey, current, m.defaultPreviewCommand))
-		cmds = append(cmds, reportSelectionCommand(m.reportSelection, current.WorkspaceID))
+		cmds = append(cmds, reportSelectionCommand(m.reportSelection, m.reportSeq, current.WorkspaceID))
 	}
 	if m.refreshAgentStatuses != nil {
 		cmds = append(cmds, scheduleStatusRefresh(), m.agentSpinner.Tick)
@@ -404,7 +406,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.list.UpdateAgentStatuses(statuses.statuses)
 		}
 		// Re-report the current selection so its metadata token outlives its TTL.
-		return m, tea.Batch(scheduleStatusRefresh(), reportSelectionCommand(m.reportSelection, m.currentWorkspaceID()))
+		m.reportSeq++
+		return m, tea.Batch(scheduleStatusRefresh(), reportSelectionCommand(m.reportSelection, m.reportSeq, m.currentWorkspaceID()))
 	}
 	if _, ok := msg.(smearTickMsg); ok {
 		if m.focusSmearActive {
@@ -981,7 +984,8 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 		m.previewKey = ""
 		m.preview = "No preview available"
 		if hadSelection {
-			return m, reportSelectionCommand(m.reportSelection, "")
+			m.reportSeq++
+			return m, reportSelectionCommand(m.reportSelection, m.reportSeq, "")
 		}
 		return m, nil
 	}
@@ -991,9 +995,10 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 	}
 	m.previewKey = key
 	m.preview = "Loading preview..."
+	m.reportSeq++
 	return m, tea.Batch(
 		previewCommand(key, current, m.defaultPreviewCommand),
-		reportSelectionCommand(m.reportSelection, current.WorkspaceID),
+		reportSelectionCommand(m.reportSelection, m.reportSeq, current.WorkspaceID),
 	)
 }
 
@@ -1004,12 +1009,15 @@ func (m teaModel) currentWorkspaceID() string {
 	return ""
 }
 
-func reportSelectionCommand(report func(string), workspaceID string) tea.Cmd {
+// seq is assigned here, inside the single-threaded update loop, because the
+// returned commands run on concurrent goroutines with no ordering guarantee;
+// the receiver uses it to drop reports that arrive out of order.
+func reportSelectionCommand(report func(uint64, string), seq uint64, workspaceID string) tea.Cmd {
 	if report == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		report(workspaceID)
+		report(seq, workspaceID)
 		return nil
 	}
 }
