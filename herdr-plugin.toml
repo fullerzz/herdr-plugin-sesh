@@ -1,6 +1,6 @@
 id = "fullerzz.sesh"
 name = "Sesh for Herdr"
-version = "0.3.0"
+version = "0.3.1"
 min_herdr_version = "0.7.0"
 description = "Sesh-style smart workspace/session manager for Herdr"
 platforms = ["linux", "macos"]
@@ -9,7 +9,7 @@ platforms = ["linux", "macos"]
 command = [
   "go",
   "build",
-  "-ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=0.3.0",
+  "-ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=0.3.1",
   "-o",
   "bin/",
   "./cmd/herdr-sesh",
