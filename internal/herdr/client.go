@@ -13,6 +13,7 @@ import (
 
 type Workspace struct {
 	ID            string `json:"id"`
+	Number        int    `json:"number"`
 	Label         string `json:"label"`
 	CWD           string `json:"cwd"`
 	ForegroundCWD string `json:"foreground_cwd"`

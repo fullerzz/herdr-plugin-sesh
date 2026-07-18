@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
@@ -296,6 +297,31 @@ func TestCollectDirectPathUsesConfiguredDirLength(t *testing.T) {
 	}
 	if len(sessions) != 1 || sessions[0].Name != filepath.Join("parent", "child") {
 		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestRefreshWorkspaceSnapshotsAppliesCollectionPolicy(t *testing.T) {
+	configureFakeSources(t, "")
+	client := &herdr.FakeClient{Workspaces: []herdr.Workspace{
+		{ID: "duplicate-1", Label: "duplicate", CWD: "/projects/one"},
+		{ID: "ignored", Label: "scratch", CWD: "/projects/scratch"},
+		{ID: "configured", Label: "configured", CWD: "/projects/configured"},
+	}}
+	cfg := config.Default()
+	cfg.Blacklist = []string{"^scratch$"}
+	cfg.SessionConfigs = []config.SessionConfig{{Name: "duplicate", Path: "/projects/config"}}
+	cfg.SortOrder = []string{"config", "herdr", "zoxide"}
+	cfg.WildcardConfigs = []config.WildcardConfig{{Pattern: "/projects/**", PreviewCommand: "printf preview:{}"}}
+
+	sessions, err := refreshWorkspaceSnapshots(context.Background(), client, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 || sessions[0].Source != "config" || sessions[0].Name != "duplicate" || sessions[1].Name != "configured" {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+	if sessions[1].PreviewCommand != "printf preview:{}" {
+		t.Fatalf("preview command = %q", sessions[1].PreviewCommand)
 	}
 }
 

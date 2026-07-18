@@ -3,6 +3,7 @@ package picker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -514,12 +515,13 @@ func TestTeaModelPreviewTitleShowsSelectedWorkspaceCounts(t *testing.T) {
 
 func TestTeaModelRendersActiveTabPaneLayout(t *testing.T) {
 	m := newTeaModel([]model.Session{{
-		Source:      "herdr",
-		Name:        "api",
-		WorkspaceID: "w1",
-		TabCount:    2,
-		PaneCount:   3,
-		ActiveTabID: "w1:t1",
+		Source:          "herdr",
+		Name:            "api",
+		WorkspaceID:     "w1",
+		WorkspaceNumber: 7,
+		TabCount:        2,
+		PaneCount:       3,
+		ActiveTabID:     "w1:t1",
 		WorkspaceTabs: []model.WorkspaceTab{
 			{ID: "w1:t1", Number: 1, Label: "main"},
 			{ID: "w1:t2", Number: 2, Label: "logs"},
@@ -546,19 +548,111 @@ func TestTeaModelRendersActiveTabPaneLayout(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	for _, want := range []string{"PREVIEW · api", "LAYOUT · 2 tabs · 3 panes", "▶ 1 main · 2 panes", "Codex", "$ codex --full-auto", "shell", "$ go test ./...", "┌", "┬", "┐", "└", "┴", "┘"} {
+	for _, want := range []string{"PREVIEW · api", "LAYOUT · 2 tabs · 3 panes", "Workspace 7 - api", "▶ [1] [2] · 2 panes", "Codex", "$ codex --full-auto", "shell", "$ go test ./...", "┌", "┬", "┐", "└", "┴", "┘"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
-	}
-	if strings.Contains(view, "2 logs") {
-		t.Fatalf("active-tab atlas rendered an inactive tab:\n%s", view)
 	}
 	if strings.Contains(view, "PREVIEW · 2 tabs") {
 		t.Fatalf("wide preview duplicated layout counts:\n%s", view)
 	}
 	if got, want := lipgloss.Height(view), 30; got != want {
 		t.Fatalf("view height=%d, want %d:\n%s", got, want, view)
+	}
+}
+
+func TestActiveTabAtlasTitleHighlightsActiveTab(t *testing.T) {
+	got := activeTabAtlasTitle(model.Session{
+		ActiveTabID: "w1:t2",
+		WorkspaceTabs: []model.WorkspaceTab{
+			{ID: "w1:t1", Number: 1, Label: "main"},
+			{ID: "w1:t2", Number: 2, Label: "logs"},
+		},
+	}, herdr.PaneLayout{TabID: "w1:t2", Panes: []herdr.PaneLayoutPane{{}}}, 40)
+
+	if plain, want := ansi.Strip(got), "▶ [1] [2] · 1 pane "; plain != want {
+		t.Fatalf("tab strip=%q, want %q", plain, want)
+	}
+	if !strings.Contains(got, countStyle.Render("[1]")) || !strings.Contains(got, selectionRailStyle.Render("[2]")) {
+		t.Fatalf("tab strip did not distinguish the active tab: %q", got)
+	}
+}
+
+func TestPaneMapKeepsActiveTabVisibleInLongStrip(t *testing.T) {
+	tabs := make([]model.WorkspaceTab, 10)
+	for i := range tabs {
+		tabs[i] = model.WorkspaceTab{ID: fmt.Sprintf("t%d", i+1), Number: i + 1}
+	}
+	got := paneMap(model.Session{ActiveTabID: "t10", WorkspaceTabs: tabs}, herdr.PaneLayout{
+		TabID: "t10",
+		Area:  herdr.PaneRect{Width: 80, Height: 24},
+		Panes: []herdr.PaneLayoutPane{{ID: "p1", Rect: herdr.PaneRect{Width: 80, Height: 24}}},
+	}, 36, 3)
+
+	if first := ansi.Strip(strings.Split(got, "\n")[0]); !strings.Contains(first, "[10]") {
+		t.Fatalf("long tab strip hid active tab: %q\n%s", first, got)
+	}
+}
+
+func TestWorkspaceLayoutPreservesMinimumPaneMapHeight(t *testing.T) {
+	m := newTeaModel([]model.Session{{
+		Name:            "api",
+		WorkspaceID:     "w1",
+		WorkspaceNumber: 7,
+		ActiveTabID:     "t1",
+		WorkspaceTabs:   []model.WorkspaceTab{{ID: "t1", Number: 1}},
+	}}, Options{})
+	m.layout = herdr.PaneLayout{
+		WorkspaceID: "w1",
+		TabID:       "t1",
+		Area:        herdr.PaneRect{Width: 80, Height: 24},
+		Panes:       []herdr.PaneLayoutPane{{ID: "p1", Rect: herdr.PaneRect{Width: 80, Height: 24}}},
+	}
+
+	got := ansi.Strip(m.workspaceLayoutView(40, 3))
+	if strings.Contains(got, "Pane layout too small") || !strings.Contains(got, "┌▶ [1]") {
+		t.Fatalf("minimum-height pane map was suppressed:\n%s", got)
+	}
+}
+
+func TestWorkspaceLayoutTruncatesLongIdentityWithoutClippingPaneMap(t *testing.T) {
+	m := newTeaModel([]model.Session{{
+		Name:            "workspace-with-a-name-that-does-not-fit",
+		WorkspaceID:     "w1",
+		WorkspaceNumber: 7,
+		ActiveTabID:     "t1",
+		WorkspaceTabs:   []model.WorkspaceTab{{ID: "t1", Number: 1}},
+	}}, Options{})
+	m.layout = herdr.PaneLayout{
+		WorkspaceID: "w1",
+		TabID:       "t1",
+		Area:        herdr.PaneRect{Width: 80, Height: 24},
+		Panes:       []herdr.PaneLayoutPane{{ID: "p1", Rect: herdr.PaneRect{Width: 80, Height: 24}}},
+	}
+
+	got := ansi.Strip(m.workspaceLayoutView(32, 4))
+	lines := strings.Split(got, "\n")
+	if len(lines) != 5 || !strings.HasSuffix(strings.TrimSpace(lines[1]), "...") {
+		t.Fatalf("workspace identity was not truncated to one row:\n%s", got)
+	}
+	if !strings.Contains(lines[len(lines)-1], "└") || !strings.Contains(lines[len(lines)-1], "┘") {
+		t.Fatalf("truncated identity clipped pane map bottom border:\n%s", got)
+	}
+}
+
+func TestTeaModelSanitizesLayoutErrors(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api", WorkspaceID: "w1"}}, Options{})
+	m.layoutKey = model.Key(m.list.Filtered[0])
+	m.layoutRequest = 1
+	updated, _ := m.Update(paneLayoutMsg{
+		key:     m.layoutKey,
+		request: m.layoutRequest,
+		err:     errors.New("failed\n\x1b]52;c;Zm9yZ2Vk\a"),
+	})
+	m = updated.(teaModel)
+
+	if strings.ContainsAny(m.layoutError, "\n\x1b\a") {
+		t.Fatalf("layout error retained terminal controls: %q", m.layoutError)
 	}
 }
 
@@ -591,7 +685,7 @@ func TestPaneMapShowsAllPanesWhenZoomed(t *testing.T) {
 	if !strings.Contains(got, "shell") || !strings.Contains(got, "Codex") {
 		t.Fatalf("zoomed atlas hid a pane:\n%s", got)
 	}
-	if first := strings.Split(got, "\n")[0]; !strings.HasPrefix(first, "┌▶ Active tab · 2") {
+	if first := ansi.Strip(strings.Split(got, "\n")[0]); !strings.HasPrefix(first, "┌▶ [active] · 2") {
 		t.Fatalf("zoomed atlas missing active-tab frame: %q\n%s", first, got)
 	}
 }
@@ -673,11 +767,12 @@ func TestPaneMapSanitizesTerminalMetadata(t *testing.T) {
 		Panes: []herdr.PaneLayoutPane{{ID: "p1", Rect: herdr.PaneRect{Width: 80, Height: 24}, Command: "go test\a\n./..."}},
 	}, 32, 5)
 
-	if strings.ContainsAny(got, "\x1b\a") || strings.Count(got, "\n") != 4 {
+	plain := ansi.Strip(got)
+	if strings.ContainsAny(plain, "\x1b\a") || strings.Count(plain, "\n") != 4 {
 		t.Fatalf("atlas contains terminal controls or forged rows: %q", got)
 	}
-	for _, want := range []string{"main forged", "Codex forged", "$ go test ./..."} {
-		if !strings.Contains(got, want) {
+	for _, want := range []string{"[1]", "Codex forged", "$ go test ./..."} {
+		if !strings.Contains(plain, want) {
 			t.Fatalf("sanitized atlas missing %q:\n%s", want, got)
 		}
 	}
@@ -972,12 +1067,12 @@ func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	}
 }
 
-func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
+func TestTeaModelRefreshesWorkspaceSnapshots(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1", AgentStatus: "working"},
 		{Source: "config", Name: "local", Path: "/tmp/local"},
-	}, Options{RefreshAgentStatuses: func() (map[string]string, error) {
-		return map[string]string{"w1": "blocked"}, nil
+	}, Options{RefreshWorkspaceSnapshots: func() ([]model.Session, error) {
+		return []model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1", WorkspaceNumber: 7, AgentStatus: "blocked", TabCount: 2}}, nil
 	}})
 	m.list.Filter("api")
 
@@ -993,11 +1088,157 @@ func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
 	if !ok || current.AgentStatus != "blocked" {
 		t.Fatalf("current=%#v ok=%v", current, ok)
 	}
+	if current.WorkspaceNumber != 7 || current.TabCount != 2 {
+		t.Fatalf("workspace metadata was not refreshed: %#v", current)
+	}
 	if m.list.Query != "api" || len(m.list.Filtered) != 1 {
 		t.Fatalf("query=%q filtered=%#v", m.list.Query, m.list.Filtered)
 	}
 	if next == nil {
 		t.Fatal("status refresh did not schedule the next tick")
+	}
+}
+
+func TestTeaModelRefreshesPreviewWhenWorkspaceRefreshChangesSelection(t *testing.T) {
+	oldPreview := renderPreview
+	renderPreview = func(_ context.Context, session model.Session, _ string) (string, error) {
+		return session.Name + " preview", nil
+	}
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	oldSession := model.Session{Source: "herdr", Name: "api", Path: "/tmp/api", WorkspaceID: "w1"}
+	newSession := model.Session{Source: "herdr", Name: "web", Path: "/tmp/web", WorkspaceID: "w2"}
+	m := newTeaModel([]model.Session{oldSession}, Options{})
+	m.preview = "api preview"
+	staleKey := m.previewKey
+
+	updated, cmd := m.Update(workspaceSnapshotsMsg{snapshots: []model.Session{newSession}})
+	m = updated.(teaModel)
+	current, ok := m.list.Current()
+	if !ok || current.WorkspaceID != "w2" || m.previewKey != model.Key(newSession) || m.preview != "Loading preview..." {
+		t.Fatalf("current=%#v ok=%v previewKey=%q preview=%q", current, ok, m.previewKey, m.preview)
+	}
+
+	updated, _ = m.Update(previewMsg{key: staleKey, text: "stale api preview"})
+	m = updated.(teaModel)
+	if m.preview != "Loading preview..." {
+		t.Fatalf("stale preview applied: %q", m.preview)
+	}
+
+	refresh := cmd()
+	batch, ok := refresh.(tea.BatchMsg)
+	if !ok || len(batch) != 2 {
+		t.Fatalf("refresh command=%T batch=%d, want preview and next refresh", refresh, len(batch))
+	}
+	updated, _ = m.Update(batch[0]())
+	m = updated.(teaModel)
+	if m.preview != "web preview" {
+		t.Fatalf("preview=%q, want refreshed selection preview", m.preview)
+	}
+}
+
+func TestTeaModelClearsPreviewWhenWorkspaceRefreshRemovesSelection(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{})
+	m.preview = "api preview"
+	staleKey := m.previewKey
+
+	updated, _ := m.Update(workspaceSnapshotsMsg{snapshots: nil})
+	m = updated.(teaModel)
+	if m.previewKey != "" || m.preview != "No preview available" {
+		t.Fatalf("previewKey=%q preview=%q", m.previewKey, m.preview)
+	}
+
+	updated, _ = m.Update(previewMsg{key: staleKey, text: "stale api preview"})
+	m = updated.(teaModel)
+	if m.preview != "No preview available" {
+		t.Fatalf("stale preview applied after selection removal: %q", m.preview)
+	}
+}
+
+func TestTeaModelReloadsLayoutWhenActiveTabChanges(t *testing.T) {
+	loadedPane := ""
+	m := newTeaModel([]model.Session{{
+		Source:         "herdr",
+		Name:           "api",
+		WorkspaceID:    "w1",
+		ActiveTabID:    "t1",
+		WorkspaceTabs:  []model.WorkspaceTab{{ID: "t1", Number: 1}},
+		WorkspacePanes: []model.WorkspacePane{{ID: "p1", TabID: "t1"}},
+	}}, Options{
+		RefreshWorkspaceSnapshots: func() ([]model.Session, error) {
+			return []model.Session{{
+				WorkspaceID:    "w1",
+				ActiveTabID:    "t2",
+				WorkspaceTabs:  []model.WorkspaceTab{{ID: "t1", Number: 1}, {ID: "t2", Number: 2}},
+				WorkspacePanes: []model.WorkspacePane{{ID: "p1", TabID: "t1"}, {ID: "p2", TabID: "t2"}},
+			}}, nil
+		},
+		LoadPaneLayout: func(paneID string) (herdr.PaneLayout, error) {
+			loadedPane = paneID
+			return herdr.PaneLayout{WorkspaceID: "w1", TabID: "t2"}, nil
+		},
+	})
+
+	_, refresh := m.Update(statusRefreshTickMsg{})
+	updated, next := m.Update(refresh())
+	m = updated.(teaModel)
+	current, _ := m.list.Current()
+	if current.ActiveTabID != "t2" || !m.layoutLoading {
+		t.Fatalf("current=%#v layoutLoading=%v", current, m.layoutLoading)
+	}
+	batch, ok := next().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("refresh command=%T, want batch", next())
+	}
+	for _, cmd := range batch {
+		if _, ok := cmd().(paneLayoutMsg); ok {
+			break
+		}
+	}
+	if loadedPane != "p2" {
+		t.Fatalf("loaded pane=%q, want active-tab pane p2", loadedPane)
+	}
+}
+
+func TestTeaModelRefreshesUnchangedLayoutInBackground(t *testing.T) {
+	snapshot := model.Session{
+		Source:         "herdr",
+		Name:           "api",
+		WorkspaceID:    "w1",
+		ActiveTabID:    "t1",
+		WorkspaceTabs:  []model.WorkspaceTab{{ID: "t1", Number: 1}},
+		WorkspacePanes: []model.WorkspacePane{{ID: "p1", TabID: "t1"}},
+	}
+	loaded := 0
+	m := newTeaModel([]model.Session{snapshot}, Options{
+		RefreshWorkspaceSnapshots: func() ([]model.Session, error) { return []model.Session{snapshot}, nil },
+		LoadPaneLayout: func(string) (herdr.PaneLayout, error) {
+			loaded++
+			return herdr.PaneLayout{WorkspaceID: "w1", TabID: "t1", Area: herdr.PaneRect{X: 2}, Panes: []herdr.PaneLayoutPane{{ID: "p1"}}}, nil
+		},
+	})
+	m.layout = herdr.PaneLayout{WorkspaceID: "w1", TabID: "t1", Area: herdr.PaneRect{X: 1}, Panes: []herdr.PaneLayoutPane{{ID: "p1"}}}
+	m.layoutLoading = false
+
+	_, refresh := m.Update(statusRefreshTickMsg{})
+	updated, next := m.Update(refresh())
+	m = updated.(teaModel)
+	if m.layout.Area.X != 1 || m.layoutLoading || !m.layoutRefreshing {
+		t.Fatalf("background refresh disturbed layout: layout=%#v loading=%v refreshing=%v", m.layout, m.layoutLoading, m.layoutRefreshing)
+	}
+	batch, ok := next().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("refresh command did not batch background layout reload")
+	}
+	for _, cmd := range batch {
+		if msg, ok := cmd().(paneLayoutMsg); ok {
+			updated, _ = m.Update(msg)
+			m = updated.(teaModel)
+			break
+		}
+	}
+	if loaded != 1 || m.layout.Area.X != 2 || m.layoutRefreshing {
+		t.Fatalf("loaded=%d layout=%#v refreshing=%v", loaded, m.layout, m.layoutRefreshing)
 	}
 }
 
@@ -1103,7 +1344,24 @@ func TestListViewPreservesUnicodeWhenHighlightingFoldedMatch(t *testing.T) {
 }
 
 func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", Path: "/tmp/api", WorkspaceID: "w1", TabCount: 2, PaneCount: 3, AgentStatus: "blocked"}}, Options{})
+	m := newTeaModel([]model.Session{{
+		Source:          "herdr",
+		Name:            "api",
+		Path:            "/tmp/api",
+		WorkspaceID:     "w1",
+		WorkspaceNumber: 7,
+		TabCount:        2,
+		PaneCount:       3,
+		AgentStatus:     "blocked",
+		ActiveTabID:     "t1",
+		WorkspaceTabs:   []model.WorkspaceTab{{ID: "t1", Number: 1}, {ID: "t2", Number: 2}},
+	}}, Options{})
+	m.layout = herdr.PaneLayout{
+		WorkspaceID: "w1",
+		TabID:       "t1",
+		Area:        herdr.PaneRect{Width: 80, Height: 24},
+		Panes:       []herdr.PaneLayoutPane{{ID: "p1", Rect: herdr.PaneRect{Width: 80, Height: 24}}},
+	}
 	m.preview = "preview content"
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 28})
 	m = updated.(teaModel)
@@ -1114,11 +1372,10 @@ func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
 	if !strings.Contains(view, "WORKSPACES") || !strings.Contains(view, "PREVIEW · 2 tabs · 3 panes · api · blocked") {
 		t.Fatalf("narrow view missing stacked sections:\n%s", view)
 	}
-	if strings.Contains(view, "LAYOUT") {
-		t.Fatalf("narrow view should keep the existing stacked preview:\n%s", view)
-	}
-	if strings.Contains(view, "│") {
-		t.Fatalf("narrow view should not contain a vertical pane divider:\n%s", view)
+	for _, want := range []string{"LAYOUT · 2 tabs · 3 panes", "Workspace 7 - api", "┌▶ [1] [2]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("narrow view missing %q:\n%s", want, view)
+		}
 	}
 }
 

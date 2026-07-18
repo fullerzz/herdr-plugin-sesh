@@ -43,6 +43,23 @@ func TestFilterSelectsHomeDirectoryWhenQueryIsHome(t *testing.T) {
 		t.Fatalf("cur=%#v ok=%v", cur, ok)
 	}
 }
+
+func TestUpdateWorkspaceSnapshotsReplacesPolicyFilteredEntries(t *testing.T) {
+	m := New([]model.Session{
+		{Source: "herdr", Name: "old", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "closed", WorkspaceID: "w2"},
+		{Source: "config", Name: "local", Path: "/tmp/local"},
+	})
+	m.UpdateWorkspaceSnapshots([]model.Session{
+		{Source: "herdr", Name: "renamed", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "new", WorkspaceID: "w3"},
+		{Source: "config", Name: "local", Path: "/tmp/local"},
+	})
+
+	if len(m.All) != 3 || m.All[0].Name != "renamed" || m.All[1].Name != "new" || m.All[2].Source != "config" {
+		t.Fatalf("workspace snapshot replacement=%#v", m.All)
+	}
+}
 func TestSeparatorAwareMatch(t *testing.T) {
 	if !Match("my-api.service", "api service", true) {
 		t.Fatal("expected separator aware match")

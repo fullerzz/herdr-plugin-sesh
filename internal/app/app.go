@@ -108,6 +108,26 @@ func (i ignoreSource) List(ctx context.Context) (model.Sessions, error) {
 	return ss, nil
 }
 
+type refreshSource struct{ sources.HerdrWorkspaces }
+
+func (s refreshSource) List(ctx context.Context) (model.Sessions, error) {
+	return s.Refresh(ctx)
+}
+
+func refreshWorkspaceSnapshots(ctx context.Context, client herdr.Client, cfg config.Config) ([]model.Session, error) {
+	srcs := []sources.Source{
+		refreshSource{sources.HerdrWorkspaces{Client: client}},
+		sources.ConfigSessions{Config: cfg},
+		sources.Zoxide{},
+	}
+	workspaces, err := sources.Merge(ctx, srcs, cfg.SortOrder, cfg.Blacklist, false, true)
+	if err != nil {
+		return nil, err
+	}
+	sources.ApplyConfig(&workspaces, cfg, "")
+	return workspaces.Ordered(), nil
+}
+
 func (a *App) list(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(a.Err)
@@ -211,16 +231,8 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			}
 			return layout, nil
 		}
-		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
-			workspaces, err := client.WorkspaceList(ctx)
-			if err != nil {
-				return nil, err
-			}
-			statuses := make(map[string]string, len(workspaces))
-			for _, workspace := range workspaces {
-				statuses[workspace.ID] = workspace.AgentStatus
-			}
-			return statuses, nil
+		pickOpts.RefreshWorkspaceSnapshots = func() ([]model.Session, error) {
+			return refreshWorkspaceSnapshots(ctx, client, cfg)
 		}
 		selected, ok, err = pickerpkg.Run(sessions, pickOpts)
 	}

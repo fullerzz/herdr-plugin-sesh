@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -104,15 +105,15 @@ var (
 var renderPreview = previewpkg.Render
 
 type Options struct {
-	Output                io.Writer
-	Prompt                string
-	Placeholder           string
-	ShowIcons             bool
-	SeparatorAware        bool
-	DefaultPreviewCommand string
-	FZFCommand            string
-	RefreshAgentStatuses  func() (map[string]string, error)
-	LoadPaneLayout        func(string) (herdr.PaneLayout, error)
+	Output                    io.Writer
+	Prompt                    string
+	Placeholder               string
+	ShowIcons                 bool
+	SeparatorAware            bool
+	DefaultPreviewCommand     string
+	FZFCommand                string
+	RefreshWorkspaceSnapshots func() ([]sessionmodel.Session, error)
+	LoadPaneLayout            func(string) (herdr.PaneLayout, error)
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
@@ -151,18 +152,19 @@ type teaModel struct {
 	reduceMotion        bool
 	smear               smearPreset
 
-	preview       string
-	previewKey    string
-	layout        herdr.PaneLayout
-	layoutKey     string
-	layoutRequest uint64
-	layoutLoading bool
-	layoutError   string
+	preview          string
+	previewKey       string
+	layout           herdr.PaneLayout
+	layoutKey        string
+	layoutRequest    uint64
+	layoutLoading    bool
+	layoutRefreshing bool
+	layoutError      string
 
-	defaultPreviewCommand string
-	showIcons             bool
-	refreshAgentStatuses  func() (map[string]string, error)
-	loadPaneLayout        func(string) (herdr.PaneLayout, error)
+	defaultPreviewCommand     string
+	showIcons                 bool
+	refreshWorkspaceSnapshots func() ([]sessionmodel.Session, error)
+	loadPaneLayout            func(string) (herdr.PaneLayout, error)
 }
 
 type previewMsg struct {
@@ -179,9 +181,9 @@ type paneLayoutMsg struct {
 
 type statusRefreshTickMsg struct{}
 
-type agentStatusesMsg struct {
-	statuses map[string]string
-	err      error
+type workspaceSnapshotsMsg struct {
+	snapshots []sessionmodel.Session
+	err       error
 }
 
 type smearTickMsg struct{}
@@ -216,14 +218,14 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	input.Focus()
 	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
-		list:                  list,
-		input:                 input,
-		defaultPreviewCommand: opts.DefaultPreviewCommand,
-		showIcons:             opts.ShowIcons,
-		refreshAgentStatuses:  opts.RefreshAgentStatuses,
-		loadPaneLayout:        opts.LoadPaneLayout,
-		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
-		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
+		list:                      list,
+		input:                     input,
+		defaultPreviewCommand:     opts.DefaultPreviewCommand,
+		showIcons:                 opts.ShowIcons,
+		refreshWorkspaceSnapshots: opts.RefreshWorkspaceSnapshots,
+		loadPaneLayout:            opts.LoadPaneLayout,
+		reduceMotion:              reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
+		smear:                     newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
 	if current, ok := list.Current(); ok {
 		m.previewKey = sessionmodel.Key(current)
@@ -245,7 +247,7 @@ func (m teaModel) Init() tea.Cmd {
 			cmds = append(cmds, paneLayoutCommand(m.layoutKey, m.layoutRequest, paneID, m.loadPaneLayout))
 		}
 	}
-	if m.refreshAgentStatuses != nil {
+	if m.refreshWorkspaceSnapshots != nil {
 		cmds = append(cmds, scheduleStatusRefresh())
 	}
 	return tea.Batch(cmds...)
@@ -318,13 +320,10 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 //nolint:ireturn // Bubble Tea's Model interface requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(statusRefreshTickMsg); ok {
-		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses)
+		return m, refreshWorkspaceSnapshotsCommand(m.refreshWorkspaceSnapshots)
 	}
-	if statuses, ok := msg.(agentStatusesMsg); ok {
-		if statuses.err == nil {
-			m.list.UpdateAgentStatuses(statuses.statuses)
-		}
-		return m, scheduleStatusRefresh()
+	if snapshots, ok := msg.(workspaceSnapshotsMsg); ok {
+		return m.applyWorkspaceSnapshots(snapshots)
 	}
 	if _, ok := msg.(smearTickMsg); ok {
 		if m.focusSmearActive {
@@ -421,6 +420,32 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m teaModel) applyWorkspaceSnapshots(snapshots workspaceSnapshotsMsg) (teaModel, tea.Cmd) {
+	var previewCmd, layoutCmd tea.Cmd
+	if snapshots.err == nil {
+		before, _ := m.list.Current()
+		m.list.UpdateWorkspaceSnapshots(snapshots.snapshots)
+		after, _ := m.list.Current()
+		m, previewCmd = m.refreshPreview()
+		if workspaceLayoutChanged(before, after) || m.layout.WorkspaceID == "" || m.layoutError != "" {
+			m.layoutKey = ""
+			m, layoutCmd = m.refreshWorkspaceLayout()
+		} else {
+			m, layoutCmd = m.refreshWorkspaceLayoutInBackground()
+		}
+	}
+	return m, tea.Batch(previewCmd, layoutCmd, scheduleStatusRefresh())
+}
+
+func workspaceLayoutChanged(before, after sessionmodel.Session) bool {
+	if before.WorkspaceID != after.WorkspaceID || before.ActiveTabID != after.ActiveTabID || len(before.WorkspacePanes) != len(after.WorkspacePanes) {
+		return true
+	}
+	return !slices.EqualFunc(before.WorkspacePanes, after.WorkspacePanes, func(a, b sessionmodel.WorkspacePane) bool {
+		return a.ID == b.ID && a.TabID == b.TabID
+	})
+}
+
 func (m teaModel) applyDataMsg(msg tea.Msg) (teaModel, bool) {
 	switch data := msg.(type) {
 	case previewMsg:
@@ -432,13 +457,18 @@ func (m teaModel) applyDataMsg(msg tea.Msg) (teaModel, bool) {
 		if data.key != m.layoutKey || data.request != m.layoutRequest {
 			return m, true
 		}
+		background := m.layoutRefreshing
 		m.layoutLoading = false
-		m.layoutError = ""
+		m.layoutRefreshing = false
 		if data.err != nil {
+			if background {
+				return m, true
+			}
 			m.layout = herdr.PaneLayout{}
-			m.layoutError = data.err.Error()
+			m.layoutError = sanitizePaneText(data.err.Error())
 		} else {
 			m.layout = data.layout
+			m.layoutError = ""
 		}
 		return m, true
 	default:
@@ -472,10 +502,10 @@ func scheduleStatusRefresh() tea.Cmd {
 	return tea.Tick(statusRefreshInterval, func(time.Time) tea.Msg { return statusRefreshTickMsg{} })
 }
 
-func refreshAgentStatusesCommand(refresh func() (map[string]string, error)) tea.Cmd {
+func refreshWorkspaceSnapshotsCommand(refresh func() ([]sessionmodel.Session, error)) tea.Cmd {
 	return func() tea.Msg {
-		statuses, err := refresh()
-		return agentStatusesMsg{statuses: statuses, err: err}
+		snapshots, err := refresh()
+		return workspaceSnapshotsMsg{snapshots: snapshots, err: err}
 	}
 }
 
@@ -493,10 +523,13 @@ func (m teaModel) View() tea.View {
 		right := m.rightPanelView(previewWidth, previewLines+previewTitleRows)
 		lines = append(lines, strings.Split(joinPanels(list, right, listWidth, previewWidth), "\n")...)
 	} else {
-		listRows, previewLines := m.stackedBodyLines()
+		listRows, previewLines, layoutLines := m.stackedSectionLines()
 		lines = append(lines, sectionStyle.Render("WORKSPACES"))
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
+		if layoutLines > 0 {
+			lines = append(lines, strings.Split(m.workspaceLayoutView(width, layoutLines), "\n")...)
+		}
 	}
 	lines = append(lines,
 		horizontalRule(width),
@@ -582,6 +615,18 @@ func (m teaModel) stackedBodyLines() (int, int) {
 	return maxInt(1, available-previewLines), previewLines
 }
 
+func (m teaModel) stackedSectionLines() (list, preview, layout int) {
+	list, preview = m.stackedBodyLines()
+	current, ok := m.list.Current()
+	const layoutBodyLines = 4
+	layoutRows := layoutBodyLines + previewTitleRows
+	if ok && current.WorkspaceID != "" && list > layoutRows {
+		list -= layoutRows
+		layout = layoutBodyLines
+	}
+	return list, preview, layout
+}
+
 func (m teaModel) contentWidth() int {
 	width := m.width
 	if width == 0 {
@@ -659,13 +704,21 @@ func (m teaModel) workspaceLayoutView(width, maxLines int) string {
 	current, ok := m.list.Current()
 	body := "Not a running Herdr workspace"
 	if ok && current.WorkspaceID != "" {
+		layoutLines := maxLines
+		showIdentity := maxLines > 3
+		if showIdentity {
+			layoutLines--
+		}
 		body = "Layout unavailable"
 		if m.layoutLoading {
 			body = "Loading layout…"
 		} else if m.layoutError != "" {
 			body += "\n" + m.layoutError
 		} else if m.hasCurrentWorkspaceLayout(current) {
-			body = paneMap(current, m.layout, width, maxLines)
+			body = paneMap(current, m.layout, width, layoutLines)
+		}
+		if showIdentity {
+			body = workspaceLayoutIdentity(current, width) + "\n" + body
 		}
 	}
 	body = fixedVisualLines(body, width, maxLines)
@@ -674,6 +727,17 @@ func (m teaModel) workspaceLayoutView(width, maxLines int) string {
 		lines[i] = fitLine(lines[i], width)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func workspaceLayoutIdentity(s sessionmodel.Session, width int) string {
+	identity := "Workspace"
+	if s.WorkspaceNumber > 0 {
+		identity += fmt.Sprintf(" %d", s.WorkspaceNumber)
+	}
+	if name := sanitizePaneText(s.Name); name != "" {
+		identity += " - " + name
+	}
+	return rowLabelStyle.Render(ansi.Truncate(identity, width, "..."))
 }
 
 func (m teaModel) workspaceLayoutTitle() string {
@@ -744,7 +808,7 @@ func paneMap(s sessionmodel.Session, layout herdr.PaneLayout, width, height int)
 	for i := range canvas {
 		lines[i] = string(canvas[i])
 	}
-	lines[0] = writePaneText(lines[0], 1, width-2, activeTabAtlasTitle(s, layout))
+	lines[0] = writeStyledPaneText(lines[0], 1, width-2, activeTabAtlasTitle(s, layout, width-2))
 	for _, overlay := range overlays {
 		lines[overlay.y] = writePaneText(lines[overlay.y], overlay.x, overlay.width, overlay.text)
 	}
@@ -754,26 +818,65 @@ func paneMap(s sessionmodel.Session, layout herdr.PaneLayout, width, height int)
 	return strings.Join(lines, "\n")
 }
 
-func activeTabAtlasTitle(s sessionmodel.Session, layout herdr.PaneLayout) string {
+func activeTabAtlasTitle(s sessionmodel.Session, layout herdr.PaneLayout, width int) string {
 	tabID := layout.TabID
 	if tabID == "" {
 		tabID = s.ActiveTabID
 	}
+	tokens := make([]string, 0, len(s.WorkspaceTabs))
+	active := -1
 	for i, tab := range s.WorkspaceTabs {
-		if tab.ID != tabID {
-			continue
-		}
 		number := tab.Number
 		if number == 0 {
 			number = i + 1
 		}
-		label := tab.Label
-		if label == "" {
-			label = "tab"
+		token := fmt.Sprintf("[%d]", number)
+		if tab.ID == tabID {
+			token = selectionRailStyle.Render(token)
+			active = i
+		} else {
+			token = countStyle.Render(token)
 		}
-		return fmt.Sprintf("▶ %d %s · %s ", number, label, itemCount(len(layout.Panes), "pane"))
+		tokens = append(tokens, token)
 	}
-	return "▶ Active tab · " + itemCount(len(layout.Panes), "pane") + " "
+	if len(tokens) == 0 {
+		tokens = append(tokens, selectionRailStyle.Render("[active]"))
+		active = 0
+	}
+	suffix := countStyle.Render(" · "+itemCount(len(layout.Panes), "pane")) + " "
+	available := maxInt(1, width-lipgloss.Width("▶ ")-lipgloss.Width(suffix))
+	strip := strings.Join(tokens, " ")
+	if lipgloss.Width(strip) > available && active >= 0 {
+		start, end := active, active+1
+		for {
+			expanded := false
+			if start > 0 && lipgloss.Width(tabStripWindow(tokens, start-1, end)) <= available {
+				start--
+				expanded = true
+			}
+			if end < len(tokens) && lipgloss.Width(tabStripWindow(tokens, start, end+1)) <= available {
+				end++
+				expanded = true
+			}
+			if !expanded {
+				break
+			}
+		}
+		strip = tabStripWindow(tokens, start, end)
+	}
+	return "▶ " + strip + suffix
+}
+
+func tabStripWindow(tokens []string, start, end int) string {
+	parts := make([]string, 0, end-start+2)
+	if start > 0 {
+		parts = append(parts, countStyle.Render("…"))
+	}
+	parts = append(parts, tokens[start:end]...)
+	if end < len(tokens) {
+		parts = append(parts, countStyle.Render("…"))
+	}
+	return strings.Join(parts, " ")
 }
 
 func paneCommand(command string) string {
@@ -865,7 +968,10 @@ func paneMapLabel(s sessionmodel.Session, paneID string, index int) (string, str
 }
 
 func writePaneText(line string, x, width int, text string) string {
-	text = sanitizePaneText(text)
+	return writeStyledPaneText(line, x, width, sanitizePaneText(text))
+}
+
+func writeStyledPaneText(line string, x, width int, text string) string {
 	if width < 1 || text == "" {
 		return line
 	}
@@ -918,6 +1024,7 @@ func (m teaModel) refreshWorkspaceLayout() (teaModel, tea.Cmd) {
 		m.layoutKey = ""
 		m.layout = herdr.PaneLayout{}
 		m.layoutLoading = false
+		m.layoutRefreshing = false
 		m.layoutError = ""
 		return m, nil
 	}
@@ -929,6 +1036,7 @@ func (m teaModel) refreshWorkspaceLayout() (teaModel, tea.Cmd) {
 	m.layoutRequest++
 	m.layout = herdr.PaneLayout{}
 	m.layoutLoading = false
+	m.layoutRefreshing = false
 	m.layoutError = ""
 	paneID := activeTabPaneID(current)
 	if paneID == "" || m.loadPaneLayout == nil {
@@ -936,6 +1044,23 @@ func (m teaModel) refreshWorkspaceLayout() (teaModel, tea.Cmd) {
 	}
 	m.layoutLoading = true
 	return m, paneLayoutCommand(key, m.layoutRequest, paneID, m.loadPaneLayout)
+}
+
+func (m teaModel) refreshWorkspaceLayoutInBackground() (teaModel, tea.Cmd) {
+	if m.layoutLoading || m.layoutRefreshing || m.loadPaneLayout == nil {
+		return m, nil
+	}
+	current, ok := m.list.Current()
+	if !ok || sessionmodel.Key(current) != m.layoutKey {
+		return m, nil
+	}
+	paneID := activeTabPaneID(current)
+	if paneID == "" {
+		return m, nil
+	}
+	m.layoutRequest++
+	m.layoutRefreshing = true
+	return m, paneLayoutCommand(m.layoutKey, m.layoutRequest, paneID, m.loadPaneLayout)
 }
 
 func (m teaModel) focusList() (teaModel, tea.Cmd) {
@@ -975,7 +1100,7 @@ func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
 func (m teaModel) focusSmearDistance() int {
 	visibleRows := m.previewBodyLines()
 	if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
-		visibleRows, _ = m.stackedBodyLines()
+		visibleRows, _, _ = m.stackedSectionLines()
 	}
 	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
 	selectedLine := m.list.Selected - start

@@ -44,12 +44,12 @@ func TestCLIClientConstructsWorkspaceCreateNoFocus(t *testing.T) {
 }
 
 func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
-	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api","agent_status":"working","tab_count":2,"pane_count":3}]}}`)}}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","number":7,"label":"api","agent_status":"working","tab_count":2,"pane_count":3}]}}`)}}
 	got, err := c.WorkspaceList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "working" || got[0].TabCount != 2 || got[0].PaneCount != 3 {
+	if len(got) != 1 || got[0].ID != "w1" || got[0].Number != 7 || got[0].Label != "api" || got[0].AgentStatus != "working" || got[0].TabCount != 2 || got[0].PaneCount != 3 {
 		t.Fatalf("workspaces=%#v", got)
 	}
 }

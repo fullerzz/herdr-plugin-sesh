@@ -11,6 +11,7 @@ type Session struct {
 	Name                  string          `json:"name"`
 	Path                  string          `json:"path,omitempty"`
 	WorkspaceID           string          `json:"workspace_id,omitempty"`
+	WorkspaceNumber       int             `json:"-"`
 	TabID                 string          `json:"tab_id,omitempty"`
 	TabCount              int             `json:"-"`
 	PaneCount             int             `json:"-"`
