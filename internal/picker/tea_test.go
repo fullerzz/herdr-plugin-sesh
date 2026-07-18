@@ -668,7 +668,7 @@ func TestPaneMapPreservesCollapsedPaneBorder(t *testing.T) {
 	}
 }
 
-func TestPaneMapShowsAllPanesWhenZoomed(t *testing.T) {
+func TestPaneMapFillsPreviewWithFocusedPaneWhenZoomed(t *testing.T) {
 	got := paneMap(model.Session{WorkspacePanes: []model.WorkspacePane{
 		{ID: "w1:p1", Label: "Codex"},
 		{ID: "w1:p2", Label: "shell"},
@@ -682,11 +682,14 @@ func TestPaneMapShowsAllPanesWhenZoomed(t *testing.T) {
 		},
 	}, 20, 4)
 
-	if !strings.Contains(got, "shell") || !strings.Contains(got, "Codex") {
-		t.Fatalf("zoomed atlas hid a pane:\n%s", got)
+	if strings.Contains(got, "shell") || !strings.Contains(got, "◆ Codex · zoomed") {
+		t.Fatalf("zoomed atlas did not fill the preview with the focused pane:\n%s", got)
 	}
 	if first := ansi.Strip(strings.Split(got, "\n")[0]); !strings.HasPrefix(first, "┌▶ [active] · 2") {
 		t.Fatalf("zoomed atlas missing active-tab frame: %q\n%s", first, got)
+	}
+	if last := strings.Split(got, "\n")[3]; last != "└──────────────────┘" {
+		t.Fatalf("zoomed pane did not span the preview: %q\n%s", last, got)
 	}
 }
 

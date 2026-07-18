@@ -774,16 +774,26 @@ func paneMap(s sessionmodel.Session, layout herdr.PaneLayout, width, height int)
 	}
 	overlays := make([]textOverlay, 0, len(layout.Panes)*3)
 	for i, pane := range layout.Panes {
-		left := scalePaneCoordinate(pane.Rect.X-layout.Area.X, layout.Area.Width, width)
-		right := scalePaneCoordinate(pane.Rect.X+pane.Rect.Width-layout.Area.X, layout.Area.Width, width)
-		top := scalePaneCoordinate(pane.Rect.Y-layout.Area.Y, layout.Area.Height, height)
-		bottom := scalePaneCoordinate(pane.Rect.Y+pane.Rect.Height-layout.Area.Y, layout.Area.Height, height)
+		focused := pane.ID == layout.FocusedPaneID || pane.Focused
+		if layout.Zoomed && !focused {
+			continue
+		}
+		left, right, top, bottom := 0, width-1, 0, height-1
+		if !layout.Zoomed {
+			left = scalePaneCoordinate(pane.Rect.X-layout.Area.X, layout.Area.Width, width)
+			right = scalePaneCoordinate(pane.Rect.X+pane.Rect.Width-layout.Area.X, layout.Area.Width, width)
+			top = scalePaneCoordinate(pane.Rect.Y-layout.Area.Y, layout.Area.Height, height)
+			bottom = scalePaneCoordinate(pane.Rect.Y+pane.Rect.Height-layout.Area.Y, layout.Area.Height, height)
+		}
 		right = min(width-1, maxInt(left+1, right))
 		bottom = min(height-1, maxInt(top+1, bottom))
 		drawPaneBox(canvas, left, top, right, bottom)
 		label, status := paneMapLabel(s, pane.ID, i)
-		if pane.ID == layout.FocusedPaneID || pane.Focused {
+		if focused {
 			label = "◆ " + label
+			if layout.Zoomed {
+				label += " · zoomed"
+			}
 		}
 		bodyRows := bottom - top - 1
 		command := paneCommand(pane.Command)
