@@ -204,6 +204,19 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		}
 		pickOpts.RecentWorkspaceIDs = append([]string{os.Getenv("HERDR_WORKSPACE_ID")}, history.Workspaces...)
 		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
+		pickOpts.LoadPaneLayout = func(paneID string) (herdr.PaneLayout, error) {
+			layout, err := client.PaneLayout(ctx, paneID)
+			if err != nil {
+				return herdr.PaneLayout{}, err
+			}
+			for i := range layout.Panes {
+				command, commandErr := client.PaneRunningCommand(ctx, layout.Panes[i].ID)
+				if commandErr == nil {
+					layout.Panes[i].Command = command
+				}
+			}
+			return layout, nil
+		}
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
 			if err != nil {

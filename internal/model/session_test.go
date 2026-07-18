@@ -7,7 +7,16 @@ import (
 )
 
 func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
-	s := Session{Source: "config", Name: "api", Path: "/tmp/api", AgentStatus: "working", WindowConfigs: []WindowConfig{{Name: "dev"}}}
+	s := Session{
+		Source:         "config",
+		Name:           "api",
+		Path:           "/tmp/api",
+		AgentStatus:    "working",
+		ActiveTabID:    "secret-tab",
+		WorkspaceTabs:  []WorkspaceTab{{ID: "secret-tab"}},
+		WorkspacePanes: []WorkspacePane{{ID: "secret-pane"}},
+		WindowConfigs:  []WindowConfig{{Name: "dev"}},
+	}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +30,9 @@ func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
 	}
 	if strings.Contains(got, "AgentStatus") || strings.Contains(got, "agent_status") {
 		t.Fatalf("json leaked internal agent status: %s", got)
+	}
+	if strings.Contains(got, "secret-tab") || strings.Contains(got, "secret-pane") {
+		t.Fatalf("json leaked internal workspace layout metadata: %s", got)
 	}
 }
 
