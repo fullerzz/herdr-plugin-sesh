@@ -7,20 +7,38 @@ import (
 )
 
 type Session struct {
-	Source                string         `json:"source"`
-	Name                  string         `json:"name"`
-	Path                  string         `json:"path,omitempty"`
-	WorkspaceID           string         `json:"workspace_id,omitempty"`
-	TabID                 string         `json:"tab_id,omitempty"`
-	StartupCommand        string         `json:"startup_command,omitempty"`
-	PreviewCommand        string         `json:"preview_command,omitempty"`
-	DisableStartupCommand bool           `json:"disable_startup_command,omitempty"`
-	DisableStartupSet     bool           `json:"-"`
-	WindowNames           []string       `json:"window_names,omitempty"`
-	WindowConfigs         []WindowConfig `json:"-"`
-	AgentStatus           string         `json:"-"`
-	Score                 float64        `json:"score,omitempty"`
-	Attached              bool           `json:"attached,omitempty"`
+	Source                string          `json:"source"`
+	Name                  string          `json:"name"`
+	Path                  string          `json:"path,omitempty"`
+	WorkspaceID           string          `json:"workspace_id,omitempty"`
+	TabID                 string          `json:"tab_id,omitempty"`
+	TabCount              int             `json:"-"`
+	PaneCount             int             `json:"-"`
+	ActiveTabID           string          `json:"-"`
+	WorkspaceTabs         []WorkspaceTab  `json:"-"`
+	WorkspacePanes        []WorkspacePane `json:"-"`
+	StartupCommand        string          `json:"startup_command,omitempty"`
+	PreviewCommand        string          `json:"preview_command,omitempty"`
+	DisableStartupCommand bool            `json:"disable_startup_command,omitempty"`
+	DisableStartupSet     bool            `json:"-"`
+	WindowNames           []string        `json:"window_names,omitempty"`
+	WindowConfigs         []WindowConfig  `json:"-"`
+	AgentStatus           string          `json:"-"`
+	Score                 float64         `json:"score,omitempty"`
+	Attached              bool            `json:"attached,omitempty"`
+}
+
+type WorkspaceTab struct {
+	ID     string
+	Number int
+	Label  string
+}
+
+type WorkspacePane struct {
+	ID          string
+	TabID       string
+	Label       string
+	AgentStatus string
 }
 
 type WindowConfig struct {

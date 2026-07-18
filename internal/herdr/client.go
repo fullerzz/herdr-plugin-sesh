@@ -18,10 +18,13 @@ type Workspace struct {
 	ForegroundCWD string `json:"foreground_cwd"`
 	ActiveTabID   string `json:"active_tab_id"`
 	AgentStatus   string `json:"agent_status"`
+	TabCount      int    `json:"tab_count"`
+	PaneCount     int    `json:"pane_count"`
 }
 type Tab struct {
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspace_id"`
+	Number      int    `json:"number"`
 	Label       string `json:"label"`
 	CWD         string `json:"cwd"`
 	PaneID      string `json:"pane_id"`
@@ -33,6 +36,79 @@ type Pane struct {
 	CWD           string `json:"cwd"`
 	ForegroundCWD string `json:"foreground_cwd"`
 	Focused       bool   `json:"focused"`
+	Label         string `json:"label"`
+	Agent         string `json:"agent"`
+	Title         string `json:"title"`
+	DisplayAgent  string `json:"display_agent"`
+	AgentStatus   string `json:"agent_status"`
+}
+
+type PaneRect struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type PaneLayoutPane struct {
+	ID      string   `json:"pane_id"`
+	Focused bool     `json:"focused"`
+	Rect    PaneRect `json:"rect"`
+	Command string   `json:"-"`
+}
+
+type PaneLayout struct {
+	WorkspaceID   string           `json:"workspace_id"`
+	TabID         string           `json:"tab_id"`
+	Zoomed        bool             `json:"zoomed"`
+	Area          PaneRect         `json:"area"`
+	FocusedPaneID string           `json:"focused_pane_id"`
+	Panes         []PaneLayoutPane `json:"panes"`
+}
+
+type paneProcessInfo struct {
+	ShellPID                 uint32        `json:"shell_pid"`
+	ForegroundProcessGroupID uint32        `json:"foreground_process_group_id"`
+	ForegroundProcesses      []paneProcess `json:"foreground_processes"`
+}
+
+type paneProcess struct {
+	PID     uint32   `json:"pid"`
+	Name    string   `json:"name"`
+	Argv0   string   `json:"argv0"`
+	Argv    []string `json:"argv"`
+	Cmdline string   `json:"cmdline"`
+}
+
+func (info paneProcessInfo) runningCommand() string {
+	if info.ForegroundProcessGroupID == 0 || info.ForegroundProcessGroupID == info.ShellPID {
+		return ""
+	}
+	var process *paneProcess
+	for i := range info.ForegroundProcesses {
+		if info.ForegroundProcesses[i].PID == info.ForegroundProcessGroupID {
+			process = &info.ForegroundProcesses[i]
+			break
+		}
+	}
+	if process == nil {
+		for i := range info.ForegroundProcesses {
+			if info.ForegroundProcesses[i].PID != info.ShellPID {
+				process = &info.ForegroundProcesses[i]
+				break
+			}
+		}
+	}
+	if process == nil {
+		return ""
+	}
+	for _, candidate := range []string{process.Cmdline, strings.Join(process.Argv, " "), process.Argv0, process.Name} {
+		command := strings.TrimSpace(candidate)
+		if command != "" && !strings.EqualFold(command, "unknown") {
+			return command
+		}
+	}
+	return ""
 }
 
 func (w *Workspace) UnmarshalJSON(data []byte) error {
@@ -344,6 +420,53 @@ func (c *CLIClient) PaneList(ctx context.Context, wid string) ([]Pane, error) {
 		return nil, fmt.Errorf("decode herdr pane list JSON: %w", err)
 	}
 	return panes, nil
+}
+func (c *CLIClient) PaneLayout(ctx context.Context, paneID string) (PaneLayout, error) {
+	out, err := c.run(ctx, "pane", "layout", "--pane", paneID)
+	if err != nil {
+		return PaneLayout{}, err
+	}
+	raw, wrapped, err := responseJSON(out, "pane layout")
+	if err != nil {
+		return PaneLayout{}, err
+	}
+	if wrapped {
+		var resp struct {
+			Layout PaneLayout `json:"layout"`
+		}
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return PaneLayout{}, fmt.Errorf("decode herdr pane layout JSON: %w", err)
+		}
+		return resp.Layout, nil
+	}
+	var layout PaneLayout
+	if err := json.Unmarshal(raw, &layout); err != nil {
+		return PaneLayout{}, fmt.Errorf("decode herdr pane layout JSON: %w", err)
+	}
+	return layout, nil
+}
+func (c *CLIClient) PaneRunningCommand(ctx context.Context, paneID string) (string, error) {
+	out, err := c.run(ctx, "pane", "process-info", "--pane", paneID)
+	if err != nil {
+		return "", err
+	}
+	raw, wrapped, err := responseJSON(out, "pane process info")
+	if err != nil {
+		return "", err
+	}
+	var info paneProcessInfo
+	if wrapped {
+		var resp struct {
+			ProcessInfo paneProcessInfo `json:"process_info"`
+		}
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return "", fmt.Errorf("decode herdr pane process info JSON: %w", err)
+		}
+		info = resp.ProcessInfo
+	} else if err := json.Unmarshal(raw, &info); err != nil {
+		return "", fmt.Errorf("decode herdr pane process info JSON: %w", err)
+	}
+	return info.runningCommand(), nil
 }
 func (c *CLIClient) PaneCurrent(ctx context.Context) (Pane, error) {
 	out, err := c.run(ctx, "pane", "current")
