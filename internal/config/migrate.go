@@ -212,6 +212,7 @@ func marshalNative(cfg Config) ([]byte, error) {
 			Placeholder:           cfg.TUI.Placeholder,
 			SeparatorAware:        cfg.SeparatorAware,
 			WorkspaceSort:         cfg.TUI.DefaultSort,
+			Spinner:               cfg.TUI.Spinner,
 		},
 		WorkspaceDefaults: nativeDefaults{
 			Startup: cfg.DefaultSessionConfig.StartupCommand,

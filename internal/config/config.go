@@ -47,6 +47,7 @@ type TUIConfig struct {
 	Prompt                string `toml:"prompt"`
 	Placeholder           string `toml:"placeholder"`
 	DefaultSort           string `toml:"default_sort"`
+	Spinner               string `toml:"spinner"`
 }
 
 type WildcardConfig struct {
@@ -68,6 +69,7 @@ func Default() Config {
 			ReplaceWorktreeIcon:   true,
 			ShowLastWorkspace:     true,
 			ShowLastWorkspacePath: true,
+			Spinner:               "toggle",
 		},
 	}
 }

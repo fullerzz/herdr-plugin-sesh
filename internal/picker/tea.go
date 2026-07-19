@@ -148,7 +148,7 @@ type Options struct {
 	LastWorkspaceID      string
 	LastWorkspaceUnknown bool
 	HerdrWorkspaces      []sessionmodel.Session
-	ReportSelection       func(seq uint64, workspaceID string)
+	ReportSelection      func(seq uint64, workspaceID string)
 }
 
 type ReloadResult struct {
@@ -218,8 +218,8 @@ type teaModel struct {
 	cancelWorkspaceClose    context.CancelFunc
 	quitAfterWorkspaceClose bool
 	closeError              string
-	reportSelection       func(seq uint64, workspaceID string)
-	reportSeq             uint64
+	reportSelection         func(seq uint64, workspaceID string)
+	reportSeq               uint64
 }
 
 type previewMsg struct {

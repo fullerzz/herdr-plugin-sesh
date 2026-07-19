@@ -66,6 +66,7 @@ the state directory.
 | `workspace_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default) or `recent` (most recently visited first). Press `ctrl+r` to switch modes while the picker is open. |
 | `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to disable the feature. |
 | `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
+| `spinner` | Frame set for the sidebar selection indicator. One of `toggle` (default), `braille`, `braille-heavy`, `line`, `circle`, `triangle`, `arrows`, `bounce`. Unknown names fall back to `toggle`. |
 
 Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
 
@@ -84,16 +85,16 @@ and teal `●` when done. Workspaces with an unknown state have no indicator.
 
 ## Sidebar selection indicator
 
-Requires Herdr 0.7.4 or newer, the first release with
-`herdr workspace report-metadata`.
+Requires Herdr 0.8.0 or newer.
 
 While the native picker is open, the highlighted entry is mirrored into the
 Herdr sidebar. When the selection lands on an existing Herdr workspace, the
-picker reports a `sesh` metadata token (value `◀ sesh`) on that workspace
-through `herdr workspace report-metadata`, clears it from the previously
-highlighted workspace, and clears everything when the picker closes. Tokens
-carry a short TTL and are renewed once per second, so the indicator disappears
-on its own if the picker exits abnormally.
+picker reports a `sesh` metadata token (an animated spinner, e.g. `⊶ sesh`)
+on that workspace through `herdr workspace report-metadata`, clears it from
+the previously highlighted workspace, and clears everything when the picker
+closes. The spinner completes a cycle roughly every 800ms regardless of the
+frame set chosen with `[picker] spinner`; each frame renews the token's short
+TTL, so the indicator disappears on its own if the picker exits abnormally.
 
 Herdr only renders metadata tokens that appear in its sidebar row layout. To
 show the indicator, add `$sesh` to the space rows in Herdr's `config.toml`:

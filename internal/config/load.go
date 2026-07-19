@@ -290,6 +290,9 @@ func merge(dst *Config, src Config, presence mergePresence) {
 	if presence.defaultSort {
 		dst.TUI.DefaultSort = src.TUI.DefaultSort
 	}
+	if src.TUI.Spinner != "" {
+		dst.TUI.Spinner = src.TUI.Spinner
+	}
 	if src.DefaultSessionConfig.StartupCommand != "" {
 		dst.DefaultSessionConfig.StartupCommand = src.DefaultSessionConfig.StartupCommand
 	}

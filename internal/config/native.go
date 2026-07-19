@@ -50,6 +50,7 @@ type nativePicker struct {
 	Placeholder           string `toml:"placeholder,omitempty"`
 	SeparatorAware        bool   `toml:"separator_aware,omitempty"`
 	WorkspaceSort         string `toml:"workspace_sort,omitempty"`
+	Spinner               string `toml:"spinner,omitempty"`
 }
 
 type nativeDefaults struct {
@@ -213,6 +214,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	cfg.TUI.Placeholder = n.Picker.Placeholder
 	if n.Picker.WorkspaceSort != "" {
 		cfg.TUI.DefaultSort = n.Picker.WorkspaceSort
+	}
+	if n.Picker.Spinner != "" {
+		cfg.TUI.Spinner = n.Picker.Spinner
 	}
 	cfg.DefaultSessionConfig.StartupCommand = n.WorkspaceDefaults.Startup
 	if n.WorkspaceDefaults.Preview != "" {

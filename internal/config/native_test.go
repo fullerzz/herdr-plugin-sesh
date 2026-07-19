@@ -41,6 +41,7 @@ prompt = "P> "
 placeholder = "find"
 separator_aware = true
 workspace_sort = "recent"
+spinner = "braille"
 
 [workspace_defaults]
 startup = "make dev"
@@ -76,7 +77,7 @@ tabs = ["git"]
 		SeparatorAware: true,
 		SortOrder:      []string{"config", "herdr"},
 		Blacklist:      []string{"^scratch$"},
-		TUI:            TUIConfig{ShowIcons: true, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
+		TUI:            TUIConfig{ShowIcons: true, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent", Spinner: "braille"},
 		DefaultSessionConfig: DefaultSessionConfig{
 			StartupCommand: "make dev",
 			PreviewCommand: "ls {}",
@@ -107,7 +108,7 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := Default()
-	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || !cfg.TUI.ReplaceWorktreeIcon || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || cfg.TUI.Spinner != d.TUI.Spinner || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || !cfg.TUI.ReplaceWorktreeIcon || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
 		t.Fatalf("defaults lost: %#v", cfg)
 	}
 }

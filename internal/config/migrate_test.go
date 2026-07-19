@@ -251,6 +251,13 @@ func TestMigratePreservesLastWorkspacePickerSettings(t *testing.T) {
 	}
 }
 
+func TestMigratePreservesSidebarSpinner(t *testing.T) {
+	text, cfg := migrateAndRead(t, "[tui]\nspinner = \"braille\"\n")
+	if !strings.Contains(text, "spinner = 'braille'") || cfg.TUI.Spinner != "braille" {
+		t.Fatalf("sidebar spinner setting dropped from output:\n%s", text)
+	}
+}
+
 // The exact shape older releases generated via `config init`: no [tui] table
 // and the former colorless default preview baked in as an explicit value.
 func TestMigrateFormerGeneratedStarterShape(t *testing.T) {
