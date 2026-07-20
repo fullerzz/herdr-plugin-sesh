@@ -401,7 +401,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.filter("")
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(focusCmd, previewCmd)
-	case "ctrl+s":
+	case "ctrl+r":
 		return m.toggleWorkspaceSort()
 	case "right":
 		if m.listFocused {
@@ -484,7 +484,7 @@ func (m teaModel) View() tea.View {
 	}
 	lines = append(lines,
 		horizontalRule(width),
-		helpStyle.Render(fmt.Sprintf("enter select   ↑/↓ move   ctrl+s sort: %s   ctrl+u clear   esc close", sortMode)),
+		helpStyle.Render(fmt.Sprintf("enter select   ↑/↓ move   ctrl+r sort: %s   ctrl+u clear   esc close", sortMode)),
 		"",
 	)
 	for i, line := range lines {

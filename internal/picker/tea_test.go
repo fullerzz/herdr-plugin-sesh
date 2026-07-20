@@ -764,16 +764,16 @@ func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
 	}
 	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w3", "w1"}})
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	if got, want := sessionNames(m.list.All), []string{"configured", "third", "recent-directory", "first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent order=%v want %v", got, want)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+s sort: recent") {
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r sort: recent") {
 		t.Fatalf("view missing recent sort mode:\n%s", view)
 	}
 
-	updated, _ = m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	if got, want := sessionNames(m.list.All), []string{"configured", "first", "recent-directory", "second", "third"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("workspace order=%v want %v", got, want)
@@ -789,7 +789,7 @@ func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
 	if got, want := sessionNames(m.list.All), []string{"second", "first"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("initial order=%v want %v", got, want)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+s sort: recent") {
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r sort: recent") {
 		t.Fatalf("view missing recent sort mode:\n%s", view)
 	}
 }
