@@ -2,7 +2,10 @@ package config
 
 import "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 
-const DefaultPreviewCommand = "eza --icons=always -la {}"
+const (
+	DefaultPreviewCommand = "eza --icons=always -la {}"
+	DefaultWorkspaceSort  = "workspace"
+)
 
 type Config struct {
 	Cache                bool                 `toml:"cache"`
@@ -37,6 +40,7 @@ type TUIConfig struct {
 	ShowIcons   bool   `toml:"show_icons"`
 	Prompt      string `toml:"prompt"`
 	Placeholder string `toml:"placeholder"`
+	DefaultSort string `toml:"default_sort"`
 }
 
 type WildcardConfig struct {
@@ -52,5 +56,6 @@ func Default() Config {
 		DirLength:            1,
 		SortOrder:            []string{"herdr", "config", "zoxide", "dir"},
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
+		TUI:                  TUIConfig{DefaultSort: DefaultWorkspaceSort},
 	}
 }

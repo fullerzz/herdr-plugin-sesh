@@ -187,6 +187,26 @@ func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
 	}
 }
 
+func TestLoadTUIDefaultSort(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "sesh.toml")
+	mustWrite(t, p, "[tui]\ndefault_sort = \"recent\"\n")
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.DefaultSort != "recent" {
+		t.Fatalf("default sort = %q", cfg.TUI.DefaultSort)
+	}
+}
+
+func TestLoadRejectsInvalidTUIDefaultSort(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "sesh.toml")
+	mustWrite(t, p, "[tui]\ndefault_sort = \"newest\"\n")
+	if _, _, err := Load(LoadOptions{Path: p}); err == nil {
+		t.Fatal("expected invalid default sort error")
+	}
+}
+
 func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	cfg := Default()
 	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {

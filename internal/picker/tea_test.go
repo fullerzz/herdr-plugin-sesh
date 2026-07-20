@@ -3,6 +3,7 @@ package picker
 import (
 	"context"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -753,6 +754,46 @@ func TestTeaModelHeaderShowsFilteredCountWhenAllRowsMatch(t *testing.T) {
 	}
 }
 
+func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
+	items := []model.Session{
+		{Source: "config", Name: "configured"},
+		{Source: "herdr", Name: "first", WorkspaceID: "w1"},
+		{Source: "zoxide", Name: "recent-directory"},
+		{Source: "herdr", Name: "second", WorkspaceID: "w2"},
+		{Source: "herdr", Name: "third", WorkspaceID: "w3"},
+	}
+	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w3", "w1"}})
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if got, want := sessionNames(m.list.All), []string{"configured", "third", "recent-directory", "first", "second"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent order=%v want %v", got, want)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+s sort: recent") {
+		t.Fatalf("view missing recent sort mode:\n%s", view)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if got, want := sessionNames(m.list.All), []string{"configured", "first", "recent-directory", "second", "third"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("workspace order=%v want %v", got, want)
+	}
+}
+
+func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "first", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "second", WorkspaceID: "w2"},
+	}, Options{RecentWorkspaceIDs: []string{"w2", "w1"}, RecentWorkspaceSort: true})
+
+	if got, want := sessionNames(m.list.All), []string{"second", "first"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("initial order=%v want %v", got, want)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+s sort: recent") {
+		t.Fatalf("view missing recent sort mode:\n%s", view)
+	}
+}
+
 func TestTeaModelSearchRailDoesNotTruncateAtWindowEdge(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
@@ -800,4 +841,12 @@ func visualColumn(line, marker string) int {
 		return -1
 	}
 	return lipgloss.Width(line[:index])
+}
+
+func sessionNames(items []model.Session) []string {
+	names := make([]string, len(items))
+	for i := range items {
+		names[i] = items[i].Name
+	}
+	return names
 }
