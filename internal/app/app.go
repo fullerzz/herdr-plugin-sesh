@@ -198,6 +198,12 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
 	} else {
 		client := herdr.NewCLIClient()
+		history, historyErr := state.LoadHistory(os.Getenv("HERDR_PLUGIN_STATE_DIR"))
+		if historyErr != nil {
+			a.warnf("ignoring workspace history: %v", historyErr)
+		}
+		pickOpts.RecentWorkspaceIDs = append([]string{os.Getenv("HERDR_WORKSPACE_ID")}, history.Workspaces...)
+		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
 			if err != nil {

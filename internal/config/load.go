@@ -35,6 +35,9 @@ func Load(opts LoadOptions) (Config, string, error) {
 		return cfg, path, err
 	}
 	attachDefaults(&cfg)
+	if cfg.TUI.DefaultSort != "workspace" && cfg.TUI.DefaultSort != "recent" {
+		return cfg, path, fmt.Errorf("load %s: tui.default_sort must be \"workspace\" or \"recent\"", path)
+	}
 	return cfg, path, nil
 }
 
@@ -96,6 +99,7 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 			Prompt      *string `toml:"prompt"`
 			Placeholder *string `toml:"placeholder"`
 			ShowIcons   *bool   `toml:"show_icons"`
+			DefaultSort *string `toml:"default_sort"`
 		} `toml:"tui"`
 	}
 	_ = toml.Unmarshal(data, &probe)
@@ -123,11 +127,12 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 		probe.TUI.Prompt != nil,
 		probe.TUI.Placeholder != nil,
 		probe.TUI.ShowIcons != nil,
+		probe.TUI.DefaultSort != nil,
 	)
 	return nil
 }
 
-func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet bool) {
+func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet, defaultSortSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -155,6 +160,9 @@ func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet
 	if placeholderSet {
 		dst.TUI.Placeholder = src.TUI.Placeholder
 	}
+	if defaultSortSet {
+		dst.TUI.DefaultSort = src.TUI.DefaultSort
+	}
 	if src.DefaultSessionConfig.StartupCommand != "" {
 		dst.DefaultSessionConfig.StartupCommand = src.DefaultSessionConfig.StartupCommand
 	}
@@ -175,6 +183,9 @@ func attachDefaults(cfg *Config) {
 	}
 	if cfg.DefaultSessionConfig.PreviewCommand == "" {
 		cfg.DefaultSessionConfig.PreviewCommand = DefaultPreviewCommand
+	}
+	if cfg.TUI.DefaultSort == "" {
+		cfg.TUI.DefaultSort = DefaultWorkspaceSort
 	}
 }
 func ExpandHome(p, home string) string {

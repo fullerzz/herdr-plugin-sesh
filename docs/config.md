@@ -43,6 +43,7 @@ the state directory.
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
+| `default_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default) or `recent` (most recently visited first). Press `ctrl+r` to switch modes while the picker is open. |
 
 Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
 
@@ -128,6 +129,7 @@ blacklist = ["^scratch$"]
 show_icons = true
 prompt = "Sesh> "
 placeholder = "Search workspaces"
+default_sort = "recent"
 
 [default_session]
 startup_command = "git status"

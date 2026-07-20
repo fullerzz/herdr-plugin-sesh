@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -110,6 +111,8 @@ type Options struct {
 	DefaultPreviewCommand string
 	FZFCommand            string
 	RefreshAgentStatuses  func() (map[string]string, error)
+	RecentWorkspaceIDs    []string
+	RecentWorkspaceSort   bool
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
@@ -154,6 +157,9 @@ type teaModel struct {
 	defaultPreviewCommand string
 	showIcons             bool
 	refreshAgentStatuses  func() (map[string]string, error)
+	workspaceOrder        []string
+	recentWorkspaceIDs    []string
+	recentSort            bool
 }
 
 type previewMsg struct {
@@ -178,6 +184,11 @@ type smearPreset struct {
 }
 
 func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
+	workspaceOrder := herdrWorkspaceIDs(items)
+	if opts.RecentWorkspaceSort {
+		items = append([]sessionmodel.Session(nil), items...)
+		sortHerdrWorkspaces(items, opts.RecentWorkspaceIDs)
+	}
 	list := New(items)
 	list.SeparatorAware = opts.SeparatorAware
 	prompt := opts.Prompt
@@ -205,6 +216,9 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
+		workspaceOrder:        workspaceOrder,
+		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
+		recentSort:            opts.RecentWorkspaceSort,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
@@ -290,7 +304,7 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 	}
 }
 
-//nolint:ireturn // Bubble Tea's Model interface requires this return shape.
+//nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(statusRefreshTickMsg); ok {
 		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses)
@@ -387,6 +401,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.filter("")
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(focusCmd, previewCmd)
+	case "ctrl+r":
+		return m.toggleWorkspaceSort()
 	case "right":
 		if m.listFocused {
 			return m.smearToInput()
@@ -395,6 +411,20 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m.updateInput(msg)
 	}
+}
+
+func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
+	m.recentSort = !m.recentSort
+	order := m.workspaceOrder
+	if m.recentSort {
+		order = m.recentWorkspaceIDs
+	}
+	sortHerdrWorkspaces(m.list.All, order)
+	m.list.Selected = 0
+	m.list.Filter(m.list.Query)
+	m.smearActive = false
+	m.focusSmearActive = false
+	return m.refreshPreview()
 }
 
 func (m teaModel) updateInput(msg tea.Msg) (teaModel, tea.Cmd) {
@@ -448,9 +478,13 @@ func (m teaModel) View() tea.View {
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
+	sortMode := "workspace"
+	if m.recentSort {
+		sortMode = "recent"
+	}
 	lines = append(lines,
 		horizontalRule(width),
-		helpStyle.Render("enter select   ↑/↓ move   ctrl+u clear   esc close"),
+		helpStyle.Render(fmt.Sprintf("enter select   ↑/↓ move   ctrl+r sort: %s   ctrl+u clear   esc close", sortMode)),
 		"",
 	)
 	for i, line := range lines {
@@ -469,6 +503,46 @@ func (m teaModel) View() tea.View {
 	view := tea.NewView(strings.Join(framed, "\n"))
 	view.AltScreen = true
 	return view
+}
+
+func herdrWorkspaceIDs(items []sessionmodel.Session) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.Source == "herdr" {
+			ids = append(ids, item.WorkspaceID)
+		}
+	}
+	return ids
+}
+
+func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
+	rank := make(map[string]int, len(order))
+	for i, id := range order {
+		if _, exists := rank[id]; id != "" && !exists {
+			rank[id] = i
+		}
+	}
+	workspaces := make([]sessionmodel.Session, 0, len(items))
+	for _, item := range items {
+		if item.Source == "herdr" {
+			workspaces = append(workspaces, item)
+		}
+	}
+	sort.SliceStable(workspaces, func(i, j int) bool {
+		iRank, iFound := rank[workspaces[i].WorkspaceID]
+		jRank, jFound := rank[workspaces[j].WorkspaceID]
+		if iFound != jFound {
+			return iFound
+		}
+		return iFound && iRank < jRank
+	})
+	workspace := 0
+	for i := range items {
+		if items[i].Source == "herdr" {
+			items[i] = workspaces[workspace]
+			workspace++
+		}
+	}
 }
 
 func (m teaModel) listView(width, visibleRows int) string {
