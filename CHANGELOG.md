@@ -1,3 +1,16 @@
+## v0.4.0 (2026-07-20)
+
+### 🚀 Features
+
+- **picker**: Add workspace sort modes ([#56](https://github.com/fullerzz/herdr-plugin-sesh/issues/56)) ([f4c84c2](https://github.com/fullerzz/herdr-plugin-sesh/commit/f4c84c2ab6e9538bafe1fad3aef24a3642a534ca))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- **git-cliff**: Update commit parse config for chore types ([d4d0168](https://github.com/fullerzz/herdr-plugin-sesh/commit/d4d016858037de723f1f9cefdf8e77a5d7f663e8))
+
+
 ## v0.3.1 (2026-07-18)
 
 ### 💼 Other
@@ -11,8 +24,6 @@
 - Setup pre-commit hooks with prek ([7bf42cd](https://github.com/fullerzz/herdr-plugin-sesh/commit/7bf42cd38b61f1351ff71ccb21718f3c9ea0431e))
 
 - Add .editorconfig ([8e924b6](https://github.com/fullerzz/herdr-plugin-sesh/commit/8e924b622431309e302cf46395c99780287b1cfa))
-
-- Release v0.3.1 ([f136da9](https://github.com/fullerzz/herdr-plugin-sesh/commit/f136da907dd099bfb07eb4cbe7c9835163200569))
 
 
 
@@ -38,12 +49,6 @@
 - Add github social preview card image ([46ea3b7](https://github.com/fullerzz/herdr-plugin-sesh/commit/46ea3b72465d835af054989e9673b77e2bb0f68a))
 
 
-
-### ⚙️ Miscellaneous Tasks
-
-- Release v0.3.0 ([250e035](https://github.com/fullerzz/herdr-plugin-sesh/commit/250e035127db31dab7b7fe89dbe994d6342b17e9))
-
-
 ## v0.2.0 (2026-07-16)
 
 ### 🚀 Features
@@ -62,17 +67,19 @@
 
 
 
-### ⚙️ Miscellaneous Tasks
+### 🛬 Dependency Updates
 
 - **deps**: Update dependency just to v1.56.0 ([#42](https://github.com/fullerzz/herdr-plugin-sesh/issues/42)) ([699af8d](https://github.com/fullerzz/herdr-plugin-sesh/commit/699af8de2dd9eb44f32a51c9f1d5e9bba1407e6a))
 
-- **renovate**: Group mise tool updates ([#44](https://github.com/fullerzz/herdr-plugin-sesh/issues/44)) ([0172ae4](https://github.com/fullerzz/herdr-plugin-sesh/commit/0172ae42172b8f06375cafd784f5d60fe277fc44))
-
 - **deps**: Update mise tools ([#45](https://github.com/fullerzz/herdr-plugin-sesh/issues/45)) ([4acc471](https://github.com/fullerzz/herdr-plugin-sesh/commit/4acc471250769c7296a57756d75abf006f0ea8e3))
 
-- **renovate**: Update renovate config preset to use best-practices ([df03d20](https://github.com/fullerzz/herdr-plugin-sesh/commit/df03d208a7171f2d161c245620e48ebdaedc1d01))
 
-- Release v0.2.0 ([d3589f5](https://github.com/fullerzz/herdr-plugin-sesh/commit/d3589f521d86fdf32d953b9ebcd60f54567705a4))
+
+### ⚙️ Miscellaneous Tasks
+
+- **renovate**: Group mise tool updates ([#44](https://github.com/fullerzz/herdr-plugin-sesh/issues/44)) ([0172ae4](https://github.com/fullerzz/herdr-plugin-sesh/commit/0172ae42172b8f06375cafd784f5d60fe277fc44))
+
+- **renovate**: Update renovate config preset to use best-practices ([df03d20](https://github.com/fullerzz/herdr-plugin-sesh/commit/df03d208a7171f2d161c245620e48ebdaedc1d01))
 
 
 
@@ -117,10 +124,6 @@
 
 - **justfile**: Add release recipe to justfile ([92d8090](https://github.com/fullerzz/herdr-plugin-sesh/commit/92d8090396904634addd8601d3351f774cdfa777))
 
-- Release v0.1.2 ([1098d09](https://github.com/fullerzz/herdr-plugin-sesh/commit/1098d098ea04bc090f930e02ce88cbd080e17efa))
-
-- Release v0.1.3 ([236b917](https://github.com/fullerzz/herdr-plugin-sesh/commit/236b917f4875399fd6013a408e67794fcdc09216))
-
 
 ## v0.1.1 (2026-07-15)
 
@@ -131,12 +134,6 @@
 - **ci**: Generate release notes from full history ([0065a48](https://github.com/fullerzz/herdr-plugin-sesh/commit/0065a48f9952020dd9ab3e843b0a2f8f86be82c0))
 
 - Enforce plugin release version consistency ([#32](https://github.com/fullerzz/herdr-plugin-sesh/issues/32)) ([4b19ef1](https://github.com/fullerzz/herdr-plugin-sesh/commit/4b19ef1fa996da5c75fc07bbbf84164ae2db1fea))
-
-
-
-### ⚙️ Miscellaneous Tasks
-
-- Release v0.1.1 ([324aa76](https://github.com/fullerzz/herdr-plugin-sesh/commit/324aa76a145ffffddeded26f78a3344f53890562))
 
 
 
