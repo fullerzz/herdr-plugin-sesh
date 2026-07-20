@@ -44,13 +44,15 @@ commit_parsers = [
     { message = "^style", group = "<!-- 5 -->🎨 Styling" },
     { message = "^test", group = "<!-- 6 -->🧪 Testing" },
     { message = "^chore\\(release\\): prepare for", skip = true },
+    { message = "^chore(?:\\(release\\))?: release", skip = true },
     { message = "^chore\\(pr\\)", skip = true },
     { message = "^chore\\(pull\\)", skip = true },
+    { message = "^chore\\(deps\\)", group = "<!-- 11 -->🛬 Dependency Updates" },
     { message = "^chore", group = "<!-- 7 -->⚙️ Miscellaneous Tasks" },
     { message = "^ci", group = "<!-- 8 -->🎡 Continuous Integration" },
     { body = ".*security", group = "<!-- 9 -->🛡️ Security" },
     { message = "^revert", group = "<!-- 10 -->◀️ Revert" },
-    { message = ".*", group = "<!-- 11 -->💼 Other" },
+    { message = ".*", group = "<!-- 12 -->💼 Other" },
 ]
 filter_commits = false
 link_parsers = [
