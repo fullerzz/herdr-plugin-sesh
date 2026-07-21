@@ -56,9 +56,9 @@ Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
 Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) to keep cursor movement
 instantaneous without drawing any preset's trail.
 
-Open Herdr workspaces show the agent state reported by Herdr when the picker
-opens: green `●` working, amber `◆` blocked, muted `○` idle, and violet `✓`
-done. Workspaces with an unknown state have no indicator.
+Open Herdr workspaces show the agent state reported by Herdr: an animated amber
+Jump spinner (`⢄⢂⢁⡁⡈⡐⡠`) while working, red `◉` when blocked, green `✓` when idle,
+and teal `●` when done. Workspaces with an unknown state have no indicator.
 
 ## Session behavior
 

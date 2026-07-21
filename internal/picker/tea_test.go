@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -533,10 +534,10 @@ func TestRowUsesAgentStatusIndicators(t *testing.T) {
 		glyph  string
 		color  string
 	}{
-		{status: "working", glyph: "●", color: "38;2;158;206;106"},
-		{status: "blocked", glyph: "◆", color: "38;2;224;175;104"},
-		{status: "idle", glyph: "○", color: "38;2;86;95;137"},
-		{status: "done", glyph: "✓", color: "38;2;187;154;247"},
+		{status: "working", glyph: "⢄", color: "38;2;224;175;104"},
+		{status: "blocked", glyph: "◉", color: "38;2;247;118;142"},
+		{status: "idle", glyph: "✓", color: "38;2;158;206;106"},
+		{status: "done", glyph: "●", color: "38;2;125;207;255"},
 	}
 	for _, tt := range tests {
 		got := row(model.Session{Source: "herdr", Name: "api", AgentStatus: tt.status}, false, 80, true, "")
@@ -546,9 +547,36 @@ func TestRowUsesAgentStatusIndicators(t *testing.T) {
 	}
 	for _, status := range []string{"", "unknown", "future"} {
 		got := ansi.Strip(row(model.Session{Source: "herdr", Name: "api", AgentStatus: status}, false, 80, true, ""))
-		if strings.ContainsAny(got, "●◆○✓") {
+		if strings.ContainsAny(got, "⢄◉✓●") {
 			t.Fatalf("row for status %q unexpectedly contains indicator: %q", status, got)
 		}
+	}
+}
+
+func TestTeaModelAnimatesWorkingAgentStatusIndicator(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", AgentStatus: "working"}}, Options{})
+	before := ansi.Strip(m.listView(80, 1))
+
+	updated, cmd := m.Update(spinner.TickMsg{})
+	m = updated.(teaModel)
+	after := ansi.Strip(m.listView(80, 1))
+
+	if !strings.Contains(before, "⢄") || !strings.Contains(after, "⢂") {
+		t.Fatalf("working indicator did not advance jump frame:\nbefore: %q\nafter:  %q", before, after)
+	}
+	if cmd == nil {
+		t.Fatal("working indicator did not schedule its next jump frame")
+	}
+}
+
+func TestTeaModelStartsAgentStatusSpinner(t *testing.T) {
+	m := newTeaModel(nil, Options{RefreshAgentStatuses: func() (map[string]string, error) { return nil, nil }})
+	batch, ok := m.Init()().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("init command = %#v, want batch", batch)
+	}
+	if msg := batch[len(batch)-1](); reflect.TypeOf(msg) != reflect.TypeOf(spinner.TickMsg{}) {
+		t.Fatalf("last init message = %T, want spinner.TickMsg", msg)
 	}
 }
 
@@ -685,7 +713,7 @@ func TestSelectedRowUsesRailAndPreservesSourceColor(t *testing.T) {
 	if !strings.Contains(plain, "┃") {
 		t.Fatalf("selected row missing navigation rail:\n%q", got)
 	}
-	for _, want := range []string{"38;2;125;207;255", "38;2;158;206;106", herdrSourceIcon + " herdr", "herdr-plugin-sesh", "/tmp/herdr-plugin-sesh"} {
+	for _, want := range []string{"38;2;125;207;255", "38;2;224;175;104", herdrSourceIcon + " herdr", "herdr-plugin-sesh", "/tmp/herdr-plugin-sesh"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("selected row missing %q:\n%q", want, got)
 		}
