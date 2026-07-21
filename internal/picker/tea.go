@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -49,10 +50,13 @@ const (
 )
 
 var (
+	agentStatusSpinner = spinner.Jump
+
 	skyColor    = lipgloss.Color("#7DCFFF")
 	violetColor = lipgloss.Color("#BB9AF7")
 	greenColor  = lipgloss.Color("#9ECE6A")
 	amberColor  = lipgloss.Color("#E0AF68")
+	redColor    = lipgloss.Color("#F7768E")
 	textColor   = lipgloss.Color("#C0CAF5")
 	mutedColor  = lipgloss.Color("#565F89")
 	ghostColor  = lipgloss.Color("#737AA2")
@@ -132,12 +136,13 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 }
 
 type teaModel struct {
-	list   Model
-	input  textinput.Model
-	width  int
-	height int
-	choice sessionmodel.Session
-	chosen bool
+	list         Model
+	input        textinput.Model
+	agentSpinner spinner.Model
+	width        int
+	height       int
+	choice       sessionmodel.Session
+	chosen       bool
 
 	listFocused         bool
 	smearTail           int
@@ -213,6 +218,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	m := teaModel{
 		list:                  list,
 		input:                 input,
+		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
@@ -235,7 +241,7 @@ func (m teaModel) Init() tea.Cmd {
 		cmds = append(cmds, previewCommand(m.previewKey, current, m.defaultPreviewCommand))
 	}
 	if m.refreshAgentStatuses != nil {
-		cmds = append(cmds, scheduleStatusRefresh())
+		cmds = append(cmds, scheduleStatusRefresh(), m.agentSpinner.Tick)
 	}
 	return tea.Batch(cmds...)
 }
@@ -306,6 +312,11 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 
 //nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(spinner.TickMsg); ok {
+		var cmd tea.Cmd
+		m.agentSpinner, cmd = m.agentSpinner.Update(msg)
+		return m, cmd
+	}
 	if _, ok := msg.(statusRefreshTickMsg); ok {
 		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses)
 	}
@@ -560,7 +571,7 @@ func (m teaModel) listView(width, visibleRows int) string {
 		for i := start; i < end; i++ {
 			selected := m.listFocused && !m.focusSmearActive && i == m.list.Selected
 			selectedRail := m.smear.headStyle().Render(m.smear.headGlyph + " ")
-			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.list.Query, selectedRail), "\n")
+			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.list.Query, selectedRail, m.agentSpinner.View()), "\n")
 			if rail, age := m.smearRail(i); rail != "" {
 				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
 			}
@@ -654,7 +665,7 @@ func (m teaModel) previewTitle() string {
 	if label != "" {
 		title += countStyle.Render(" · " + label)
 	}
-	if _, status := agentStatusIndicator(current.AgentStatus); status != "" {
+	if _, status := agentStatusIndicator(current.AgentStatus, m.agentSpinner.View()); status != "" {
 		title += agentStatusStyle(current.AgentStatus).Render(" · " + status)
 	}
 	return title
@@ -897,10 +908,10 @@ func fixedVisualLines(text string, width, count int) string {
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
-	return rowWithRail(s, selected, width, showIcons, query, selectionRailStyle.Render("┃ "))
+	return rowWithRail(s, selected, width, showIcons, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0])
 }
 
-func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons bool, query, selectedRail string) string {
+func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons bool, query, selectedRail, workingGlyph string) string {
 	rail := "  "
 	if selected {
 		rail = selectedRail
@@ -909,7 +920,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	if label == "" {
 		label = compactHome(s.Path)
 	}
-	statusGlyph, _ := agentStatusIndicator(s.AgentStatus)
+	statusGlyph, _ := agentStatusIndicator(s.AgentStatus, workingGlyph)
 	status := "  "
 	if statusGlyph != "" {
 		status = agentStatusStyle(s.AgentStatus).Render(statusGlyph + " ")
@@ -1021,16 +1032,16 @@ func sourceBadgeColor(source string) string {
 	return color
 }
 
-func agentStatusIndicator(status string) (string, string) {
+func agentStatusIndicator(status, workingGlyph string) (string, string) {
 	switch status {
 	case "working":
-		return "●", "working"
+		return workingGlyph, "working"
 	case "blocked":
-		return "◆", "blocked"
+		return "◉", "blocked"
 	case "idle":
-		return "○", "idle"
+		return "✓", "idle"
 	case "done":
-		return "✓", "done"
+		return "●", "done"
 	default:
 		return "", ""
 	}
@@ -1040,11 +1051,13 @@ func agentStatusStyle(status string) lipgloss.Style {
 	color := mutedColor
 	switch status {
 	case "working":
-		color = greenColor
-	case "blocked":
 		color = amberColor
+	case "blocked":
+		color = redColor
+	case "idle":
+		color = greenColor
 	case "done":
-		color = violetColor
+		color = skyColor
 	}
 	return lipgloss.NewStyle().Foreground(color).Bold(true)
 }
