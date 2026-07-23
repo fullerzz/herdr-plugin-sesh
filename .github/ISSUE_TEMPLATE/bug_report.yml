@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem with herdr-sesh
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the command, configuration, and smallest sequence that reproduces the problem.
+      placeholder: |
+        1. Run `...`
+        2. Select `...`
+        3. See `...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include herdr-sesh and Herdr versions, operating system, and any relevant terminal or shell details.
+      placeholder: |
+        herdr-sesh version:
+        Herdr version:
+        OS:
+        Terminal/shell:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or additional context
+      description: Paste relevant output or attach screenshots. Remove secrets and other sensitive information first.
