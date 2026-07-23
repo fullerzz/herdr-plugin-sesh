@@ -48,7 +48,8 @@ herdr plugin install fullerzz/herdr-plugin-sesh
 
 Herdr previews the plugin manifest and build command before installation. To
 skip the confirmation in a non-interactive environment, add `--yes`. To pin a
-release, add `--ref v0.1.1`.
+release, add `--ref <release-tag>` using a tag from the
+[GitHub releases](https://github.com/fullerzz/herdr-plugin-sesh/releases) page.
 
 This repository is also discoverable through the
 [Herdr plugin marketplace](https://herdr.dev/plugins/) via the `herdr-plugin`
@@ -140,14 +141,15 @@ herdr plugin log list --plugin fullerzz.sesh
 ## Release
 
 Release tags must begin with `v` and match `version` in
-[`herdr-plugin.toml`](herdr-plugin.toml). Before tagging a release, run:
+[`herdr-plugin.toml`](herdr-plugin.toml). Create and publish a release with:
 
 ```bash
-just check
-just build
-./bin/herdr-sesh --version
-./bin/herdr-sesh list --json --config testdata/sesh.toml
+just release vX.Y.Z
 ```
+
+The recipe requires a clean working tree, validates the tag against the
+manifest version, runs the repository checks and CLI smoke tests, creates an
+annotated tag, and atomically pushes the current commit and tag.
 
 ## License
 

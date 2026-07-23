@@ -14,7 +14,7 @@ This repository is a Go CLI plugin for Herdr named `herdr-sesh`.
 
 ## Build, Test, and Development Commands
 
-- `mise install` installs pinned tools from `mise.toml`: Go, `cargo-binstall`, `just`, `golangci-lint`, `gotestsum`, `fzf`, `bat`, and `eza`.
+- `mise install` installs pinned tools from `mise.toml`: Go, `cargo-binstall`, `golangci-lint`, `gotestsum`, `just`, `fzf`, `bat`, `eza`, `git-cliff`, and `prek`.
 - `just` lists available development recipes from the `justfile`.
 - `just fmt-check` checks formatting; `just fmt` applies it.
 - `just lint` runs `golangci-lint run ./...`.

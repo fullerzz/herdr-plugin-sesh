@@ -1,14 +1,16 @@
 # Keybindings
 
-Prerequisite: build and link this checkout, or install the published plugin with
-`herdr plugin install fullerzz/herdr-plugin-sesh --ref v0.1.0` when a release
-is published.
+Prerequisite: build and link this checkout, or install a published release with
+`herdr plugin install fullerzz/herdr-plugin-sesh --ref <release-tag>` using a
+tag from the [GitHub releases](https://github.com/fullerzz/herdr-plugin-sesh/releases)
+page.
 
 Example Herdr keybinding once the plugin is linked:
 
 ```toml
 [keys]
-rename_tab = ""
+# If using "prefix+shift+t" to open the herdr-sesh plugin picker, the rename_tab keybind needs to be changed.
+rename_tab = "prefix+shift+,"
 
 [[keys.command]]
 key = "prefix+shift+t"
