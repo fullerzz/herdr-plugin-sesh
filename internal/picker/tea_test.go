@@ -54,6 +54,40 @@ func TestTeaModelMovesSelection(t *testing.T) {
 	}
 }
 
+func TestTeaModelCtrlJKMovesSelection(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if current, ok := m.list.Current(); !ok || current.Name != "web" {
+		t.Fatalf("current = %#v ok=%v, want web", current, ok)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if current, ok := m.list.Current(); !ok || current.Name != "api" {
+		t.Fatalf("current = %#v ok=%v, want api", current, ok)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "enter select · ctrl+j/k move · ctrl+r workspace · ctrl+u clear · esc close") {
+		t.Fatalf("default-width view missing complete navigation help:\n%s", view)
+	}
+}
+
+func TestTeaModelCtrlKDeletesAfterFilterCursor(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api-web"}}, Options{})
+	m.input.SetValue("api-web")
+	m.input.SetCursor(3)
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+
+	if got := m.input.Value(); got != "api" {
+		t.Fatalf("input=%q, want %q", got, "api")
+	}
+}
+
 func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
@@ -797,7 +831,7 @@ func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
 	if got, want := sessionNames(m.list.All), []string{"configured", "third", "recent-directory", "first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent order=%v want %v", got, want)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r sort: recent") {
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r recent") {
 		t.Fatalf("view missing recent sort mode:\n%s", view)
 	}
 
@@ -817,7 +851,7 @@ func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
 	if got, want := sessionNames(m.list.All), []string{"second", "first"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("initial order=%v want %v", got, want)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r sort: recent") {
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r recent") {
 		t.Fatalf("view missing recent sort mode:\n%s", view)
 	}
 }
