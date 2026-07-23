@@ -388,8 +388,11 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chosen = true
 		}
 		return m, tea.Quit
-	case "up", "ctrl+p":
+	case "up", "ctrl+p", "ctrl+k":
 		if !m.listFocused {
+			if key.String() == "ctrl+k" {
+				return m.updateInput(msg)
+			}
 			return m, nil
 		}
 		if m.list.Selected == 0 {
@@ -397,7 +400,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.focusSmearActive = false
 		return m.moveSelection(-1)
-	case "down", "ctrl+n":
+	case "down", "ctrl+n", "ctrl+j":
 		if !m.listFocused {
 			return m.focusList()
 		}
@@ -495,7 +498,7 @@ func (m teaModel) View() tea.View {
 	}
 	lines = append(lines,
 		horizontalRule(width),
-		helpStyle.Render(fmt.Sprintf("enter select   ↑/↓ move   ctrl+r sort: %s   ctrl+u clear   esc close", sortMode)),
+		helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k move · ctrl+r %s · ctrl+u clear · esc close", sortMode)),
 		"",
 	)
 	for i, line := range lines {
