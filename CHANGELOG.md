@@ -1,3 +1,26 @@
+## v0.5.0 (2026-07-23)
+
+### 🚀 Features
+
+- **picker**: Align agent status indicators ([#57](https://github.com/fullerzz/herdr-plugin-sesh/issues/57)) ([b2d3702](https://github.com/fullerzz/herdr-plugin-sesh/commit/b2d37022dc16ff409d535e2559ac24a5b66734fa))
+
+- Add GitHub issue templates ([#60](https://github.com/fullerzz/herdr-plugin-sesh/issues/60)) ([487434f](https://github.com/fullerzz/herdr-plugin-sesh/commit/487434f61a2f01dddf1930bf92f5c281a0ec5848))
+
+
+
+### 🐛 Bug Fixes
+
+- **go-deps**: Update module github.com/pelletier/go-toml/v2 to v2.4.3 ([#38](https://github.com/fullerzz/herdr-plugin-sesh/issues/38)) ([1369a79](https://github.com/fullerzz/herdr-plugin-sesh/commit/1369a798b6f4364249ffc2cae15269aa93515406))
+
+
+
+### 🎡 Continuous Integration
+
+- **ci-deps**: Update ci dependencies ([#52](https://github.com/fullerzz/herdr-plugin-sesh/issues/52)) ([430f92c](https://github.com/fullerzz/herdr-plugin-sesh/commit/430f92ccdb7b2b84ad618b00a3da53de7d66ede4))
+
+- **release**: Update release notes template for gh releases ([61abc9e](https://github.com/fullerzz/herdr-plugin-sesh/commit/61abc9e6adaca3bcc843321700e5a3f606c70359))
+
+
 ## v0.4.0 (2026-07-20)
 
 ### 🚀 Features
