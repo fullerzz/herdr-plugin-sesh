@@ -1,3 +1,16 @@
+## v0.6.0 (2026-07-23)
+
+### 🚀 Features
+
+- **picker**: Add Ctrl+J/K navigation ([#62](https://github.com/fullerzz/herdr-plugin-sesh/issues/62)) ([b476b1b](https://github.com/fullerzz/herdr-plugin-sesh/commit/b476b1b4bf6fb999fad16ddd652392005a093d8b))
+
+
+
+### 📚 Documentation
+
+- Refresh docs ([0e76b91](https://github.com/fullerzz/herdr-plugin-sesh/commit/0e76b9182009dbb52f42da71f427a2ff206ab533))
+
+
 ## v0.5.0 (2026-07-23)
 
 ### 🚀 Features
