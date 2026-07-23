@@ -46,8 +46,8 @@ if ! grep -Fq 'cp README.md LICENSE herdr-plugin.toml "dist/work/${name}/"' "$wo
   echo 'release archives must include the plugin manifest' >&2
   exit 1
 fi
-if ! grep -Fq 'echo "go build -ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${version} -o bin/ ./cmd/herdr-sesh"' "$workflow"; then
-  echo 'generated source-install instructions must inject the manifest version' >&2
+if ! grep -Fq 'echo "herdr plugin install fullerzz/herdr-plugin-sesh --ref ${tag}"' "$workflow"; then
+  echo 'generated install instructions must pin the release tag' >&2
   exit 1
 fi
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.

@@ -242,24 +242,11 @@ jobs:
             echo
             cat dist/release/CHANGELOG.md
             echo
-            echo "## Install from GitHub"
+            echo "## Install Plugin"
             echo
             echo '```bash'
-            echo "git clone https://github.com/fullerzz/herdr-plugin-sesh.git"
-            echo "cd herdr-plugin-sesh"
-            echo "git checkout ${tag}"
-            echo "go build -ldflags=-X=github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${version} -o bin/ ./cmd/herdr-sesh"
-            # shellcheck disable=SC2016 # Keep $PWD literal in the generated instructions.
-            echo 'herdr plugin link "$PWD"'
+            echo "herdr plugin install fullerzz/herdr-plugin-sesh --ref ${tag}"
             echo '```'
-            echo
-            echo "## Assets"
-            echo
-            for file in dist/release/*.tar.gz; do
-              echo "- $(basename "$file")"
-            done
-            echo "- CHANGELOG.md"
-            echo "- checksums.txt"
             echo
             echo "Version: ${version}"
             echo "Commit: ${COMMIT}"
