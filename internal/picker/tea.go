@@ -781,6 +781,10 @@ func (m teaModel) previewTitleWithCounts(showCounts bool) string {
 }
 
 func (m teaModel) rightPanelView(width, rows int) string {
+	current, ok := m.list.Current()
+	if !ok || current.WorkspaceID == "" {
+		return m.previewViewWithCounts(width, maxInt(1, rows-previewTitleRows), false)
+	}
 	previewRows := (rows + 1) / 2
 	layoutRows := rows - previewRows
 	preview := m.previewViewWithCounts(width, maxInt(1, previewRows-previewTitleRows), false)

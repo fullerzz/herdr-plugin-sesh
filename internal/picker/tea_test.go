@@ -508,7 +508,7 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	t.Cleanup(func() { renderPreview = oldPreview })
 
 	m := newTeaModel([]model.Session{
-		{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api", AgentStatus: "working"},
+		{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api", WorkspaceID: "w1", AgentStatus: "working"},
 		{Source: "zoxide", Name: "tools", Path: "/tmp/tools"},
 		{Source: "config", Name: "api", Path: "/tmp/api"},
 	}, Options{
@@ -521,7 +521,7 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	updated, _ = m.Update(previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)())
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
-	for _, want := range []string{"herdr / sesh", "3 workspaces", "Find> ", "Search sessions", "WORKSPACES", "PREVIEW · workspace-api · working", "LAYOUT", "Not a running Herdr workspace", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview content", "enter select"} {
+	for _, want := range []string{"herdr / sesh", "3 workspaces", "Find> ", "Search sessions", "WORKSPACES", "PREVIEW · workspace-api · working", "LAYOUT", "Layout unavailable", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview content", "enter select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -546,6 +546,21 @@ func TestTeaModelPreviewTitleShowsSelectedWorkspaceCounts(t *testing.T) {
 	m.list.Selected = 1
 	if got, want := ansi.Strip(m.previewTitle()), "PREVIEW · 3 tabs · 1 pane · web"; got != want {
 		t.Fatalf("preview title=%q, want %q", got, want)
+	}
+}
+
+func TestTeaModelExpandsPreviewForNonHerdrSelection(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "zoxide", Name: "tools", Path: "/tmp/tools"}}, Options{})
+	m.preview = strings.Repeat("preview content\n", 15) + "preview bottom"
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(teaModel)
+
+	view := ansi.Strip(m.View().Content)
+	if strings.Contains(view, "LAYOUT") {
+		t.Fatalf("non-Herdr selection rendered layout section:\n%s", view)
+	}
+	if !strings.Contains(view, "preview bottom") {
+		t.Fatalf("preview did not expand to the bottom:\n%s", view)
 	}
 }
 
@@ -1331,7 +1346,7 @@ func TestPreviewViewUsesConstantHeight(t *testing.T) {
 func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 	items := make([]model.Session, 30)
 	for i := range items {
-		items[i] = model.Session{Name: "workspace"}
+		items[i] = model.Session{Source: "herdr", Name: "workspace", WorkspaceID: fmt.Sprintf("w%d", i)}
 	}
 	m := newTeaModel(items, Options{})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
