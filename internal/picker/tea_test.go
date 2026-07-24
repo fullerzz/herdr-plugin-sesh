@@ -599,10 +599,13 @@ func TestTeaModelRendersActiveTabPaneLayout(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	for _, want := range []string{"PREVIEW · api", "LAYOUT · 2 tabs · 3 panes", "Workspace 7 - api", "▶ [1] [2] · 2 panes", "Codex", "$ codex --full-auto", "shell", "$ go test ./...", "┌", "┬", "┐", "└", "┴", "┘"} {
+	for _, want := range []string{"PREVIEW · api", "LAYOUT · 2 tabs · 3 panes", "▶ [1] [2] · 2 panes", "Codex", "$ codex --full-auto", "shell", "$ go test ./...", "┌", "┬", "┐", "└", "┴", "┘"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "Workspace 7 - api") {
+		t.Fatalf("view still contains workspace identity row:\n%s", view)
 	}
 	if strings.Contains(view, "PREVIEW · 2 tabs") {
 		t.Fatalf("wide preview duplicated layout counts:\n%s", view)
@@ -666,7 +669,7 @@ func TestWorkspaceLayoutPreservesMinimumPaneMapHeight(t *testing.T) {
 	}
 }
 
-func TestWorkspaceLayoutTruncatesLongIdentityWithoutClippingPaneMap(t *testing.T) {
+func TestWorkspaceLayoutOmitsIdentityWithoutClippingPaneMap(t *testing.T) {
 	m := newTeaModel([]model.Session{{
 		Name:            "workspace-with-a-name-that-does-not-fit",
 		WorkspaceID:     "w1",
@@ -683,11 +686,11 @@ func TestWorkspaceLayoutTruncatesLongIdentityWithoutClippingPaneMap(t *testing.T
 
 	got := ansi.Strip(m.workspaceLayoutView(32, 4))
 	lines := strings.Split(got, "\n")
-	if len(lines) != 5 || !strings.HasSuffix(strings.TrimSpace(lines[1]), "...") {
-		t.Fatalf("workspace identity was not truncated to one row:\n%s", got)
+	if len(lines) != 5 || strings.Contains(got, "workspace-with-a-name") {
+		t.Fatalf("workspace identity row was rendered:\n%s", got)
 	}
 	if !strings.Contains(lines[len(lines)-1], "└") || !strings.Contains(lines[len(lines)-1], "┘") {
-		t.Fatalf("truncated identity clipped pane map bottom border:\n%s", got)
+		t.Fatalf("pane map bottom border was clipped:\n%s", got)
 	}
 }
 
@@ -1453,10 +1456,13 @@ func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
 	if !strings.Contains(view, "WORKSPACES") || !strings.Contains(view, "PREVIEW · 2 tabs · 3 panes · api · blocked") {
 		t.Fatalf("narrow view missing stacked sections:\n%s", view)
 	}
-	for _, want := range []string{"LAYOUT · 2 tabs · 3 panes", "Workspace 7 - api", "┌▶ [1] [2]"} {
+	for _, want := range []string{"LAYOUT · 2 tabs · 3 panes", "┌▶ [1] [2]"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("narrow view missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "Workspace 7 - api") {
+		t.Fatalf("narrow view still contains workspace identity row:\n%s", view)
 	}
 }
 

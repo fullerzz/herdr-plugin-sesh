@@ -796,21 +796,13 @@ func (m teaModel) workspaceLayoutView(width, maxLines int) string {
 	current, ok := m.list.Current()
 	body := "Not a running Herdr workspace"
 	if ok && current.WorkspaceID != "" {
-		layoutLines := maxLines
-		showIdentity := maxLines > 3
-		if showIdentity {
-			layoutLines--
-		}
 		body = "Layout unavailable"
 		if m.layoutLoading {
 			body = "Loading layout…"
 		} else if m.layoutError != "" {
 			body += "\n" + m.layoutError
 		} else if m.hasCurrentWorkspaceLayout(current) {
-			body = paneMap(current, m.layout, width, layoutLines)
-		}
-		if showIdentity {
-			body = workspaceLayoutIdentity(current, width) + "\n" + body
+			body = paneMap(current, m.layout, width, maxLines)
 		}
 	}
 	body = fixedVisualLines(body, width, maxLines)
@@ -819,17 +811,6 @@ func (m teaModel) workspaceLayoutView(width, maxLines int) string {
 		lines[i] = fitLine(lines[i], width)
 	}
 	return strings.Join(lines, "\n")
-}
-
-func workspaceLayoutIdentity(s sessionmodel.Session, width int) string {
-	identity := "Workspace"
-	if s.WorkspaceNumber > 0 {
-		identity += fmt.Sprintf(" %d", s.WorkspaceNumber)
-	}
-	if name := sanitizePaneText(s.Name); name != "" {
-		identity += " - " + name
-	}
-	return rowLabelStyle.Render(ansi.Truncate(identity, width, "..."))
 }
 
 func (m teaModel) workspaceLayoutTitle() string {
