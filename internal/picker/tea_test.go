@@ -747,6 +747,25 @@ func TestPaneMapFillsPreviewWithFocusedPaneWhenZoomed(t *testing.T) {
 	}
 }
 
+func TestWorkspaceLayoutTitleUsesDisplayedPaneCountWhenZoomed(t *testing.T) {
+	m := newTeaModel([]model.Session{{
+		WorkspaceID: "w1",
+		ActiveTabID: "w1:t1",
+		TabCount:    1,
+		PaneCount:   3,
+	}}, Options{})
+	m.layout = herdr.PaneLayout{
+		WorkspaceID: "w1",
+		TabID:       "w1:t1",
+		Zoomed:      true,
+		Panes:       []herdr.PaneLayoutPane{{ID: "w1:p1"}, {ID: "w1:p2"}},
+	}
+
+	if got, want := ansi.Strip(m.workspaceLayoutTitle()), "LAYOUT · 1 tab · 2 panes · zoomed"; got != want {
+		t.Fatalf("layout title=%q, want %q", got, want)
+	}
+}
+
 func TestPaneMapOmitsUnknownPaneStatus(t *testing.T) {
 	got := paneMap(model.Session{WorkspacePanes: []model.WorkspacePane{{ID: "p1", AgentStatus: "unknown"}}}, herdr.PaneLayout{
 		Area:  herdr.PaneRect{Width: 80, Height: 24},

@@ -819,8 +819,13 @@ func (m teaModel) workspaceLayoutTitle() string {
 	if !ok || current.WorkspaceID == "" {
 		return title
 	}
-	title += countStyle.Render(" · " + itemCount(current.TabCount, "tab") + " · " + itemCount(current.PaneCount, "pane"))
-	if m.layout.Zoomed && m.hasCurrentWorkspaceLayout(current) {
+	paneCount := current.PaneCount
+	currentLayout := m.hasCurrentWorkspaceLayout(current)
+	if m.layout.Zoomed && currentLayout {
+		paneCount = len(m.layout.Panes)
+	}
+	title += countStyle.Render(" · " + itemCount(current.TabCount, "tab") + " · " + itemCount(paneCount, "pane"))
+	if m.layout.Zoomed && currentLayout {
 		title += countStyle.Render(" · zoomed")
 	}
 	return title
