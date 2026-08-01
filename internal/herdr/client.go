@@ -240,6 +240,10 @@ func (c *CLIClient) WorkspaceFocus(ctx context.Context, id string) error {
 	_, err := c.run(ctx, "workspace", "focus", id)
 	return err
 }
+func (c *CLIClient) WorkspaceClose(ctx context.Context, id string) error {
+	_, err := c.run(ctx, "workspace", "close", id)
+	return err
+}
 func (c *CLIClient) TabList(ctx context.Context, wid string) ([]Tab, error) {
 	args := []string{"tab", "list"}
 	if wid != "" {

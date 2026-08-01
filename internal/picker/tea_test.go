@@ -2,6 +2,7 @@ package picker
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -70,7 +71,7 @@ func TestTeaModelCtrlJKMovesSelection(t *testing.T) {
 	if current, ok := m.list.Current(); !ok || current.Name != "api" {
 		t.Fatalf("current = %#v ok=%v, want api", current, ok)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "enter select · ctrl+j/k move · ctrl+r workspace · ctrl+u clear · esc close") {
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "enter select · ctrl+j/k move · ctrl+x close · ctrl+r workspace · esc exit") {
 		t.Fatalf("default-width view missing complete navigation help:\n%s", view)
 	}
 }
@@ -85,6 +86,108 @@ func TestTeaModelCtrlKDeletesAfterFilterCursor(t *testing.T) {
 
 	if got := m.input.Value(); got != "api" {
 		t.Fatalf("input=%q, want %q", got, "api")
+	}
+}
+
+func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
+	var closed string
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api-close", WorkspaceID: "w1"},
+		{Source: "config", Name: "api-selected"},
+		{Source: "herdr", Name: "api-other", WorkspaceID: "w2"},
+	}, Options{CloseWorkspace: func(id string) error {
+		closed = id
+		return nil
+	}})
+	m.list.Filter("api")
+	m, _ = m.refreshPreview()
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if cmd == nil {
+		t.Fatal("ctrl+x did not return a close command")
+	}
+	updated, enterCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(teaModel)
+	if enterCmd != nil || m.chosen {
+		t.Fatalf("closing workspace remained selectable: cmd=%v chosen=%v", enterCmd, m.chosen)
+	}
+	m.list.Move(1)
+	m, _ = m.refreshPreview()
+	updated, _ = m.Update(cmd())
+	m = updated.(teaModel)
+
+	if closed != "w1" {
+		t.Fatalf("closed workspace=%q, want w1", closed)
+	}
+	if got, want := sessionNames(m.list.All), []string{"api-selected", "api-other"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("remaining sessions=%v want %v", got, want)
+	}
+	if current, ok := m.list.Current(); !ok || current.Name != "api-selected" {
+		t.Fatalf("current=%#v ok=%v, want api-selected", current, ok)
+	}
+	if current, _ := m.list.Current(); m.previewKey != model.Key(current) {
+		t.Fatalf("preview key=%q, want selected session %q", m.previewKey, model.Key(current))
+	}
+}
+
+func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}, Options{
+		CloseWorkspace: func(string) error { return errors.New("close failed") },
+	})
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	m.list.Move(1)
+	m, _ = m.refreshPreview()
+	stalePreview := previewMsg{key: m.previewKey, text: "stale preview"}
+	updated, previewCmd := m.Update(cmd())
+	m = updated.(teaModel)
+	if m.preview == "Closing workspace..." {
+		t.Fatalf("failed close left stale preview: cmd=%v", previewCmd)
+	}
+	updated, _ = m.Update(stalePreview)
+	m = updated.(teaModel)
+
+	if len(m.list.All) != 2 {
+		t.Fatalf("workspace removed after close failure: %#v", m.list.All)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "close failed") {
+		t.Fatalf("view missing close failure after selection and preview changed:\n%s", view)
+	}
+}
+
+func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{
+		CloseWorkspace: func(string) error { return errors.New("close failed") },
+	})
+
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	updated, previewCmd := m.Update(closeCmd())
+	m = updated.(teaModel)
+
+	if previewCmd == nil || m.preview == "Closing workspace..." {
+		t.Fatalf("failed close did not refresh preview: preview=%q cmd=%v", m.preview, previewCmd)
+	}
+}
+
+func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
+	called := false
+	m := newTeaModel([]model.Session{{Source: "config", Name: "api"}}, Options{
+		CloseWorkspace: func(string) error {
+			called = true
+			return nil
+		},
+	})
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_ = updated.(teaModel)
+	if cmd != nil || called {
+		t.Fatalf("non-Herdr ctrl+x returned cmd=%v called=%v", cmd, called)
 	}
 }
 

@@ -115,6 +115,7 @@ type Options struct {
 	DefaultPreviewCommand string
 	FZFCommand            string
 	RefreshAgentStatuses  func() (map[string]string, error)
+	CloseWorkspace        func(string) error
 	RecentWorkspaceIDs    []string
 	RecentWorkspaceSort   bool
 }
@@ -165,6 +166,9 @@ type teaModel struct {
 	workspaceOrder        []string
 	recentWorkspaceIDs    []string
 	recentSort            bool
+	closeWorkspace        func(string) error
+	closingWorkspaceID    string
+	closeError            string
 }
 
 type previewMsg struct {
@@ -177,6 +181,11 @@ type statusRefreshTickMsg struct{}
 type agentStatusesMsg struct {
 	statuses map[string]string
 	err      error
+}
+
+type workspaceCloseMsg struct {
+	workspaceID string
+	err         error
 }
 
 type smearTickMsg struct{}
@@ -225,6 +234,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		workspaceOrder:        workspaceOrder,
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
 		recentSort:            opts.RecentWorkspaceSort,
+		closeWorkspace:        opts.CloseWorkspace,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
@@ -363,6 +373,35 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if closed, ok := msg.(workspaceCloseMsg); ok {
+		if closed.workspaceID != m.closingWorkspaceID {
+			return m, nil
+		}
+		m.closingWorkspaceID = ""
+		if closed.err != nil {
+			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.err)
+			return m.refreshPreview()
+		}
+		selectedKey := ""
+		if current, currentOK := m.list.Current(); currentOK {
+			selectedKey = sessionmodel.Key(current)
+		}
+		remaining := m.list.All[:0]
+		for _, item := range m.list.All {
+			if item.Source != "herdr" || item.WorkspaceID != closed.workspaceID {
+				remaining = append(remaining, item)
+			}
+		}
+		m.list.All = remaining
+		m.list.Filter(m.list.Query)
+		for i, item := range m.list.Filtered {
+			if sessionmodel.Key(item) == selectedKey {
+				m.list.Selected = i
+				break
+			}
+		}
+		return m.refreshPreview()
+	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
 		m.height = size.Height
@@ -379,11 +418,15 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, previewCmd := m.refreshPreview()
 		return m, tea.Batch(cmd, previewCmd)
 	}
+	m.closeError = ""
 	switch key.String() {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
 	case "enter":
 		if choice, ok := m.list.Current(); ok {
+			if choice.Source == "herdr" && choice.WorkspaceID == m.closingWorkspaceID {
+				return m, nil
+			}
 			m.choice = choice
 			m.chosen = true
 		}
@@ -417,6 +460,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(focusCmd, previewCmd)
 	case "ctrl+r":
 		return m.toggleWorkspaceSort()
+	case "ctrl+x":
+		return m.closeSelectedWorkspace()
 	case "right":
 		if m.listFocused {
 			return m.smearToInput()
@@ -424,6 +469,24 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		fallthrough
 	default:
 		return m.updateInput(msg)
+	}
+}
+
+func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
+	current, ok := m.list.Current()
+	if !ok || current.Source != "herdr" || current.WorkspaceID == "" || m.closeWorkspace == nil || m.closingWorkspaceID != "" {
+		return m, nil
+	}
+	m.closingWorkspaceID = current.WorkspaceID
+	m.closeError = ""
+	m.previewKey = ""
+	m.preview = "Closing workspace..."
+	return m, closeWorkspaceCommand(m.closeWorkspace, current.WorkspaceID)
+}
+
+func closeWorkspaceCommand(closeWorkspace func(string) error, workspaceID string) tea.Cmd {
+	return func() tea.Msg {
+		return workspaceCloseMsg{workspaceID: workspaceID, err: closeWorkspace(workspaceID)}
 	}
 }
 
@@ -496,9 +559,13 @@ func (m teaModel) View() tea.View {
 	if m.recentSort {
 		sortMode = "recent"
 	}
+	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k move · ctrl+x close · ctrl+r %s · esc exit", sortMode))
+	if m.closeError != "" {
+		footer = emptyStyle.Render(m.closeError)
+	}
 	lines = append(lines,
 		horizontalRule(width),
-		helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k move · ctrl+r %s · ctrl+u clear · esc close", sortMode)),
+		footer,
 		"",
 	)
 	for i, line := range lines {
