@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+echo "Setting up herdr-sesh development tools..."
+
+mise_version="2026.8.2"
+mise_archive_sha256="febda574ac4e036bf91e1ef9d33ec5e24dbfad6839eb0defa6abc12125186b74"
+mise_bin="$HOME/.local/bin/mise"
+installed_mise_version=""
+if [[ -x "$mise_bin" ]]; then
+  installed_mise_version="$("$mise_bin" --version 2>/dev/null | awk '{print $1}')" || true
+fi
+if [[ "$installed_mise_version" != "$mise_version" ]]; then
+  echo "Installing mise ${mise_version}..."
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "$temp_dir"' EXIT
+  archive="$temp_dir/mise.tar.gz"
+  wget -qO "$archive" \
+    "https://github.com/jdx/mise/releases/download/v${mise_version}/mise-v${mise_version}-linux-x64.tar.gz"
+  printf '%s  %s\n' "$mise_archive_sha256" "$archive" | sha256sum -c -
+  tar -xzf "$archive" -C "$temp_dir" mise/bin/mise
+  mkdir -p "$(dirname -- "$mise_bin")"
+  install -m 0755 "$temp_dir/mise/bin/mise" "$mise_bin"
+  rm -rf "$temp_dir"
+  trap - EXIT
+fi
+
+profile_marker="# herdr-sesh mise environment"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# herdr-sesh mise environment
+if [[ -x "$HOME/.local/bin/mise" ]]; then
+  export PATH="$HOME/.local/bin:$PATH"
+  eval "$("$HOME/.local/bin/mise" activate bash)"
+fi
+EOF
+fi
+
+export PATH="$HOME/.local/bin:$PATH"
+eval "$("$mise_bin" activate bash)"
+
+echo "Installing tools pinned in mise.toml..."
+"$mise_bin" trust --yes mise.toml
+"$mise_bin" install --yes
+
+echo "Downloading Go modules..."
+"$mise_bin" exec -- go mod download
+
+echo "Orb setup complete."
