@@ -64,6 +64,24 @@ func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
 	return SaveHistory(dir, h)
 }
 
+func RemoveWorkspace(dir, workspaceID string) error {
+	if workspaceID == "" {
+		return nil
+	}
+	h, err := loadHistoryForWrite(dir)
+	if err != nil {
+		return err
+	}
+	workspaces := h.Workspaces[:0]
+	for _, id := range h.Workspaces {
+		if id != workspaceID {
+			workspaces = append(workspaces, id)
+		}
+	}
+	h.Workspaces = workspaces
+	return SaveHistory(dir, h)
+}
+
 func loadHistoryForWrite(dir string) (History, error) {
 	h, err := LoadHistory(dir)
 	if err == nil {

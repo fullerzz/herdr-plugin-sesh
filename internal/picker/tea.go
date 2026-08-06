@@ -116,6 +116,7 @@ type Options struct {
 	FZFCommand            string
 	RefreshAgentStatuses  func() (map[string]string, error)
 	CloseWorkspace        func(string) error
+	ReloadSessions        func() ([]sessionmodel.Session, error)
 	RecentWorkspaceIDs    []string
 	RecentWorkspaceSort   bool
 }
@@ -167,6 +168,7 @@ type teaModel struct {
 	recentWorkspaceIDs    []string
 	recentSort            bool
 	closeWorkspace        func(string) error
+	reloadSessions        func() ([]sessionmodel.Session, error)
 	closingWorkspaceID    string
 	closeError            string
 }
@@ -185,7 +187,9 @@ type agentStatusesMsg struct {
 
 type workspaceCloseMsg struct {
 	workspaceID string
-	err         error
+	sessions    []sessionmodel.Session
+	closeErr    error
+	reloadErr   error
 }
 
 type smearTickMsg struct{}
@@ -235,6 +239,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
 		recentSort:            opts.RecentWorkspaceSort,
 		closeWorkspace:        opts.CloseWorkspace,
+		reloadSessions:        opts.ReloadSessions,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
@@ -378,27 +383,38 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.closingWorkspaceID = ""
-		if closed.err != nil {
-			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.err)
+		if closed.closeErr != nil {
+			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.closeErr)
 			return m.refreshPreview()
 		}
 		selectedKey := ""
 		if current, currentOK := m.list.Current(); currentOK {
 			selectedKey = sessionmodel.Key(current)
 		}
-		remaining := m.list.All[:0]
-		for _, item := range m.list.All {
-			if item.Source != "herdr" || item.WorkspaceID != closed.workspaceID {
-				remaining = append(remaining, item)
+		if closed.reloadErr == nil && closed.sessions != nil {
+			m.workspaceOrder = herdrWorkspaceIDs(closed.sessions)
+			m.list.All = append(m.list.All[:0], closed.sessions...)
+			if m.recentSort {
+				sortHerdrWorkspaces(m.list.All, m.recentWorkspaceIDs)
 			}
+		} else {
+			remaining := m.list.All[:0]
+			for _, item := range m.list.All {
+				if item.Source != "herdr" || item.WorkspaceID != closed.workspaceID {
+					remaining = append(remaining, item)
+				}
+			}
+			m.list.All = remaining
 		}
-		m.list.All = remaining
 		m.list.Filter(m.list.Query)
 		for i, item := range m.list.Filtered {
 			if sessionmodel.Key(item) == selectedKey {
 				m.list.Selected = i
 				break
 			}
+		}
+		if closed.reloadErr != nil {
+			m.closeError = fmt.Sprintf("Workspace closed, but sessions could not be refreshed: %v", closed.reloadErr)
 		}
 		return m.refreshPreview()
 	}
@@ -481,12 +497,16 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	m.closeError = ""
 	m.previewKey = ""
 	m.preview = "Closing workspace..."
-	return m, closeWorkspaceCommand(m.closeWorkspace, current.WorkspaceID)
+	return m, closeWorkspaceCommand(m.closeWorkspace, m.reloadSessions, current.WorkspaceID)
 }
 
-func closeWorkspaceCommand(closeWorkspace func(string) error, workspaceID string) tea.Cmd {
+func closeWorkspaceCommand(closeWorkspace func(string) error, reloadSessions func() ([]sessionmodel.Session, error), workspaceID string) tea.Cmd {
 	return func() tea.Msg {
-		return workspaceCloseMsg{workspaceID: workspaceID, err: closeWorkspace(workspaceID)}
+		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: closeWorkspace(workspaceID)}
+		if msg.closeErr == nil && reloadSessions != nil {
+			msg.sessions, msg.reloadErr = reloadSessions()
+		}
+		return msg
 	}
 }
 

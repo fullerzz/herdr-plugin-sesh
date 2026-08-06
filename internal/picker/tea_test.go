@@ -131,6 +131,34 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 	}
 }
 
+func TestTeaModelCtrlXRestoresDeduplicatedSessionAfterClose(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}, Options{
+		CloseWorkspace: func(string) error { return nil },
+		ReloadSessions: func() ([]model.Session, error) {
+			return []model.Session{
+				{Source: "config", Name: "api", Path: "/configured/api"},
+				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+			}, nil
+		},
+	})
+
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	m.list.Move(1)
+	updated, _ = m.Update(closeCmd())
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"api", "web"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("sessions=%v want %v", got, want)
+	}
+	if current, ok := m.list.Current(); !ok || current.Name != "web" {
+		t.Fatalf("current=%#v ok=%v, want web", current, ok)
+	}
+}
+
 func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},

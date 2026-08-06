@@ -205,7 +205,16 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
 		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
-		pickOpts.CloseWorkspace = func(id string) error { return client.WorkspaceClose(ctx, id) }
+		pickOpts.CloseWorkspace = func(id string) error {
+			if err := client.WorkspaceClose(ctx, id); err != nil {
+				return err
+			}
+			if err := state.RemoveWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), id); err != nil {
+				a.warnf("could not prune workspace history: %v", err)
+			}
+			return nil
+		}
+		pickOpts.ReloadSessions = func() ([]model.Session, error) { return a.collect(ctx, cfg, "") }
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
 			if err != nil {
