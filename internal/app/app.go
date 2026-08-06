@@ -204,6 +204,8 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	}
 	var selected model.Session
 	var ok bool
+	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
+	currentWorkspaceClosed := false
 	if *fzfPicker || strings.EqualFold(os.Getenv("HERDR_SESH_PICKER"), "fzf") {
 		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
 	} else {
@@ -212,13 +214,13 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		if historyErr != nil {
 			a.warnf("ignoring workspace history: %v", historyErr)
 		}
-		currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
 		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
 		pickOpts.CloseWorkspace = func(closeCtx context.Context, id string) error {
 			if err := client.WorkspaceClose(closeCtx, id); err != nil {
 				return err
 			}
+			currentWorkspaceClosed = currentWorkspaceClosed || id == currentWorkspaceID
 			if err := state.RemoveWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), id); err != nil {
 				a.warnf("could not prune workspace history: %v", err)
 			}
@@ -243,15 +245,21 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil || !ok {
 		return err
 	}
-	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
 		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) },
 	})
 	if err != nil {
 		return err
 	}
-	a.recordWorkspaceSwitch(currentWorkspaceID, res.Session.WorkspaceID)
+	a.recordWorkspaceSwitch(pickerSwitchSource(currentWorkspaceID, currentWorkspaceClosed), res.Session.WorkspaceID)
 	return nil
+}
+
+func pickerSwitchSource(currentWorkspaceID string, currentWorkspaceClosed bool) string {
+	if currentWorkspaceClosed {
+		return ""
+	}
+	return currentWorkspaceID
 }
 
 func pickerTarget(s model.Session) string {

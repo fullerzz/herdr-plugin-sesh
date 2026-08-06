@@ -384,6 +384,29 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	}
 }
 
+func TestPickerSwitchDoesNotRestoreClosedCurrentWorkspace(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", d)
+	if err := state.SaveHistory(d, state.History{Workspaces: []string{"current", "older"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.RemoveWorkspace(d, "current"); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Err: &bytes.Buffer{}}
+	a.recordWorkspaceSwitch(pickerSwitchSource("current", true), "target")
+
+	h, err := state.LoadHistory(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"target", "older"}
+	if !reflect.DeepEqual(h.Workspaces, want) {
+		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
+	}
+}
+
 func runPickerJSON(t *testing.T, cfgPath, zoxideOutput string) []model.Session {
 	t.Helper()
 	configureFakeSources(t, zoxideOutput)
