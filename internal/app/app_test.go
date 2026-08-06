@@ -290,12 +290,20 @@ func TestCollectDirectPathUsesConfiguredDirLength(t *testing.T) {
 	cfg := config.Default()
 	cfg.DirLength = 2
 
-	sessions, err := (&App{}).collect(context.Background(), cfg, target)
+	sessions, err := (&App{}).collectAllowUnavailableHerdr(context.Background(), cfg, target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(sessions) != 1 || sessions[0].Name != filepath.Join("parent", "child") {
 		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestCollectPropagatesHerdrErrors(t *testing.T) {
+	configureFakeSources(t, "")
+
+	if _, err := (&App{}).collect(context.Background(), config.Default(), ""); err == nil {
+		t.Fatal("collect succeeded when Herdr workspace listing failed")
 	}
 }
 
@@ -371,6 +379,29 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"previous", "current", "older"}
+	if !reflect.DeepEqual(h.Workspaces, want) {
+		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
+	}
+}
+
+func TestPickerSwitchDoesNotRestoreClosedCurrentWorkspace(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", d)
+	if err := state.SaveHistory(d, state.History{Workspaces: []string{"current", "older"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.RemoveWorkspace(d, "current"); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Err: &bytes.Buffer{}}
+	a.recordWorkspaceSwitch(pickerSwitchSource("current", true), "target")
+
+	h, err := state.LoadHistory(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"target", "older"}
 	if !reflect.DeepEqual(h.Workspaces, want) {
 		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
 	}

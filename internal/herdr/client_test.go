@@ -43,6 +43,18 @@ func TestCLIClientConstructsWorkspaceCreateNoFocus(t *testing.T) {
 	}
 }
 
+func TestCLIClientConstructsWorkspaceClose(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	if err := c.WorkspaceClose(context.Background(), "ws1"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"/bin/herdr", "workspace", "close", "ws1"}}
+	if !reflect.DeepEqual(rr.calls, want) {
+		t.Fatalf("got %#v want %#v", rr.calls, want)
+	}
+}
+
 func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api","agent_status":"working"}]}}`)}}
 	got, err := c.WorkspaceList(context.Background())

@@ -100,6 +100,24 @@ func TestRecordSwitchRotatesPreviousWorkspace(t *testing.T) {
 	}
 }
 
+func TestRemoveWorkspacePrunesHistory(t *testing.T) {
+	d := t.TempDir()
+	if err := SaveHistory(d, History{Workspaces: []string{"current", "closed", "older"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveWorkspace(d, "closed"); err != nil {
+		t.Fatal(err)
+	}
+	h, err := LoadHistory(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"current", "older"}
+	if !reflect.DeepEqual(h.Workspaces, want) {
+		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
+	}
+}
+
 func TestRecordSwitchDeduplicatesAndCapsHistory(t *testing.T) {
 	d := t.TempDir()
 	workspaces := []string{"target", "from"}
