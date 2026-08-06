@@ -206,12 +206,6 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
 		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
 		pickOpts.CloseWorkspace = func(id string) error { return client.WorkspaceClose(ctx, id) }
-		pickOpts.RestoreWorkspaceFocus = func(closedID string) error {
-			if currentWorkspaceID == "" || currentWorkspaceID == closedID {
-				return nil
-			}
-			return client.WorkspaceFocus(ctx, currentWorkspaceID)
-		}
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
 			if err != nil {

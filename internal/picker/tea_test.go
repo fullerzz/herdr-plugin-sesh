@@ -132,16 +132,11 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 }
 
 func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
-	restoredFocus := false
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
 	}, Options{
 		CloseWorkspace: func(string) error { return errors.New("close failed") },
-		RestoreWorkspaceFocus: func(string) error {
-			restoredFocus = true
-			return nil
-		},
 	})
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -160,33 +155,8 @@ func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 	if len(m.list.All) != 2 {
 		t.Fatalf("workspace removed after close failure: %#v", m.list.All)
 	}
-	if restoredFocus {
-		t.Fatal("focus restored after close failure")
-	}
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "close failed") {
 		t.Fatalf("view missing close failure after selection and preview changed:\n%s", view)
-	}
-}
-
-func TestTeaModelCtrlXRemovesWorkspaceWhenFocusRestoreFails(t *testing.T) {
-	m := newTeaModel([]model.Session{
-		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
-		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-	}, Options{
-		CloseWorkspace:        func(string) error { return nil },
-		RestoreWorkspaceFocus: func(string) error { return errors.New("focus failed") },
-	})
-
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	m = updated.(teaModel)
-	updated, _ = m.Update(cmd())
-	m = updated.(teaModel)
-
-	if got, want := sessionNames(m.list.All), []string{"web"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("remaining sessions=%v want %v", got, want)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "focus failed") {
-		t.Fatalf("view missing focus restore failure:\n%s", view)
 	}
 }
 
