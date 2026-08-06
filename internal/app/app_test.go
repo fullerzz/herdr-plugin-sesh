@@ -290,12 +290,20 @@ func TestCollectDirectPathUsesConfiguredDirLength(t *testing.T) {
 	cfg := config.Default()
 	cfg.DirLength = 2
 
-	sessions, err := (&App{}).collect(context.Background(), cfg, target)
+	sessions, err := (&App{}).collectAllowUnavailableHerdr(context.Background(), cfg, target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(sessions) != 1 || sessions[0].Name != filepath.Join("parent", "child") {
 		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestCollectPropagatesHerdrErrors(t *testing.T) {
+	configureFakeSources(t, "")
+
+	if _, err := (&App{}).collect(context.Background(), config.Default(), ""); err == nil {
+		t.Fatal("collect succeeded when Herdr workspace listing failed")
 	}
 }
 

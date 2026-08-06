@@ -83,7 +83,16 @@ func (a *App) loadConfig(path string) (config.Config, error) {
 }
 func (a *App) collect(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
 	hs := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}
-	srcs := []sources.Source{ignoreSource{hs}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
+	return a.collectFrom(ctx, cfg, target, hs)
+}
+
+func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
+	hs := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}
+	return a.collectFrom(ctx, cfg, target, ignoreSource{hs})
+}
+
+func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
+	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
 	if target != "" {
 		srcs = append(srcs, sources.DirectPath{
 			Path:  target,
@@ -177,7 +186,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sessions, err := a.collect(ctx, cfg, "")
+	sessions, err := a.collectAllowUnavailableHerdr(ctx, cfg, "")
 	if err != nil {
 		return err
 	}
@@ -268,7 +277,7 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sessions, err := a.collect(ctx, cfg, target)
+	sessions, err := a.collectAllowUnavailableHerdr(ctx, cfg, target)
 	if err != nil {
 		return err
 	}
@@ -299,7 +308,7 @@ func (a *App) preview(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sessions, err := a.collect(ctx, cfg, target)
+	sessions, err := a.collectAllowUnavailableHerdr(ctx, cfg, target)
 	if err != nil {
 		return err
 	}

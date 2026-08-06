@@ -159,6 +159,28 @@ func TestTeaModelCtrlXRestoresDeduplicatedSessionAfterClose(t *testing.T) {
 	}
 }
 
+func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}, Options{
+		CloseWorkspace: func(string) error { return nil },
+		ReloadSessions: func() ([]model.Session, error) { return nil, errors.New("workspace list failed") },
+	})
+
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	updated, _ = m.Update(closeCmd())
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"web"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("sessions=%v want %v", got, want)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "workspace list failed") {
+		t.Fatalf("view missing reload failure:\n%s", view)
+	}
+}
+
 func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
