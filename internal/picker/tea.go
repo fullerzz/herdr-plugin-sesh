@@ -107,6 +107,7 @@ var (
 var renderPreview = previewpkg.Render
 
 type Options struct {
+	Context               context.Context
 	Output                io.Writer
 	Prompt                string
 	Placeholder           string
@@ -115,8 +116,8 @@ type Options struct {
 	DefaultPreviewCommand string
 	FZFCommand            string
 	RefreshAgentStatuses  func() (map[string]string, error)
-	CloseWorkspace        func(string) error
-	ReloadSessions        func() ([]sessionmodel.Session, error)
+	CloseWorkspace        func(context.Context, string) error
+	ReloadSessions        func(context.Context) ([]sessionmodel.Session, error)
 	RecentWorkspaceIDs    []string
 	RecentWorkspaceSort   bool
 }
@@ -161,16 +162,19 @@ type teaModel struct {
 	preview    string
 	previewKey string
 
-	defaultPreviewCommand string
-	showIcons             bool
-	refreshAgentStatuses  func() (map[string]string, error)
-	workspaceOrder        []string
-	recentWorkspaceIDs    []string
-	recentSort            bool
-	closeWorkspace        func(string) error
-	reloadSessions        func() ([]sessionmodel.Session, error)
-	closingWorkspaceID    string
-	closeError            string
+	defaultPreviewCommand   string
+	showIcons               bool
+	refreshAgentStatuses    func() (map[string]string, error)
+	workspaceOrder          []string
+	recentWorkspaceIDs      []string
+	recentSort              bool
+	closeWorkspace          func(context.Context, string) error
+	reloadSessions          func(context.Context) ([]sessionmodel.Session, error)
+	workspaceCloseContext   context.Context
+	closingWorkspaceID      string
+	cancelWorkspaceClose    context.CancelFunc
+	quitAfterWorkspaceClose bool
+	closeError              string
 }
 
 type previewMsg struct {
@@ -202,6 +206,10 @@ type smearPreset struct {
 }
 
 func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
+	closeContext := opts.Context
+	if closeContext == nil {
+		closeContext = context.Background()
+	}
 	workspaceOrder := herdrWorkspaceIDs(items)
 	if opts.RecentWorkspaceSort {
 		items = append([]sessionmodel.Session(nil), items...)
@@ -240,6 +248,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		recentSort:            opts.RecentWorkspaceSort,
 		closeWorkspace:        opts.CloseWorkspace,
 		reloadSessions:        opts.ReloadSessions,
+		workspaceCloseContext: closeContext,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
@@ -383,6 +392,11 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.closingWorkspaceID = ""
+		m.cancelWorkspaceClose = nil
+		if m.quitAfterWorkspaceClose {
+			m.quitAfterWorkspaceClose = false
+			return m, tea.Quit
+		}
 		if closed.closeErr != nil {
 			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.closeErr)
 			return m.refreshPreview()
@@ -438,6 +452,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "ctrl+c", "esc":
 		if m.closingWorkspaceID != "" {
+			m.quitAfterWorkspaceClose = true
+			m.cancelWorkspaceClose()
+			m.preview = "Cancelling workspace close..."
 			return m, nil
 		}
 		return m, tea.Quit
@@ -500,14 +517,23 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	m.closeError = ""
 	m.previewKey = ""
 	m.preview = "Closing workspace..."
-	return m, closeWorkspaceCommand(m.closeWorkspace, m.reloadSessions, current.WorkspaceID)
+	closeCtx, cancel := context.WithCancel(m.workspaceCloseContext)
+	m.cancelWorkspaceClose = cancel
+	return m, closeWorkspaceCommand(closeCtx, cancel, m.closeWorkspace, m.reloadSessions, current.WorkspaceID)
 }
 
-func closeWorkspaceCommand(closeWorkspace func(string) error, reloadSessions func() ([]sessionmodel.Session, error), workspaceID string) tea.Cmd {
+func closeWorkspaceCommand(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	closeWorkspace func(context.Context, string) error,
+	reloadSessions func(context.Context) ([]sessionmodel.Session, error),
+	workspaceID string,
+) tea.Cmd {
 	return func() tea.Msg {
-		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: closeWorkspace(workspaceID)}
+		defer cancel()
+		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: closeWorkspace(ctx, workspaceID)}
 		if msg.closeErr == nil && reloadSessions != nil {
-			msg.sessions, msg.reloadErr = reloadSessions()
+			msg.sessions, msg.reloadErr = reloadSessions(ctx)
 		}
 		return msg
 	}

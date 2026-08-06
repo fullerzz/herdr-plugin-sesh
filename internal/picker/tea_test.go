@@ -95,7 +95,7 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 		{Source: "herdr", Name: "api-close", WorkspaceID: "w1"},
 		{Source: "config", Name: "api-selected"},
 		{Source: "herdr", Name: "api-other", WorkspaceID: "w2"},
-	}, Options{CloseWorkspace: func(id string) error {
+	}, Options{CloseWorkspace: func(_ context.Context, id string) error {
 		closed = id
 		return nil
 	}})
@@ -146,7 +146,7 @@ func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
 			m := newTeaModel([]model.Session{
 				{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-			}, Options{CloseWorkspace: func(string) error { return nil }})
+			}, Options{CloseWorkspace: func(context.Context, string) error { return nil }})
 			updated, _ := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 			m = updated.(teaModel)
 			if tt.move {
@@ -163,13 +163,54 @@ func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
 	}
 }
 
+func TestTeaModelCtrlCCancelsWorkspaceCloseAndQuitsAfterResult(t *testing.T) {
+	tests := []struct {
+		name string
+		opts Options
+	}{
+		{name: "close", opts: Options{CloseWorkspace: func(ctx context.Context, _ string) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}}},
+		{name: "reload", opts: Options{
+			CloseWorkspace: func(context.Context, string) error { return nil },
+			ReloadSessions: func(ctx context.Context) ([]model.Session, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTeaModel([]model.Session{
+				{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+			}, tt.opts)
+			updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+			m = updated.(teaModel)
+			updated, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+			m = updated.(teaModel)
+
+			updated, quitCmd := m.Update(closeCmd())
+			_ = updated.(teaModel)
+			if quitCmd == nil {
+				t.Fatal("picker did not quit after cancelled close returned")
+			}
+			msg := quitCmd()
+			if _, ok := msg.(tea.QuitMsg); !ok {
+				t.Fatalf("command returned %T, want tea.QuitMsg", msg)
+			}
+		})
+	}
+}
+
 func TestTeaModelCtrlXRestoresDeduplicatedSessionAfterClose(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
 	}, Options{
-		CloseWorkspace: func(string) error { return nil },
-		ReloadSessions: func() ([]model.Session, error) {
+		CloseWorkspace: func(context.Context, string) error { return nil },
+		ReloadSessions: func(context.Context) ([]model.Session, error) {
 			return []model.Session{
 				{Source: "config", Name: "api", Path: "/configured/api"},
 				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
@@ -196,8 +237,8 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
 	}, Options{
-		CloseWorkspace: func(string) error { return nil },
-		ReloadSessions: func() ([]model.Session, error) { return nil, errors.New("workspace list failed") },
+		CloseWorkspace: func(context.Context, string) error { return nil },
+		ReloadSessions: func(context.Context) ([]model.Session, error) { return nil, errors.New("workspace list failed") },
 	})
 
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -218,7 +259,7 @@ func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
 	}, Options{
-		CloseWorkspace: func(string) error { return errors.New("close failed") },
+		CloseWorkspace: func(context.Context, string) error { return errors.New("close failed") },
 	})
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -244,7 +285,7 @@ func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 
 func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
 	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{
-		CloseWorkspace: func(string) error { return errors.New("close failed") },
+		CloseWorkspace: func(context.Context, string) error { return errors.New("close failed") },
 	})
 
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
@@ -260,7 +301,7 @@ func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
 func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
 	called := false
 	m := newTeaModel([]model.Session{{Source: "config", Name: "api"}}, Options{
-		CloseWorkspace: func(string) error {
+		CloseWorkspace: func(context.Context, string) error {
 			called = true
 			return nil
 		},

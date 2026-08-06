@@ -194,6 +194,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return a.printSessions(sessions, true)
 	}
 	pickOpts := pickerpkg.Options{
+		Context:               ctx,
 		Output:                a.Out,
 		Prompt:                cfg.TUI.Prompt,
 		Placeholder:           cfg.TUI.Placeholder,
@@ -214,8 +215,8 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
 		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
-		pickOpts.CloseWorkspace = func(id string) error {
-			if err := client.WorkspaceClose(ctx, id); err != nil {
+		pickOpts.CloseWorkspace = func(closeCtx context.Context, id string) error {
+			if err := client.WorkspaceClose(closeCtx, id); err != nil {
 				return err
 			}
 			if err := state.RemoveWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), id); err != nil {
@@ -223,7 +224,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			}
 			return nil
 		}
-		pickOpts.ReloadSessions = func() ([]model.Session, error) { return a.collect(ctx, cfg, "") }
+		pickOpts.ReloadSessions = func(reloadCtx context.Context) ([]model.Session, error) {
+			return a.collect(reloadCtx, cfg, "")
+		}
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
 			if err != nil {
