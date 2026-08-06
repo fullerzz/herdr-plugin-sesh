@@ -131,6 +131,38 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 	}
 }
 
+func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
+	tests := []struct {
+		name string
+		key  tea.KeyPressMsg
+		move bool
+	}{
+		{name: "enter another workspace", key: tea.KeyPressMsg{Code: tea.KeyEnter}, move: true},
+		{name: "escape", key: tea.KeyPressMsg{Code: tea.KeyEscape}},
+		{name: "control c", key: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTeaModel([]model.Session{
+				{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+			}, Options{CloseWorkspace: func(string) error { return nil }})
+			updated, _ := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+			m = updated.(teaModel)
+			if tt.move {
+				m.list.Move(1)
+			}
+
+			updated, cmd := m.Update(tt.key)
+			m = updated.(teaModel)
+
+			if cmd != nil || m.chosen || m.closingWorkspaceID != "w1" {
+				t.Fatalf("pending close quit picker: cmd=%v chosen=%v closing=%q", cmd, m.chosen, m.closingWorkspaceID)
+			}
+		})
+	}
+}
+
 func TestTeaModelCtrlXRestoresDeduplicatedSessionAfterClose(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},

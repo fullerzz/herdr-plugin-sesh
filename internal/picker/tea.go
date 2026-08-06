@@ -437,12 +437,15 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.closeError = ""
 	switch key.String() {
 	case "ctrl+c", "esc":
+		if m.closingWorkspaceID != "" {
+			return m, nil
+		}
 		return m, tea.Quit
 	case "enter":
+		if m.closingWorkspaceID != "" {
+			return m, nil
+		}
 		if choice, ok := m.list.Current(); ok {
-			if choice.Source == "herdr" && choice.WorkspaceID == m.closingWorkspaceID {
-				return m, nil
-			}
 			m.choice = choice
 			m.chosen = true
 		}
