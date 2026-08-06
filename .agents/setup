@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Setting up herdr-sesh development tools..."
+
+mise_bin="$HOME/.local/bin/mise"
+if [[ ! -x "$mise_bin" ]]; then
+  echo "Installing mise..."
+  install_script="$(mktemp)"
+  trap 'rm -f "$install_script"' EXIT
+  wget -qO "$install_script" https://mise.run
+  bash "$install_script"
+  rm -f "$install_script"
+  trap - EXIT
+fi
+
+profile_marker="# herdr-sesh mise environment"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# herdr-sesh mise environment
+if [[ -x "$HOME/.local/bin/mise" ]]; then
+  export PATH="$HOME/.local/bin:$PATH"
+  eval "$("$HOME/.local/bin/mise" activate bash)"
+fi
+EOF
+fi
+
+export PATH="$HOME/.local/bin:$PATH"
+eval "$("$mise_bin" activate bash)"
+
+echo "Installing tools pinned in mise.toml..."
+"$mise_bin" trust --yes mise.toml
+"$mise_bin" install --yes
+
+echo "Downloading Go modules..."
+"$mise_bin" exec -- go mod download
+
+echo "Orb setup complete."
