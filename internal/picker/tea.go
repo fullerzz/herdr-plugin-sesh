@@ -421,6 +421,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastWorkspaceID = closed.result.LastWorkspaceID
 			m.lastWorkspaceUnknown = closed.result.LastWorkspaceUnknown
 		}
+		if closed.result.HerdrWorkspaces != nil {
+			m.herdrWorkspaces = workspaceSessionsByID(closed.result.HerdrWorkspaces)
+		}
 		selectedKey := ""
 		if current, currentOK := m.list.Current(); currentOK {
 			selectedKey = sessionmodel.Key(current)
@@ -428,7 +431,6 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if closed.reloadErr == nil && closed.result.Sessions != nil {
 			m.workspaceOrder = herdrWorkspaceIDs(closed.result.Sessions)
 			m.list.All = append(m.list.All[:0], closed.result.Sessions...)
-			m.herdrWorkspaces = workspaceSessionsByID(closed.result.HerdrWorkspaces)
 			if m.recentSort {
 				sortHerdrWorkspaces(m.list.All, m.recentWorkspaceIDs)
 			}

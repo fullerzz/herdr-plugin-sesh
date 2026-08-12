@@ -318,7 +318,7 @@ func TestCollectPickerPreservesHerdrError(t *testing.T) {
 	if herdrErr == nil {
 		t.Fatal("collectPicker discarded Herdr workspace listing error")
 	}
-	if len(sessions) != 0 || len(workspaces) != 0 {
+	if len(sessions) != 0 || workspaces != nil {
 		t.Fatalf("sessions=%#v workspaces=%#v", sessions, workspaces)
 	}
 }

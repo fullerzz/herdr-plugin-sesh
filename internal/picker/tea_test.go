@@ -292,6 +292,35 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 	}
 }
 
+func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "closing", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "old label", WorkspaceID: "w2"},
+	}, Options{
+		LastWorkspaceID: "w2",
+		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "old label", WorkspaceID: "w2"}},
+		CloseWorkspace:  func(context.Context, string) error { return nil },
+		ReloadPicker: func(context.Context) (ReloadResult, error) {
+			return ReloadResult{
+				HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "new label", WorkspaceID: "w2"}},
+				LastWorkspaceID: "w2",
+			}, errors.New("config refresh failed")
+		},
+	})
+
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	updated, _ = m.Update(closeCmd())
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"old label"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("sessions=%v want retained rows %v", got, want)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · new label") {
+		t.Fatalf("view kept stale Herdr metadata:\n%s", view)
+	}
+}
+
 func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},

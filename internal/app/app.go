@@ -93,11 +93,14 @@ func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Confi
 
 func (a *App) collectPicker(ctx context.Context, cfg config.Config) ([]model.Session, []model.Session, error, error) {
 	herdrSessions, herdrErr := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}.List(ctx)
+	var workspaces []model.Session
 	if herdrErr != nil {
 		herdrSessions = model.NewSessions()
+	} else {
+		workspaces = herdrSessions.Ordered()
 	}
 	sessions, err := a.collectFrom(ctx, cfg, "", loadedSource{name: "herdr", sessions: herdrSessions})
-	return sessions, herdrSessions.Ordered(), herdrErr, err
+	return sessions, workspaces, herdrErr, err
 }
 
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
