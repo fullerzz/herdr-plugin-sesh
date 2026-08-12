@@ -92,15 +92,12 @@ func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Confi
 }
 
 func (a *App) collectPicker(ctx context.Context, cfg config.Config) ([]model.Session, []model.Session, error, error) {
-	herdrSessions, herdrErr := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}.List(ctx)
-	var workspaces []model.Session
-	if herdrErr != nil {
-		herdrSessions = model.NewSessions()
-	} else {
-		workspaces = herdrSessions.Ordered()
+	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}
+	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource)
+	if herdrSource.err != nil {
+		return sessions, nil, herdrSource.err, err
 	}
-	sessions, err := a.collectFrom(ctx, cfg, "", loadedSource{name: "herdr", sessions: herdrSessions})
-	return sessions, workspaces, herdrErr, err
+	return sessions, herdrSource.sessions.Ordered(), nil, err
 }
 
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
@@ -129,14 +126,20 @@ func (i ignoreSource) List(ctx context.Context) (model.Sessions, error) {
 	return ss, nil
 }
 
-type loadedSource struct {
-	name     string
+type capturingSource struct {
+	sources.Source
+
 	sessions model.Sessions
+	err      error
 }
 
-func (s loadedSource) Name() string { return s.name }
-
-func (s loadedSource) List(context.Context) (model.Sessions, error) { return s.sessions, nil }
+func (s *capturingSource) List(ctx context.Context) (model.Sessions, error) {
+	s.sessions, s.err = s.Source.List(ctx)
+	if s.err != nil {
+		return model.NewSessions(), nil
+	}
+	return s.sessions, nil
+}
 
 func (a *App) list(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
@@ -232,7 +235,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	var selected model.Session
 	var ok bool
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-	currentWorkspaceClosed := false
+	pickerWorkspaceID := currentWorkspaceID
 	if useFZF {
 		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
 	} else {
@@ -254,7 +257,6 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			if err := client.WorkspaceClose(closeCtx, id); err != nil {
 				return err
 			}
-			currentWorkspaceClosed = currentWorkspaceClosed || id == currentWorkspaceID
 			if err := state.RemoveWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), id); err != nil {
 				a.warnf("could not prune workspace history: %v", err)
 			}
@@ -265,13 +267,16 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			if reloadErr == nil {
 				reloadErr = herdrErr
 			}
-			lastID, _, lastErr := pickerLastWorkspace(
-				reloadCtx,
-				client,
-				os.Getenv("HERDR_PLUGIN_STATE_DIR"),
-				currentWorkspaceID,
-				currentWorkspaceClosed,
-			)
+			focusedPane, focusErr := client.PaneFocused(reloadCtx)
+			pickerWorkspaceID = focusedPane.WorkspaceID
+			if focusErr == nil && pickerWorkspaceID == "" {
+				focusErr = errors.New("focused pane has no workspace ID")
+			}
+			lastID, _, lastErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), pickerWorkspaceID)
+			if focusErr != nil {
+				pickerWorkspaceID = ""
+				lastErr = fmt.Errorf("find focused workspace after close: %w", focusErr)
+			}
 			if lastErr != nil {
 				a.warnf("could not determine last workspace: %v", lastErr)
 			}
@@ -304,15 +309,8 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	a.recordWorkspaceSwitch(pickerSwitchSource(currentWorkspaceID, currentWorkspaceClosed), res.Session.WorkspaceID)
+	a.recordWorkspaceSwitch(pickerWorkspaceID, res.Session.WorkspaceID)
 	return nil
-}
-
-func pickerSwitchSource(currentWorkspaceID string, currentWorkspaceClosed bool) string {
-	if currentWorkspaceClosed {
-		return ""
-	}
-	return currentWorkspaceID
 }
 
 func pickerTarget(s model.Session) string {
@@ -453,30 +451,6 @@ func lastWorkspace(stateDir, currentWorkspaceID string) (string, bool, error) {
 		return state.Last(stateDir)
 	}
 	return state.Previous(stateDir, currentWorkspaceID)
-}
-
-type currentPaneClient interface {
-	PaneCurrent(context.Context) (herdr.Pane, error)
-}
-
-func pickerLastWorkspace(
-	ctx context.Context,
-	client currentPaneClient,
-	stateDir, launchWorkspaceID string,
-	launchWorkspaceClosed bool,
-) (string, bool, error) {
-	currentWorkspaceID := launchWorkspaceID
-	if launchWorkspaceClosed {
-		pane, err := client.PaneCurrent(ctx)
-		if err != nil {
-			return "", false, fmt.Errorf("find focused workspace after close: %w", err)
-		}
-		if pane.WorkspaceID == "" {
-			return "", false, errors.New("focused pane has no workspace ID")
-		}
-		currentWorkspaceID = pane.WorkspaceID
-	}
-	return lastWorkspace(stateDir, currentWorkspaceID)
 }
 
 func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string) {

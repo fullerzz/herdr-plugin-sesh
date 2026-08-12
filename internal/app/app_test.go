@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
-	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
@@ -323,6 +322,42 @@ func TestCollectPickerPreservesHerdrError(t *testing.T) {
 	}
 }
 
+func TestCollectPickerLoadsHerdrAndZoxideConcurrently(t *testing.T) {
+	d := t.TempDir()
+	marker := filepath.Join(d, "zoxide-started")
+	herdrScript := `#!/bin/sh
+if [ "$1 $2" = "workspace list" ]; then
+  i=0
+  while [ ! -f "$CONCURRENT_SOURCE_MARKER" ] && [ "$i" -lt 100 ]; do
+    sleep 0.01
+    i=$((i + 1))
+  done
+  [ -f "$CONCURRENT_SOURCE_MARKER" ] || exit 1
+fi
+printf '[]\n'
+`
+	zoxideScript := `#!/bin/sh
+: > "$CONCURRENT_SOURCE_MARKER"
+`
+	for name, script := range map[string]string{"herdr": herdrScript, "zoxide": zoxideScript} {
+		//nolint:gosec // test creates local executable fixtures.
+		if err := os.WriteFile(filepath.Join(d, name), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HERDR_BIN_PATH", filepath.Join(d, "herdr"))
+	t.Setenv("CONCURRENT_SOURCE_MARKER", marker)
+	t.Setenv("PATH", d+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, _, herdrErr, err := (&App{}).collectPicker(context.Background(), config.Default())
+	if err != nil {
+		t.Fatalf("collect picker sources: %v", err)
+	}
+	if herdrErr != nil {
+		t.Fatalf("Herdr ran before zoxide: %v", herdrErr)
+	}
+}
+
 func TestPreviewCommandUsesExplicitConfig(t *testing.T) {
 	d := t.TempDir()
 	targetDir := filepath.Join(d, "target")
@@ -395,59 +430,6 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"previous", "current", "older"}
-	if !reflect.DeepEqual(h.Workspaces, want) {
-		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
-	}
-}
-
-func TestPickerLastWorkspaceUsesFocusedWorkspaceAfterLaunchWorkspaceCloses(t *testing.T) {
-	stateDir := t.TempDir()
-	if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"focused", "older"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	id, ok, err := pickerLastWorkspace(
-		context.Background(),
-		stubCurrentPaneClient{pane: herdr.Pane{WorkspaceID: "focused"}},
-		stateDir,
-		"closed-launch-workspace",
-		true,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || id != "older" {
-		t.Fatalf("last workspace=%q ok=%v, want older", id, ok)
-	}
-}
-
-type stubCurrentPaneClient struct {
-	pane herdr.Pane
-	err  error
-}
-
-func (c stubCurrentPaneClient) PaneCurrent(context.Context) (herdr.Pane, error) {
-	return c.pane, c.err
-}
-
-func TestPickerSwitchDoesNotRestoreClosedCurrentWorkspace(t *testing.T) {
-	d := t.TempDir()
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", d)
-	if err := state.SaveHistory(d, state.History{Workspaces: []string{"current", "older"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.RemoveWorkspace(d, "current"); err != nil {
-		t.Fatal(err)
-	}
-
-	a := &App{Err: &bytes.Buffer{}}
-	a.recordWorkspaceSwitch(pickerSwitchSource("current", true), "target")
-
-	h, err := state.LoadHistory(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"target", "older"}
 	if !reflect.DeepEqual(h.Workspaces, want) {
 		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
 	}

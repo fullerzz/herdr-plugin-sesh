@@ -112,14 +112,30 @@ type Runner interface {
 }
 type ExecRunner struct{}
 
+type omitCallerPaneKey struct{}
+
 func (ExecRunner) Run(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
 	//nolint:gosec // HERDR_BIN_PATH may intentionally point at a user-selected herdr binary.
 	c := exec.CommandContext(ctx, bin, args...)
+	if omit, _ := ctx.Value(omitCallerPaneKey{}).(bool); omit {
+		c.Env = environmentWithout(os.Environ(), "HERDR_PANE_ID")
+	}
 	var out, errb bytes.Buffer
 	c.Stdout = &out
 	c.Stderr = &errb
 	err := c.Run()
 	return out.Bytes(), errb.Bytes(), err
+}
+
+func environmentWithout(environ []string, name string) []string {
+	prefix := name + "="
+	filtered := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		if !strings.HasPrefix(entry, prefix) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 type CLIClient struct {
@@ -350,6 +366,12 @@ func (c *CLIClient) PaneList(ctx context.Context, wid string) ([]Pane, error) {
 	return panes, nil
 }
 func (c *CLIClient) PaneCurrent(ctx context.Context) (Pane, error) {
+	return c.paneCurrent(ctx)
+}
+func (c *CLIClient) PaneFocused(ctx context.Context) (Pane, error) {
+	return c.paneCurrent(context.WithValue(ctx, omitCallerPaneKey{}, true))
+}
+func (c *CLIClient) paneCurrent(ctx context.Context) (Pane, error) {
 	out, err := c.run(ctx, "pane", "current")
 	if err != nil {
 		return Pane{}, err
