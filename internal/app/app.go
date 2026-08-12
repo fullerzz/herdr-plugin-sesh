@@ -91,13 +91,23 @@ func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Confi
 	return a.collectFrom(ctx, cfg, target, ignoreSource{hs})
 }
 
-func (a *App) collectPicker(ctx context.Context, cfg config.Config) ([]model.Session, []model.Session, error, error) {
+type pickerCollection struct {
+	Sessions        []model.Session
+	HerdrWorkspaces []model.Session
+	// HerdrErr reports a failed Herdr workspace listing that the merge
+	// tolerated; callers must surface it or the picker looks empty for no
+	// visible reason.
+	HerdrErr error
+}
+
+func (a *App) collectPicker(ctx context.Context, cfg config.Config) (pickerCollection, error) {
 	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}
 	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource)
-	if herdrSource.err != nil {
-		return sessions, nil, herdrSource.err, err
+	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err}
+	if herdrSource.err == nil {
+		col.HerdrWorkspaces = herdrSource.sessions.Ordered()
 	}
-	return sessions, herdrSource.sessions.Ordered(), nil, err
+	return col, err
 }
 
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
@@ -215,7 +225,12 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if useFZF || *jsonOut {
 		sessions, err = a.collectAllowUnavailableHerdr(ctx, cfg, "")
 	} else {
-		sessions, herdrWorkspaces, _, err = a.collectPicker(ctx, cfg)
+		var col pickerCollection
+		col, err = a.collectPicker(ctx, cfg)
+		sessions, herdrWorkspaces = col.Sessions, col.HerdrWorkspaces
+		if col.HerdrErr != nil {
+			a.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
+		}
 	}
 	if err != nil {
 		return err
@@ -253,39 +268,23 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		}
 		pickOpts.LastWorkspaceID = lastWorkspaceID
 		pickOpts.LastWorkspaceUnknown = lastWorkspaceErr != nil
+		// Warnings raised while the alt-screen TUI owns the terminal would be
+		// overwritten and lost; buffer them and flush after the picker exits.
+		var deferredWarnings []string
+		deferWarn := func(format string, args ...any) {
+			deferredWarnings = append(deferredWarnings, fmt.Sprintf(format, args...))
+		}
 		pickOpts.CloseWorkspace = func(closeCtx context.Context, id string) error {
 			if err := client.WorkspaceClose(closeCtx, id); err != nil {
 				return err
 			}
 			if err := state.RemoveWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), id); err != nil {
-				a.warnf("could not prune workspace history: %v", err)
+				deferWarn("could not prune workspace history: %v", err)
 			}
 			return nil
 		}
 		pickOpts.ReloadPicker = func(reloadCtx context.Context) (pickerpkg.ReloadResult, error) {
-			reloaded, workspaces, herdrErr, reloadErr := a.collectPicker(reloadCtx, cfg)
-			if reloadErr == nil {
-				reloadErr = herdrErr
-			}
-			focusedPane, focusErr := client.PaneFocused(reloadCtx)
-			pickerWorkspaceID = focusedPane.WorkspaceID
-			if focusErr == nil && pickerWorkspaceID == "" {
-				focusErr = errors.New("focused pane has no workspace ID")
-			}
-			lastID, _, lastErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), pickerWorkspaceID)
-			if focusErr != nil {
-				pickerWorkspaceID = ""
-				lastErr = fmt.Errorf("find focused workspace after close: %w", focusErr)
-			}
-			if lastErr != nil {
-				a.warnf("could not determine last workspace: %v", lastErr)
-			}
-			return pickerpkg.ReloadResult{
-				Sessions:             reloaded,
-				HerdrWorkspaces:      workspaces,
-				LastWorkspaceID:      lastID,
-				LastWorkspaceUnknown: lastErr != nil,
-			}, reloadErr
+			return a.reloadPickerState(reloadCtx, cfg, client, &pickerWorkspaceID, deferWarn)
 		}
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
@@ -299,6 +298,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			return statuses, nil
 		}
 		selected, ok, err = pickerpkg.Run(sessions, pickOpts)
+		for _, warning := range deferredWarnings {
+			a.warnf("%s", warning)
+		}
 	}
 	if err != nil || !ok {
 		return err
@@ -311,6 +313,37 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	}
 	a.recordWorkspaceSwitch(pickerWorkspaceID, res.Session.WorkspaceID)
 	return nil
+}
+
+// reloadPickerState re-collects picker sessions after a workspace close and
+// re-resolves which workspace hosts the picker, since the close may have
+// destroyed the workspace that launched it. On focus failure
+// pickerWorkspaceID is cleared so the eventual switch is recorded without a
+// stale "from" workspace.
+func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, warnf func(string, ...any)) (pickerpkg.ReloadResult, error) {
+	col, reloadErr := a.collectPicker(ctx, cfg)
+	if reloadErr == nil {
+		reloadErr = col.HerdrErr
+	}
+	focusedPane, focusErr := client.PaneFocused(ctx)
+	*pickerWorkspaceID = focusedPane.WorkspaceID
+	if focusErr == nil && *pickerWorkspaceID == "" {
+		focusErr = errors.New("focused pane has no workspace ID")
+	}
+	lastID, _, lastErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), *pickerWorkspaceID)
+	if focusErr != nil {
+		*pickerWorkspaceID = ""
+		lastErr = fmt.Errorf("find focused workspace after close: %w", focusErr)
+	}
+	if lastErr != nil {
+		warnf("could not determine last workspace: %v", lastErr)
+	}
+	return pickerpkg.ReloadResult{
+		Sessions:             col.Sessions,
+		HerdrWorkspaces:      col.HerdrWorkspaces,
+		LastWorkspaceID:      lastID,
+		LastWorkspaceUnknown: lastErr != nil,
+	}, reloadErr
 }
 
 func pickerTarget(s model.Session) string {

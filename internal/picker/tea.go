@@ -117,12 +117,17 @@ type Options struct {
 	FZFCommand            string
 	RefreshAgentStatuses  func() (map[string]string, error)
 	CloseWorkspace        func(context.Context, string) error
-	ReloadPicker          func(context.Context) (ReloadResult, error)
-	RecentWorkspaceIDs    []string
-	RecentWorkspaceSort   bool
-	LastWorkspaceID       string
-	LastWorkspaceUnknown  bool
-	HerdrWorkspaces       []sessionmodel.Session
+	// ReloadPicker refreshes picker state after a workspace close. Its
+	// ReloadResult is consumed even when it returns an error: the
+	// last-workspace fields must always be valid (set LastWorkspaceUnknown
+	// when unsure), and a nil HerdrWorkspaces means "keep the existing
+	// metadata" while an empty slice means "no workspaces".
+	ReloadPicker         func(context.Context) (ReloadResult, error)
+	RecentWorkspaceIDs   []string
+	RecentWorkspaceSort  bool
+	LastWorkspaceID      string
+	LastWorkspaceUnknown bool
+	HerdrWorkspaces      []sessionmodel.Session
 }
 
 type ReloadResult struct {
@@ -205,6 +210,7 @@ type agentStatusesMsg struct {
 type workspaceCloseMsg struct {
 	workspaceID string
 	result      ReloadResult
+	reloadRan   bool
 	closeErr    error
 	reloadErr   error
 }
@@ -417,7 +423,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.closeErr)
 			return m.refreshPreview()
 		}
-		if m.reloadPicker != nil {
+		if closed.reloadRan {
 			m.lastWorkspaceID = closed.result.LastWorkspaceID
 			m.lastWorkspaceUnknown = closed.result.LastWorkspaceUnknown
 		}
@@ -557,6 +563,7 @@ func closeWorkspaceCommand(
 		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: closeWorkspace(ctx, workspaceID)}
 		if msg.closeErr == nil && reloadPicker != nil {
 			msg.result, msg.reloadErr = reloadPicker(ctx)
+			msg.reloadRan = true
 		}
 		return msg
 	}
@@ -791,10 +798,8 @@ func (m teaModel) header(width int) string {
 	return fitLine(title+strings.Repeat(" ", gap)+count, width)
 }
 
-func (m teaModel) lastWorkspaceText() string {
-	title := sectionStyle.Render("LAST WORKSPACE")
-	label := "None recorded"
-	path := ""
+func (m teaModel) lastWorkspaceStatus() (label, path string) {
+	label = "None recorded"
 	if m.lastWorkspaceUnknown {
 		label = "Unavailable"
 	} else if m.lastWorkspaceID != "" {
@@ -808,7 +813,12 @@ func (m teaModel) lastWorkspaceText() string {
 			path = item.Path
 		}
 	}
-	line := title + countStyle.Render(" · ") + rowLabelStyle.Render(label)
+	return label, path
+}
+
+func (m teaModel) lastWorkspaceText() string {
+	label, path := m.lastWorkspaceStatus()
+	line := sectionStyle.Render("LAST WORKSPACE") + countStyle.Render(" · ") + rowLabelStyle.Render(label)
 	displayPath := compactHome(path)
 	if displayPath != "" && displayPath != label {
 		line += pathStyle.Render("  " + displayPath)
@@ -816,14 +826,28 @@ func (m teaModel) lastWorkspaceText() string {
 	return line
 }
 
-func (m teaModel) footerLine(help string, width int) string {
+func (m teaModel) lastWorkspaceCompactText() string {
+	label, _ := m.lastWorkspaceStatus()
+	return sectionStyle.Render("last:") + rowLabelStyle.Render(" "+label)
+}
+
+// footerLine keeps the keybind help (or a close error, which gets the whole
+// row) intact and fits the last-workspace status into the remaining width,
+// compacting or dropping it rather than truncating the help.
+func (m teaModel) footerLine(footer string, width int) string {
+	if m.closeError != "" {
+		return fitLine(footer, width)
+	}
+	available := width - lipgloss.Width(footer) - 2
 	last := m.lastWorkspaceText()
-	lastWidth := min(lipgloss.Width(last), maxInt(1, width/2))
-	last = ansi.Truncate(last, lastWidth, "…")
-	helpWidth := maxInt(0, width-lipgloss.Width(last)-2)
-	help = ansi.Truncate(help, helpWidth, "…")
-	gap := maxInt(1, width-lipgloss.Width(help)-lipgloss.Width(last))
-	return fitLine(help+strings.Repeat(" ", gap)+last, width)
+	if lipgloss.Width(last) > available {
+		last = m.lastWorkspaceCompactText()
+	}
+	if lipgloss.Width(last) > available {
+		return fitLine(footer, width)
+	}
+	gap := maxInt(1, width-lipgloss.Width(footer)-lipgloss.Width(last))
+	return fitLine(footer+strings.Repeat(" ", gap)+last, width)
 }
 
 func (m teaModel) previewView(width, maxLines int) string {

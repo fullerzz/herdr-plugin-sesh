@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
@@ -310,15 +311,106 @@ func TestCollectPropagatesHerdrErrors(t *testing.T) {
 func TestCollectPickerPreservesHerdrError(t *testing.T) {
 	configureFakeSources(t, "")
 
-	sessions, workspaces, herdrErr, err := (&App{}).collectPicker(context.Background(), config.Default())
+	col, err := (&App{}).collectPicker(context.Background(), config.Default())
 	if err != nil {
 		t.Fatalf("collect picker sources: %v", err)
 	}
-	if herdrErr == nil {
+	if col.HerdrErr == nil {
 		t.Fatal("collectPicker discarded Herdr workspace listing error")
 	}
-	if len(sessions) != 0 || workspaces != nil {
-		t.Fatalf("sessions=%#v workspaces=%#v", sessions, workspaces)
+	if len(col.Sessions) != 0 || col.HerdrWorkspaces != nil {
+		t.Fatalf("sessions=%#v workspaces=%#v", col.Sessions, col.HerdrWorkspaces)
+	}
+}
+
+func TestCollectPickerReturnsRawHerdrWorkspaces(t *testing.T) {
+	configureHerdrScript(t, `#!/bin/sh
+case "$1 $2" in
+"workspace list") printf '[{"id":"w1","label":"api","cwd":"/live/api"}]\n' ;;
+"pane list") printf '[]\n' ;;
+*) exit 1 ;;
+esac
+`)
+
+	col, err := (&App{}).collectPicker(context.Background(), config.Default())
+	if err != nil || col.HerdrErr != nil {
+		t.Fatalf("collect picker: err=%v herdrErr=%v", err, col.HerdrErr)
+	}
+	want := []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "w1"}}
+	if !reflect.DeepEqual(col.HerdrWorkspaces, want) {
+		t.Fatalf("herdr workspaces=%#v want %#v", col.HerdrWorkspaces, want)
+	}
+}
+
+func TestReloadPickerStateResolvesFocusedWorkspace(t *testing.T) {
+	tests := []struct {
+		name        string
+		paneCurrent string
+		wantID      string
+		wantLast    string
+		wantUnknown bool
+		wantWarning string
+	}{
+		{
+			name:        "records focused workspace",
+			paneCurrent: `printf '{"id":"p1","workspace_id":"focused"}\n'`,
+			wantID:      "focused",
+			wantLast:    "previous",
+		},
+		{
+			name:        "clears workspace when focus fails",
+			paneCurrent: "exit 1",
+			wantUnknown: true,
+			wantWarning: "find focused workspace after close",
+		},
+		{
+			name:        "clears workspace when focused pane has no workspace",
+			paneCurrent: `printf '{"id":"p1"}\n'`,
+			wantUnknown: true,
+			wantWarning: "focused pane has no workspace ID",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configureHerdrScript(t, fmt.Sprintf(`#!/bin/sh
+case "$1 $2" in
+"workspace list") printf '[]\n' ;;
+"pane list") printf '[]\n' ;;
+"pane current") %s ;;
+*) exit 1 ;;
+esac
+`, tt.paneCurrent))
+			stateDir := filepath.Join(t.TempDir(), "state")
+			if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"focused", "previous"}}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+			pickerWorkspaceID := "closed-workspace"
+			var warnings []string
+			warn := func(format string, args ...any) {
+				warnings = append(warnings, fmt.Sprintf(format, args...))
+			}
+
+			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, warn)
+			if err != nil {
+				t.Fatalf("reload picker state: %v", err)
+			}
+			if pickerWorkspaceID != tt.wantID {
+				t.Fatalf("picker workspace=%q, want %q", pickerWorkspaceID, tt.wantID)
+			}
+			if result.LastWorkspaceUnknown != tt.wantUnknown {
+				t.Fatalf("last workspace unknown=%v, want %v", result.LastWorkspaceUnknown, tt.wantUnknown)
+			}
+			if !tt.wantUnknown && result.LastWorkspaceID != tt.wantLast {
+				t.Fatalf("last workspace=%q, want %q", result.LastWorkspaceID, tt.wantLast)
+			}
+			if tt.wantWarning == "" && len(warnings) > 0 {
+				t.Fatalf("unexpected warnings: %v", warnings)
+			}
+			if tt.wantWarning != "" && (len(warnings) != 1 || !strings.Contains(warnings[0], tt.wantWarning)) {
+				t.Fatalf("warnings=%v, want one containing %q", warnings, tt.wantWarning)
+			}
+		})
 	}
 }
 
@@ -349,12 +441,12 @@ printf '[]\n'
 	t.Setenv("CONCURRENT_SOURCE_MARKER", marker)
 	t.Setenv("PATH", d+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	_, _, herdrErr, err := (&App{}).collectPicker(context.Background(), config.Default())
+	col, err := (&App{}).collectPicker(context.Background(), config.Default())
 	if err != nil {
 		t.Fatalf("collect picker sources: %v", err)
 	}
-	if herdrErr != nil {
-		t.Fatalf("Herdr ran before zoxide: %v", herdrErr)
+	if col.HerdrErr != nil {
+		t.Fatalf("Herdr ran before zoxide: %v", col.HerdrErr)
 	}
 }
 
@@ -466,6 +558,21 @@ func runListJSON(t *testing.T, cfgPath, zoxideOutput string, extraArgs ...string
 		t.Fatalf("decode list JSON: %v\n%s", err, out.String())
 	}
 	return sessions
+}
+
+func configureHerdrScript(t *testing.T, script string) {
+	t.Helper()
+	fakeBin := t.TempDir()
+	//nolint:gosec // test creates local executable fixtures.
+	if err := os.WriteFile(filepath.Join(fakeBin, "herdr"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // test creates local executable fixtures.
+	if err := os.WriteFile(filepath.Join(fakeBin, "zoxide"), []byte("#!/bin/sh\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_BIN_PATH", filepath.Join(fakeBin, "herdr"))
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func configureFakeSources(t *testing.T, zoxideOutput string) {

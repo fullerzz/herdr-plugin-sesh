@@ -71,8 +71,11 @@ func TestTeaModelCtrlJKMovesSelection(t *testing.T) {
 	if current, ok := m.list.Current(); !ok || current.Name != "api" {
 		t.Fatalf("current = %#v ok=%v, want api", current, ok)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "enter select · ctrl+j/k") || !strings.Contains(view, "LAST WORKSPACE · None recorded") {
-		t.Fatalf("default-width view missing navigation help or last workspace:\n%s", view)
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit") || !strings.Contains(view, "LAST WORKSPACE · None recorded") {
+		t.Fatalf("view missing complete navigation help or last workspace:\n%s", view)
 	}
 }
 
@@ -152,6 +155,8 @@ func TestTeaModelCtrlXUpdatesLastWorkspace(t *testing.T) {
 		},
 	})
 
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	updated, _ = m.Update(closeCmd())
@@ -277,6 +282,8 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 		},
 	})
 
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	updated, _ = m.Update(closeCmd())
@@ -285,9 +292,12 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 	if got, want := sessionNames(m.list.All), []string{"web"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("sessions=%v want %v", got, want)
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "Workspace closed, but sessions could not be r…") {
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "Workspace closed, but sessions could not be refreshed: workspace list failed") {
 		t.Fatalf("view missing reload failure:\n%s", view)
-	} else if !strings.Contains(view, "LAST WORKSPACE · Unavailable") {
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · Unavailable") {
 		t.Fatalf("view did not refresh last workspace after reload failure:\n%s", view)
 	}
 }
@@ -308,6 +318,8 @@ func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T)
 		},
 	})
 
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	updated, _ = m.Update(closeCmd())
@@ -316,6 +328,8 @@ func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T)
 	if got, want := sessionNames(m.list.All), []string{"old label"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("sessions=%v want retained rows %v", got, want)
 	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · new label") {
 		t.Fatalf("view kept stale Herdr metadata:\n%s", view)
 	}
@@ -828,6 +842,8 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 
 func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
 	m := newTeaModel([]model.Session{{Source: "herdr", Name: "current", WorkspaceID: "current"}}, Options{LastWorkspaceID: "unavailable-workspace"})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
 	if !strings.Contains(view, "LAST WORKSPACE · unavailable-workspace") {
@@ -840,6 +856,8 @@ func TestTeaModelLastWorkspaceUsesRawHerdrMetadata(t *testing.T) {
 		LastWorkspaceID: "ws-api",
 		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}},
 	})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
 	if !strings.Contains(view, "LAST WORKSPACE · api  /live/api") {
@@ -867,8 +885,51 @@ func TestTeaModelLastWorkspaceSharesFooterWithKeybinds(t *testing.T) {
 	t.Fatalf("view missing last workspace footer:\n%s", view)
 }
 
+func TestFooterLinePrioritizesKeybindHelpAtNarrowWidths(t *testing.T) {
+	m := newTeaModel(nil, Options{
+		LastWorkspaceID: "ws-api",
+		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "a-rather-long-workspace-name", Path: "/home/test/some/deep/project/path", WorkspaceID: "ws-api"}},
+	})
+	help := helpStyle.Render("enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
+	for _, width := range []int{10, 20, 40, 80, 120} {
+		line := m.footerLine(help, width)
+		if got := lipgloss.Width(line); got != width {
+			t.Fatalf("width %d: footer width=%d:\n%q", width, got, line)
+		}
+		if plain := ansi.Strip(line); width >= lipgloss.Width(help) && !strings.Contains(plain, "esc exit") {
+			t.Fatalf("width %d: keybind help truncated: %q", width, plain)
+		}
+	}
+}
+
+func TestFooterLineCompactsLastWorkspaceBeforeDroppingIt(t *testing.T) {
+	m := newTeaModel(nil, Options{
+		LastWorkspaceID: "api",
+		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/some/long/path/to/the/project", WorkspaceID: "api"}},
+	})
+	help := helpStyle.Render("enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
+	line := ansi.Strip(m.footerLine(help, 80))
+	if !strings.Contains(line, "last: api") || strings.Contains(line, "LAST WORKSPACE") {
+		t.Fatalf("footer did not compact last workspace: %q", line)
+	}
+	if !strings.Contains(line, "esc exit") {
+		t.Fatalf("compact footer truncated keybind help: %q", line)
+	}
+}
+
+func TestFooterLineGivesCloseErrorWholeRow(t *testing.T) {
+	m := newTeaModel(nil, Options{LastWorkspaceID: "ws-api"})
+	m.closeError = "Failed to close workspace: herdr workspace close w1: boom"
+	line := ansi.Strip(m.footerLine(emptyStyle.Render(m.closeError), 80))
+	if !strings.Contains(line, "close w1: boom") || strings.Contains(line, "LAST WORKSPACE") || strings.Contains(line, "last:") {
+		t.Fatalf("close error did not get the whole footer row: %q", line)
+	}
+}
+
 func TestTeaModelLastWorkspaceUnavailable(t *testing.T) {
 	m := newTeaModel(nil, Options{LastWorkspaceUnknown: true})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · Unavailable") {
 		t.Fatalf("view missing unavailable state:\n%s", view)
@@ -881,6 +942,8 @@ func TestTeaModelUnnamedLastWorkspaceDoesNotRepeatCompactedPath(t *testing.T) {
 		LastWorkspaceID: "ws-api",
 		HerdrWorkspaces: []model.Session{{Source: "herdr", Path: "/home/test/api", WorkspaceID: "ws-api"}},
 	})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
 	if strings.Count(view, "~/api") != 1 {
