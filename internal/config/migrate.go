@@ -68,7 +68,7 @@ func legacyShowIconsConfigured(path string, seen map[string]bool) bool {
 // and returns both paths. The legacy file is left untouched. fallbackDir is
 // the native destination used when the legacy file lives in the shared
 // ~/.config/sesh directory, which discovery never scans for native files.
-func Migrate(opts LoadOptions, fallbackDir string) (legacyPath, nativePath string, err error) {
+func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nativePath string, err error) {
 	path, _, err := resolve(opts)
 	if err != nil {
 		return "", "", err
@@ -106,7 +106,7 @@ func Migrate(opts LoadOptions, fallbackDir string) (legacyPath, nativePath strin
 		targetDir = fallbackDir
 	}
 	target := filepath.Join(targetDir, NativeFileName)
-	if _, err := os.Stat(target); err == nil {
+	if _, err := os.Stat(target); err == nil && !force {
 		return "", "", fmt.Errorf("refusing to overwrite existing %s", target)
 	}
 

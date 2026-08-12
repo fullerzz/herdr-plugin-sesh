@@ -44,7 +44,7 @@ func TestMigrateProducesEquivalentNativeConfig(t *testing.T) {
 	legacy := filepath.Join(d, LegacyFileName)
 	mustWrite(t, legacy, migrateLegacyBody)
 
-	gotLegacy, gotNative, err := Migrate(LoadOptions{Path: legacy}, "")
+	gotLegacy, gotNative, err := Migrate(LoadOptions{Path: legacy}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestMigrateFlattensImports(t *testing.T) {
 	legacy := filepath.Join(d, LegacyFileName)
 	mustWrite(t, legacy, "import = [\"extra.toml\"]\n[[session]]\nname = \"main\"\npath = \"/main\"\n")
 
-	_, native, err := Migrate(LoadOptions{Path: legacy}, "")
+	_, native, err := Migrate(LoadOptions{Path: legacy}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestMigrateSharedSeshDirUsesFallback(t *testing.T) {
 	mustWrite(t, filepath.Join(seshDir, LegacyFileName), "cache = true\n")
 	fallback := filepath.Join(home, ".config", "herdr-sesh")
 
-	_, native, err := Migrate(LoadOptions{Home: home, Env: map[string]string{}}, fallback)
+	_, native, err := Migrate(LoadOptions{Home: home, Env: map[string]string{}}, fallback, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func migrateAndRead(t *testing.T, legacyBody string) (string, Config) {
 	d := t.TempDir()
 	legacy := filepath.Join(d, LegacyFileName)
 	mustWrite(t, legacy, legacyBody)
-	_, native, err := Migrate(LoadOptions{Path: legacy}, "")
+	_, native, err := Migrate(LoadOptions{Path: legacy}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestMigrateEmitsShowIconsExplicitly(t *testing.T) {
 		mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_icons = false\n")
 		legacy := filepath.Join(d, LegacyFileName)
 		mustWrite(t, legacy, "import = [\"extra.toml\"]\n")
-		_, native, err := Migrate(LoadOptions{Path: legacy}, "")
+		_, native, err := Migrate(LoadOptions{Path: legacy}, "", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -217,7 +217,7 @@ func TestMigrateKeepsCustomPreviewVerbatim(t *testing.T) {
 
 func TestMigrateErrors(t *testing.T) {
 	t.Run("no config", func(t *testing.T) {
-		_, _, err := Migrate(LoadOptions{Home: t.TempDir(), Env: map[string]string{}}, "")
+		_, _, err := Migrate(LoadOptions{Home: t.TempDir(), Env: map[string]string{}}, "", false)
 		if err == nil || !strings.Contains(err.Error(), "no config file") {
 			t.Fatalf("err = %v", err)
 		}
@@ -225,7 +225,7 @@ func TestMigrateErrors(t *testing.T) {
 	t.Run("already native", func(t *testing.T) {
 		p := filepath.Join(t.TempDir(), NativeFileName)
 		mustWrite(t, p, "version = 1\n")
-		_, _, err := Migrate(LoadOptions{Path: p}, "")
+		_, _, err := Migrate(LoadOptions{Path: p}, "", false)
 		if err == nil || !strings.Contains(err.Error(), "already a native config") {
 			t.Fatalf("err = %v", err)
 		}
@@ -235,7 +235,7 @@ func TestMigrateErrors(t *testing.T) {
 		legacy := filepath.Join(d, LegacyFileName)
 		mustWrite(t, legacy, "cache = true\n")
 		mustWrite(t, filepath.Join(d, NativeFileName), "version = 1\n")
-		_, _, err := Migrate(LoadOptions{Path: legacy}, "")
+		_, _, err := Migrate(LoadOptions{Path: legacy}, "", false)
 		if err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
 			t.Fatalf("err = %v", err)
 		}
@@ -244,7 +244,7 @@ func TestMigrateErrors(t *testing.T) {
 		d := t.TempDir()
 		legacy := filepath.Join(d, LegacyFileName)
 		mustWrite(t, legacy, "blacklist = [\"[\"]\n")
-		_, _, err := Migrate(LoadOptions{Path: legacy}, "")
+		_, _, err := Migrate(LoadOptions{Path: legacy}, "", false)
 		if err == nil || !strings.Contains(err.Error(), "native validation") {
 			t.Fatalf("err = %v", err)
 		}

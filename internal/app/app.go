@@ -574,10 +574,28 @@ func (a *App) config(_ context.Context, args []string) error {
 		fs := flag.NewFlagSet("config migrate", flag.ContinueOnError)
 		fs.SetOutput(a.Err)
 		cfgPath := fs.String("config", "", "")
-		if err := fs.Parse(args[1:]); err != nil {
+		force := fs.Bool("force", false, "overwrite an existing native config")
+		flagArgs := args[1:]
+		positionalPath := ""
+		if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+			positionalPath = flagArgs[0]
+			flagArgs = flagArgs[1:]
+		}
+		if err := fs.Parse(flagArgs); err != nil {
 			return err
 		}
-		legacy, native, err := config.Migrate(config.LoadOptions{Path: *cfgPath}, dir)
+		if positionalPath == "" && fs.NArg() == 1 {
+			positionalPath = fs.Arg(0)
+		} else if fs.NArg() != 0 {
+			return errors.New("config migrate accepts at most one path")
+		}
+		if positionalPath != "" {
+			if *cfgPath != "" {
+				return errors.New("config migrate path provided twice")
+			}
+			*cfgPath = positionalPath
+		}
+		legacy, native, err := config.Migrate(config.LoadOptions{Path: *cfgPath}, dir, *force)
 		if err != nil {
 			return err
 		}

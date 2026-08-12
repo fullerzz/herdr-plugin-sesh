@@ -172,7 +172,9 @@ Run `herdr-sesh config migrate` to convert the active legacy file
 automatically: it writes an equivalent native `config.toml` (flattening any
 `import` files), leaves the legacy file untouched, and prints the new path.
 Pass `--config PATH` to convert a specific file. The command refuses to
-overwrite an existing native file, and values the native schema rejects
+overwrite an existing native file unless `--force` is passed. A specific file
+can also be supplied positionally, for example
+`herdr-sesh config migrate ~/.config/sesh/sesh.toml --force`. Values the native schema rejects
 (invalid regexes, duplicate names, missing tab references) fail with an error
 before anything is written. Comments and key order do not survive conversion.
 Delete the legacy file once the native one looks right.

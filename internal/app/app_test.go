@@ -140,6 +140,37 @@ func TestConfigMigrateCommand(t *testing.T) {
 	}
 }
 
+func TestConfigMigrateForceOverwritesExistingNativeConfig(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	legacy := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	native := filepath.Join(d, config.NativeFileName)
+	if err := os.WriteFile(native, []byte("version = 1\n[list]\ncache = false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"config", "migrate", legacy, "--force"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != native {
+		t.Fatalf("stdout = %q, want %q", out.String(), native)
+	}
+	cfg, _, err := config.Load(config.LoadOptions{Path: native, Warn: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cache {
+		t.Fatal("forced migration did not replace existing native config")
+	}
+}
+
 func TestListIgnoresCorruptSessionCache(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
