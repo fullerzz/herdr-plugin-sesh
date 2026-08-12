@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
@@ -382,6 +383,36 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	if !reflect.DeepEqual(h.Workspaces, want) {
 		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
 	}
+}
+
+func TestPickerLastWorkspaceUsesFocusedWorkspaceAfterLaunchWorkspaceCloses(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"focused", "older"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	id, ok, err := pickerLastWorkspace(
+		context.Background(),
+		stubCurrentPaneClient{pane: herdr.Pane{WorkspaceID: "focused"}},
+		stateDir,
+		"closed-launch-workspace",
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || id != "older" {
+		t.Fatalf("last workspace=%q ok=%v, want older", id, ok)
+	}
+}
+
+type stubCurrentPaneClient struct {
+	pane herdr.Pane
+	err  error
+}
+
+func (c stubCurrentPaneClient) PaneCurrent(context.Context) (herdr.Pane, error) {
+	return c.pane, c.err
 }
 
 func TestPickerSwitchDoesNotRestoreClosedCurrentWorkspace(t *testing.T) {
