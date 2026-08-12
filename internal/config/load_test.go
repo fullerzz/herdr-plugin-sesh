@@ -1,6 +1,7 @@
 package config
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ windows = ["git"]
 name = "git"
 startup_script = "git status"
 `)
-	cfg, path, err := Load(LoadOptions{Path: cfgp, Home: "/home/zach"})
+	cfg, path, err := Load(LoadOptions{Warn: io.Discard, Path: cfgp, Home: "/home/zach"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +42,7 @@ func TestLoadStrictRejectsUnknown(t *testing.T) {
 	d := t.TempDir()
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "strict_mode = true\nwat = 1\n")
-	_, _, err := Load(LoadOptions{Path: p})
+	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err == nil {
 		t.Fatal("expected strict error")
 	}
@@ -60,7 +61,7 @@ func TestLoadStrictRejectsUnsupportedSeshKeys(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "sesh.toml")
 			mustWrite(t, p, "strict_mode = true\n"+body)
-			if _, _, err := Load(LoadOptions{Path: p}); err == nil {
+			if _, _, err := Load(LoadOptions{Warn: io.Discard, Path: p}); err == nil {
 				t.Fatal("expected strict error")
 			}
 		})
@@ -72,7 +73,7 @@ func TestLoadStrictRejectsUnsupportedSeshKeysInImports(t *testing.T) {
 	mustWrite(t, filepath.Join(d, "extra.toml"), "tmux_command = \"psmux\"\n")
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "strict_mode = true\nimport = [\"extra.toml\"]\n")
-	if _, _, err := Load(LoadOptions{Path: p}); err == nil {
+	if _, _, err := Load(LoadOptions{Warn: io.Discard, Path: p}); err == nil {
 		t.Fatal("expected strict error from imported config")
 	}
 }
@@ -85,7 +86,7 @@ path="/extra"
 `)
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import=[\"extra.toml\"]\n[[session]]\nname=\"main\"\npath=\"/main\"\n")
-	cfg, _, err := Load(LoadOptions{Path: p})
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ startup_command = "make test"
 [tui]
 placeholder = "Search workspaces"
 `)
-	cfg, _, err := Load(LoadOptions{Path: p})
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ preview_command = "printf extra {}"
 [default_session]
 preview_command = ""
 `)
-	cfg, _, err := Load(LoadOptions{Path: p})
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +165,7 @@ placeholder = "Extra search"
 prompt = ""
 placeholder = ""
 `)
-	cfg, _, err := Load(LoadOptions{Path: p})
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +179,7 @@ func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
 	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_icons = true\n")
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_icons = false\n")
-	cfg, _, err := Load(LoadOptions{Path: p})
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +226,7 @@ func TestDefaultShowsLastWorkspacePath(t *testing.T) {
 func TestLoadTUIDefaultSort(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sesh.toml")
 	mustWrite(t, p, "[tui]\ndefault_sort = \"recent\"\n")
-	cfg, _, err := Load(LoadOptions{Path: p})
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestLoadTUIDefaultSort(t *testing.T) {
 func TestLoadRejectsInvalidTUIDefaultSort(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sesh.toml")
 	mustWrite(t, p, "[tui]\ndefault_sort = \"newest\"\n")
-	if _, _, err := Load(LoadOptions{Path: p}); err == nil {
+	if _, _, err := Load(LoadOptions{Warn: io.Discard, Path: p}); err == nil {
 		t.Fatal("expected invalid default sort error")
 	}
 }
@@ -247,7 +248,9 @@ func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
 		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
 	}
-	if DefaultPreviewCommand != "eza --icons=always -la {}" {
+	// Preview output is captured through sh, never a TTY, so eza's automatic
+	// color detection would disable ANSI colors without an explicit force.
+	if DefaultPreviewCommand != "eza --icons=always --color=always -la {}" {
 		t.Fatalf("default preview command = %q", DefaultPreviewCommand)
 	}
 }

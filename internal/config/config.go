@@ -3,7 +3,9 @@ package config
 import "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 
 const (
-	DefaultPreviewCommand = "eza --icons=always -la {}"
+	// Preview output is captured through sh rather than a TTY, so eza's
+	// automatic modes must be forced on explicitly.
+	DefaultPreviewCommand = "eza --icons=always --color=always -la {}"
 	DefaultWorkspaceSort  = "workspace"
 )
 

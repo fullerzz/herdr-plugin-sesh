@@ -63,7 +63,7 @@ release $tag:
     just check
     just build
     ./bin/herdr-sesh --version
-    ./bin/herdr-sesh list --json --config testdata/sesh.toml >/dev/null
+    ./bin/herdr-sesh list --json --config testdata/herdr-sesh.toml >/dev/null
     git tag -a "$tag" -m "Release $tag"
     git push --atomic origin HEAD "refs/tags/$tag"
 

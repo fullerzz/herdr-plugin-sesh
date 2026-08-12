@@ -1,0 +1,35 @@
+version = 1
+
+[list]
+cache = false
+source_order = ["herdr", "config", "zoxide", "dir"]
+blacklist = ["^scratch$"]
+
+[naming]
+path_components = 1
+
+[picker]
+show_icons = true
+prompt = "Sesh> "
+placeholder = "Search workspaces"
+separator_aware = true
+workspace_sort = "recent"
+
+[workspace_defaults]
+startup = "git status"
+preview = "eza --icons=always -la {}"
+
+[[tab]]
+name = "git"
+startup = "git status"
+
+[[workspace]]
+name = "sesh"
+path = "~/projects/sesh"
+startup = "git status"
+tabs = ["git"]
+
+[[rule]]
+path_glob = "~/projects/**"
+preview = "eza --icons=always -la {}"
+tabs = ["git"]

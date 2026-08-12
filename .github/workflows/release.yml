@@ -198,7 +198,7 @@ jobs:
           test "$packaged_version" = "$version"
           test "$("$binary" --version)" = "herdr-sesh ${version}"
           "$binary" list --json \
-            --config testdata/sesh.toml \
+            --config testdata/herdr-sesh.toml \
             >/tmp/herdr-sesh-release-list.json
           test -s /tmp/herdr-sesh-release-list.json
           (cd dist/release && sha256sum -- *.tar.gz > checksums.txt)

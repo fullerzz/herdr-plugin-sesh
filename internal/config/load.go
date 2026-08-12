@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -14,11 +15,30 @@ type LoadOptions struct {
 	Path string
 	Env  map[string]string
 	Home string
+	// Warn receives legacy-schema deprecation warnings; nil means os.Stderr.
+	Warn io.Writer
 }
+
+// NativeFileName and LegacyFileName are the default config basenames looked up
+// inside plugin and standalone config directories.
+const (
+	NativeFileName = "config.toml"
+	LegacyFileName = "sesh.toml"
+)
+
+type fileKind int
+
+const (
+	// kindExplicit paths come from --config or HERDR_SESH_CONFIG and may hold
+	// either schema; a top-level version key selects native decoding.
+	kindExplicit fileKind = iota
+	kindNative
+	kindLegacy
+)
 
 func Load(opts LoadOptions) (Config, string, error) {
 	cfg := Default()
-	path, err := ResolvePath(opts)
+	path, kind, err := resolve(opts)
 	if err != nil {
 		return cfg, "", err
 	}
@@ -30,18 +50,53 @@ func Load(opts LoadOptions) (Config, string, error) {
 		return cfg, path, err
 	}
 	path = filepath.Clean(path)
-	seen := map[string]bool{}
-	if err := loadInto(&cfg, path, seen, false); err != nil {
+	//nolint:gosec // the config path is user-selected by design.
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return cfg, path, err
 	}
-	attachDefaults(&cfg)
-	if cfg.TUI.DefaultSort != "workspace" && cfg.TUI.DefaultSort != "recent" {
-		return cfg, path, fmt.Errorf("load %s: tui.default_sort must be \"workspace\" or \"recent\"", path)
+	if kind == kindExplicit {
+		if hasVersionKey(data) {
+			kind = kindNative
+		} else {
+			kind = kindLegacy
+		}
+	}
+	if kind == kindNative {
+		cfg, err = decodeNative(path, data)
+		return cfg, path, err
+	}
+	warn := opts.Warn
+	if warn == nil {
+		warn = os.Stderr
+	}
+	_, _ = fmt.Fprintf(warn, "warning: %s uses the deprecated Sesh-compatible schema; run 'herdr-sesh config migrate' to convert it (see docs/config.md)\n", path)
+	if err := decodeLegacy(&cfg, path); err != nil {
+		return cfg, path, err
 	}
 	return cfg, path, nil
 }
 
+func decodeLegacy(cfg *Config, path string) error {
+	seen := map[string]bool{}
+	if err := loadInto(cfg, path, seen, false); err != nil {
+		return err
+	}
+	attachDefaults(cfg)
+	if cfg.TUI.DefaultSort != "workspace" && cfg.TUI.DefaultSort != "recent" {
+		return fmt.Errorf("load %s: tui.default_sort must be \"workspace\" or \"recent\"", path)
+	}
+	return nil
+}
+
+// ResolvePath returns the config file Load would read, or "" when no candidate
+// exists.
 func ResolvePath(opts LoadOptions) (string, error) {
+	p, _, err := resolve(opts)
+	return p, err
+}
+
+func resolve(opts LoadOptions) (string, fileKind, error) {
 	env := opts.Env
 	if env == nil {
 		env = getenvMap()
@@ -50,29 +105,45 @@ func ResolvePath(opts LoadOptions) (string, error) {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	candidates := []string{}
 	if opts.Path != "" {
-		candidates = append(candidates, opts.Path)
+		p := ExpandHome(opts.Path, home)
+		if _, err := os.Stat(p); err != nil {
+			return "", kindExplicit, os.ErrNotExist
+		}
+		return p, kindExplicit, nil
 	}
-	if env["HERDR_SESH_CONFIG"] != "" {
-		candidates = append(candidates, env["HERDR_SESH_CONFIG"])
+	if v := env["HERDR_SESH_CONFIG"]; v != "" {
+		p := ExpandHome(v, home)
+		if _, err := os.Stat(p); err != nil {
+			return "", kindExplicit, fmt.Errorf("HERDR_SESH_CONFIG %s: %w", p, os.ErrNotExist)
+		}
+		return p, kindExplicit, nil
 	}
-	if env["HERDR_PLUGIN_CONFIG_DIR"] != "" {
-		candidates = append(candidates, filepath.Join(env["HERDR_PLUGIN_CONFIG_DIR"], "sesh.toml"))
+	type candidate struct {
+		path string
+		kind fileKind
+	}
+	candidates := []candidate{}
+	if dir := env["HERDR_PLUGIN_CONFIG_DIR"]; dir != "" {
+		candidates = append(candidates,
+			candidate{filepath.Join(dir, NativeFileName), kindNative},
+			candidate{filepath.Join(dir, LegacyFileName), kindLegacy},
+		)
 	}
 	if home != "" {
-		candidates = append(candidates, filepath.Join(home, ".config", "sesh", "sesh.toml"))
+		candidates = append(candidates,
+			candidate{filepath.Join(home, ".config", "herdr-sesh", NativeFileName), kindNative},
+			candidate{filepath.Join(home, ".config", "herdr-sesh", LegacyFileName), kindLegacy},
+			candidate{filepath.Join(home, ".config", "sesh", LegacyFileName), kindLegacy},
+		)
 	}
 	for _, c := range candidates {
-		p := ExpandHome(c, home)
+		p := ExpandHome(c.path, home)
 		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
-		if opts.Path != "" && c == opts.Path {
-			return "", os.ErrNotExist
+			return p, c.kind, nil
 		}
 	}
-	return "", nil
+	return "", kindNative, nil
 }
 
 func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error {
@@ -229,14 +300,21 @@ func InitConfig(dir string) (string, error) {
 	if dir == "" {
 		return "", errors.New("config dir required")
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	return InitConfigAt(filepath.Join(dir, NativeFileName))
+}
+
+// InitConfigAt writes the native starter file at the given path, creating
+// parent directories. An existing file is returned untouched.
+func InitConfigAt(p string) (string, error) {
+	if p == "" {
+		return "", errors.New("config path required")
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, "sesh.toml")
-	_, err := os.Stat(p)
-	if err == nil {
+	if _, err := os.Stat(p); err == nil {
 		return p, nil
 	}
-	starter := fmt.Sprintf("[default_session]\npreview_command = %q\n\n# [[session]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n", DefaultPreviewCommand)
+	starter := fmt.Sprintf("version = %d\n\n[workspace_defaults]\npreview = %q\n\n# [[workspace]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n", NativeVersion, DefaultPreviewCommand)
 	return p, os.WriteFile(p, []byte(starter), 0600)
 }

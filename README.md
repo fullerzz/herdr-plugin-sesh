@@ -81,13 +81,20 @@ actions in your Herdr configuration.
 Configuration is optional. Without a config file, the picker still includes
 running Herdr workspaces and zoxide results when zoxide is available.
 
-The plugin reads a supported subset of Sesh-style TOML from the first available
+The plugin reads its versioned native TOML config from the first available
 location:
 
 1. `--config PATH`
 2. `HERDR_SESH_CONFIG`
-3. `${HERDR_PLUGIN_CONFIG_DIR}/sesh.toml`
-4. `~/.config/sesh/sesh.toml` as a migration fallback
+3. `${HERDR_PLUGIN_CONFIG_DIR}/config.toml`
+4. `${HERDR_PLUGIN_CONFIG_DIR}/sesh.toml` as a legacy fallback
+5. `~/.config/herdr-sesh/config.toml`
+6. `~/.config/herdr-sesh/sesh.toml` as a legacy fallback
+7. `~/.config/sesh/sesh.toml` as a legacy fallback
+
+Legacy Sesh-compatible files still load during the migration period and print a
+deprecation warning on stderr. Explicit paths may hold either schema; a
+top-level `version` key selects native decoding.
 
 Ask Herdr for the managed configuration directory:
 
@@ -115,6 +122,7 @@ The plugin binary also exposes its underlying operations directly:
 | `herdr-sesh window [PATH]` | List tabs or create one for a path. |
 | `herdr-sesh config path` | Print the resolved plugin config path. |
 | `herdr-sesh config init` | Create a starter config if one does not exist. |
+| `herdr-sesh config migrate` | Convert a legacy Sesh-style config to the native format. |
 
 The binary lives inside Herdr's managed plugin checkout after installation; the
 plugin actions are the normal entry points for day-to-day use.
