@@ -308,6 +308,21 @@ func TestCollectPropagatesHerdrErrors(t *testing.T) {
 	}
 }
 
+func TestCollectPickerPreservesHerdrError(t *testing.T) {
+	configureFakeSources(t, "")
+
+	sessions, workspaces, herdrErr, err := (&App{}).collectPicker(context.Background(), config.Default())
+	if err != nil {
+		t.Fatalf("collect picker sources: %v", err)
+	}
+	if herdrErr == nil {
+		t.Fatal("collectPicker discarded Herdr workspace listing error")
+	}
+	if len(sessions) != 0 || len(workspaces) != 0 {
+		t.Fatalf("sessions=%#v workspaces=%#v", sessions, workspaces)
+	}
+}
+
 func TestPreviewCommandUsesExplicitConfig(t *testing.T) {
 	d := t.TempDir()
 	targetDir := filepath.Join(d, "target")

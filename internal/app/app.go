@@ -91,13 +91,13 @@ func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Confi
 	return a.collectFrom(ctx, cfg, target, ignoreSource{hs})
 }
 
-func (a *App) collectPicker(ctx context.Context, cfg config.Config) ([]model.Session, []model.Session, error) {
-	herdrSessions, err := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}.List(ctx)
-	if err != nil {
+func (a *App) collectPicker(ctx context.Context, cfg config.Config) ([]model.Session, []model.Session, error, error) {
+	herdrSessions, herdrErr := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}.List(ctx)
+	if herdrErr != nil {
 		herdrSessions = model.NewSessions()
 	}
 	sessions, err := a.collectFrom(ctx, cfg, "", loadedSource{name: "herdr", sessions: herdrSessions})
-	return sessions, herdrSessions.Ordered(), err
+	return sessions, herdrSessions.Ordered(), herdrErr, err
 }
 
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
@@ -209,7 +209,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if useFZF || *jsonOut {
 		sessions, err = a.collectAllowUnavailableHerdr(ctx, cfg, "")
 	} else {
-		sessions, herdrWorkspaces, err = a.collectPicker(ctx, cfg)
+		sessions, herdrWorkspaces, _, err = a.collectPicker(ctx, cfg)
 	}
 	if err != nil {
 		return err
@@ -258,7 +258,10 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			return nil
 		}
 		pickOpts.ReloadPicker = func(reloadCtx context.Context) (pickerpkg.ReloadResult, error) {
-			reloaded, workspaces, reloadErr := a.collectPicker(reloadCtx, cfg)
+			reloaded, workspaces, herdrErr, reloadErr := a.collectPicker(reloadCtx, cfg)
+			if reloadErr == nil {
+				reloadErr = herdrErr
+			}
 			lastID, _, lastErr := pickerLastWorkspace(
 				reloadCtx,
 				client,
