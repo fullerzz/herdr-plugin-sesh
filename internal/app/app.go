@@ -244,6 +244,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		Prompt:                cfg.TUI.Prompt,
 		Placeholder:           cfg.TUI.Placeholder,
 		ShowIcons:             cfg.TUI.ShowIcons,
+		HideLastWorkspace:     !cfg.TUI.ShowLastWorkspace,
 		HideLastWorkspacePath: !cfg.TUI.ShowLastWorkspacePath,
 		SeparatorAware:        cfg.SeparatorAware,
 		DefaultPreviewCommand: cfg.DefaultSessionConfig.PreviewCommand,
@@ -262,13 +263,15 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		}
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
 		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
-		pickOpts.HerdrWorkspaces = herdrWorkspaces
-		lastWorkspaceID, _, lastWorkspaceErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), currentWorkspaceID)
-		if lastWorkspaceErr != nil {
-			a.warnf("could not determine last workspace: %v", lastWorkspaceErr)
+		if cfg.TUI.ShowLastWorkspace {
+			pickOpts.HerdrWorkspaces = herdrWorkspaces
+			lastWorkspaceID, _, lastWorkspaceErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), currentWorkspaceID)
+			if lastWorkspaceErr != nil {
+				a.warnf("could not determine last workspace: %v", lastWorkspaceErr)
+			}
+			pickOpts.LastWorkspaceID = lastWorkspaceID
+			pickOpts.LastWorkspaceUnknown = lastWorkspaceErr != nil
 		}
-		pickOpts.LastWorkspaceID = lastWorkspaceID
-		pickOpts.LastWorkspaceUnknown = lastWorkspaceErr != nil
 		// Warnings raised while the alt-screen TUI owns the terminal would be
 		// overwritten and lost; buffer them and flush after the picker exits.
 		var deferredWarnings []string
@@ -331,10 +334,18 @@ func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *
 	if focusErr == nil && *pickerWorkspaceID == "" {
 		focusErr = errors.New("focused pane has no workspace ID")
 	}
-	lastID, _, lastErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), *pickerWorkspaceID)
+	var lastID string
+	var lastErr error
+	if cfg.TUI.ShowLastWorkspace {
+		lastID, _, lastErr = lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), *pickerWorkspaceID)
+	}
 	if focusErr != nil {
 		*pickerWorkspaceID = ""
-		lastErr = fmt.Errorf("find focused workspace after close: %w", focusErr)
+		if cfg.TUI.ShowLastWorkspace {
+			lastErr = fmt.Errorf("find focused workspace after close: %w", focusErr)
+		} else {
+			warnf("could not determine picker workspace after close: %v", focusErr)
+		}
 	}
 	if lastErr != nil {
 		warnf("could not determine last workspace: %v", lastErr)

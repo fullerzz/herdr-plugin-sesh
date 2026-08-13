@@ -38,6 +38,7 @@ type SessionConfig struct {
 
 type TUIConfig struct {
 	ShowIcons             bool   `toml:"show_icons"`
+	ShowLastWorkspace     bool   `toml:"show_last_workspace"`
 	ShowLastWorkspacePath bool   `toml:"show_last_workspace_path"`
 	Prompt                string `toml:"prompt"`
 	Placeholder           string `toml:"placeholder"`
@@ -59,6 +60,7 @@ func Default() Config {
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
 		TUI: TUIConfig{
 			DefaultSort:           DefaultWorkspaceSort,
+			ShowLastWorkspace:     true,
 			ShowLastWorkspacePath: true,
 		},
 	}

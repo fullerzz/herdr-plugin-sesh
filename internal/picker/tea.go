@@ -112,6 +112,7 @@ type Options struct {
 	Prompt                string
 	Placeholder           string
 	ShowIcons             bool
+	HideLastWorkspace     bool
 	HideLastWorkspacePath bool
 	SeparatorAware        bool
 	DefaultPreviewCommand string
@@ -180,6 +181,7 @@ type teaModel struct {
 
 	defaultPreviewCommand   string
 	showIcons               bool
+	hideLastWorkspace       bool
 	hideLastWorkspacePath   bool
 	refreshAgentStatuses    func() (map[string]string, error)
 	workspaceOrder          []string
@@ -263,6 +265,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
+		hideLastWorkspace:     opts.HideLastWorkspace,
 		hideLastWorkspacePath: opts.HideLastWorkspacePath,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
 		workspaceOrder:        workspaceOrder,
@@ -838,7 +841,7 @@ func (m teaModel) lastWorkspaceCompactText() string {
 // row) intact and fits the last-workspace status into the remaining width,
 // compacting or dropping it rather than truncating the help.
 func (m teaModel) footerLine(footer string, width int) string {
-	if m.closeError != "" {
+	if m.closeError != "" || m.hideLastWorkspace {
 		return fitLine(footer, width)
 	}
 	available := width - lipgloss.Width(footer) - 2

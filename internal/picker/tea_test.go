@@ -880,6 +880,21 @@ func TestTeaModelCanHideLastWorkspacePath(t *testing.T) {
 	}
 }
 
+func TestTeaModelCanHideLastWorkspace(t *testing.T) {
+	m := newTeaModel(nil, Options{
+		HideLastWorkspace: true,
+		LastWorkspaceID:   "ws-api",
+		HerdrWorkspaces:   []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}},
+	})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
+	m = updated.(teaModel)
+
+	view := ansi.Strip(m.View().Content)
+	if strings.Contains(view, "LAST WORKSPACE") || strings.Contains(view, "last: api") || strings.Contains(view, "/live/api") {
+		t.Fatalf("view did not hide last workspace feature:\n%s", view)
+	}
+}
+
 func TestTeaModelLastWorkspaceSharesFooterWithKeybinds(t *testing.T) {
 	m := newTeaModel(nil, Options{LastWorkspaceID: "ws-api"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
