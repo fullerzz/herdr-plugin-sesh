@@ -3,6 +3,8 @@ package herdr
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -129,6 +131,36 @@ func TestCLIClientDecodesPaneCurrentEnvelope(t *testing.T) {
 	}
 	if got.ID != "p1" || got.WorkspaceID != "w1" || got.TabID != "w1:t1" || got.CWD != "/tmp/api" {
 		t.Fatalf("pane=%#v", got)
+	}
+}
+
+func TestCLIClientPaneFocusedOmitsCallerPane(t *testing.T) {
+	d := t.TempDir()
+	bin := filepath.Join(d, "herdr")
+	script := `#!/bin/sh
+if [ -n "$HERDR_PANE_ID" ]; then
+  printf '{"workspace_id":"caller"}\n'
+else
+  printf '{"workspace_id":"focused"}\n'
+fi
+`
+	//nolint:gosec // test creates a local executable fixture.
+	if err := os.WriteFile(bin, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "stale-pane")
+	c := &CLIClient{Bin: bin, Runner: ExecRunner{}}
+
+	caller, err := c.PaneCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	focused, err := c.PaneFocused(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caller.WorkspaceID != "caller" || focused.WorkspaceID != "focused" {
+		t.Fatalf("caller=%q focused=%q", caller.WorkspaceID, focused.WorkspaceID)
 	}
 }
 func TestFakeClientRecordsPaneRun(t *testing.T) {

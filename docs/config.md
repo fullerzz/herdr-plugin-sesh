@@ -44,6 +44,8 @@ the state directory.
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 | `default_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default) or `recent` (most recently visited first). Press `ctrl+r` to switch modes while the picker is open. |
+| `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to disable the feature. |
+| `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
 
 Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
 
@@ -130,6 +132,8 @@ show_icons = true
 prompt = "Sesh> "
 placeholder = "Search workspaces"
 default_sort = "recent"
+show_last_workspace = true
+show_last_workspace_path = false
 
 [default_session]
 startup_command = "git status"

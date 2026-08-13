@@ -112,14 +112,31 @@ type Options struct {
 	Prompt                string
 	Placeholder           string
 	ShowIcons             bool
+	HideLastWorkspace     bool
+	HideLastWorkspacePath bool
 	SeparatorAware        bool
 	DefaultPreviewCommand string
 	FZFCommand            string
 	RefreshAgentStatuses  func() (map[string]string, error)
 	CloseWorkspace        func(context.Context, string) error
-	ReloadSessions        func(context.Context) ([]sessionmodel.Session, error)
-	RecentWorkspaceIDs    []string
-	RecentWorkspaceSort   bool
+	// ReloadPicker refreshes picker state after a workspace close. Its
+	// ReloadResult is consumed even when it returns an error: the
+	// last-workspace fields must always be valid (set LastWorkspaceUnknown
+	// when unsure), and a nil HerdrWorkspaces means "keep the existing
+	// metadata" while an empty slice means "no workspaces".
+	ReloadPicker         func(context.Context) (ReloadResult, error)
+	RecentWorkspaceIDs   []string
+	RecentWorkspaceSort  bool
+	LastWorkspaceID      string
+	LastWorkspaceUnknown bool
+	HerdrWorkspaces      []sessionmodel.Session
+}
+
+type ReloadResult struct {
+	Sessions             []sessionmodel.Session
+	HerdrWorkspaces      []sessionmodel.Session
+	LastWorkspaceID      string
+	LastWorkspaceUnknown bool
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
@@ -164,12 +181,17 @@ type teaModel struct {
 
 	defaultPreviewCommand   string
 	showIcons               bool
+	hideLastWorkspace       bool
+	hideLastWorkspacePath   bool
 	refreshAgentStatuses    func() (map[string]string, error)
 	workspaceOrder          []string
 	recentWorkspaceIDs      []string
 	recentSort              bool
+	lastWorkspaceID         string
+	lastWorkspaceUnknown    bool
+	herdrWorkspaces         map[string]sessionmodel.Session
 	closeWorkspace          func(context.Context, string) error
-	reloadSessions          func(context.Context) ([]sessionmodel.Session, error)
+	reloadPicker            func(context.Context) (ReloadResult, error)
 	workspaceCloseContext   context.Context
 	closingWorkspaceID      string
 	cancelWorkspaceClose    context.CancelFunc
@@ -191,7 +213,8 @@ type agentStatusesMsg struct {
 
 type workspaceCloseMsg struct {
 	workspaceID string
-	sessions    []sessionmodel.Session
+	result      ReloadResult
+	reloadRan   bool
 	closeErr    error
 	reloadErr   error
 }
@@ -242,12 +265,17 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
+		hideLastWorkspace:     opts.HideLastWorkspace,
+		hideLastWorkspacePath: opts.HideLastWorkspacePath,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
 		workspaceOrder:        workspaceOrder,
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
 		recentSort:            opts.RecentWorkspaceSort,
+		lastWorkspaceID:       opts.LastWorkspaceID,
+		lastWorkspaceUnknown:  opts.LastWorkspaceUnknown,
+		herdrWorkspaces:       workspaceSessionsByID(opts.HerdrWorkspaces),
 		closeWorkspace:        opts.CloseWorkspace,
-		reloadSessions:        opts.ReloadSessions,
+		reloadPicker:          opts.ReloadPicker,
 		workspaceCloseContext: closeContext,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
@@ -401,13 +429,20 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.closeErr)
 			return m.refreshPreview()
 		}
+		if closed.reloadRan {
+			m.lastWorkspaceID = closed.result.LastWorkspaceID
+			m.lastWorkspaceUnknown = closed.result.LastWorkspaceUnknown
+		}
+		if closed.result.HerdrWorkspaces != nil {
+			m.herdrWorkspaces = workspaceSessionsByID(closed.result.HerdrWorkspaces)
+		}
 		selectedKey := ""
 		if current, currentOK := m.list.Current(); currentOK {
 			selectedKey = sessionmodel.Key(current)
 		}
-		if closed.reloadErr == nil && closed.sessions != nil {
-			m.workspaceOrder = herdrWorkspaceIDs(closed.sessions)
-			m.list.All = append(m.list.All[:0], closed.sessions...)
+		if closed.reloadErr == nil && closed.result.Sessions != nil {
+			m.workspaceOrder = herdrWorkspaceIDs(closed.result.Sessions)
+			m.list.All = append(m.list.All[:0], closed.result.Sessions...)
 			if m.recentSort {
 				sortHerdrWorkspaces(m.list.All, m.recentWorkspaceIDs)
 			}
@@ -519,21 +554,22 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	m.preview = "Closing workspace..."
 	closeCtx, cancel := context.WithCancel(m.workspaceCloseContext)
 	m.cancelWorkspaceClose = cancel
-	return m, closeWorkspaceCommand(closeCtx, cancel, m.closeWorkspace, m.reloadSessions, current.WorkspaceID)
+	return m, closeWorkspaceCommand(closeCtx, cancel, m.closeWorkspace, m.reloadPicker, current.WorkspaceID)
 }
 
 func closeWorkspaceCommand(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	closeWorkspace func(context.Context, string) error,
-	reloadSessions func(context.Context) ([]sessionmodel.Session, error),
+	reloadPicker func(context.Context) (ReloadResult, error),
 	workspaceID string,
 ) tea.Cmd {
 	return func() tea.Msg {
 		defer cancel()
 		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: closeWorkspace(ctx, workspaceID)}
-		if msg.closeErr == nil && reloadSessions != nil {
-			msg.sessions, msg.reloadErr = reloadSessions(ctx)
+		if msg.closeErr == nil && reloadPicker != nil {
+			msg.result, msg.reloadErr = reloadPicker(ctx)
+			msg.reloadRan = true
 		}
 		return msg
 	}
@@ -608,13 +644,13 @@ func (m teaModel) View() tea.View {
 	if m.recentSort {
 		sortMode = "recent"
 	}
-	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k move · ctrl+x close · ctrl+r %s · esc exit", sortMode))
+	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", sortMode))
 	if m.closeError != "" {
 		footer = emptyStyle.Render(m.closeError)
 	}
 	lines = append(lines,
 		horizontalRule(width),
-		footer,
+		m.footerLine(footer, width),
 		"",
 	)
 	for i, line := range lines {
@@ -673,6 +709,16 @@ func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
 			workspace++
 		}
 	}
+}
+
+func workspaceSessionsByID(items []sessionmodel.Session) map[string]sessionmodel.Session {
+	workspaces := make(map[string]sessionmodel.Session, len(items))
+	for _, item := range items {
+		if item.Source == "herdr" && item.WorkspaceID != "" {
+			workspaces[item.WorkspaceID] = item
+		}
+	}
+	return workspaces
 }
 
 func (m teaModel) listView(width, visibleRows int) string {
@@ -756,6 +802,58 @@ func (m teaModel) header(width int) string {
 		gap = 1
 	}
 	return fitLine(title+strings.Repeat(" ", gap)+count, width)
+}
+
+func (m teaModel) lastWorkspaceStatus() (label, path string) {
+	label = "None recorded"
+	if m.lastWorkspaceUnknown {
+		label = "Unavailable"
+	} else if m.lastWorkspaceID != "" {
+		label = m.lastWorkspaceID
+		if item, ok := m.herdrWorkspaces[m.lastWorkspaceID]; ok {
+			if item.Name != "" {
+				label = item.Name
+			} else if item.Path != "" {
+				label = compactHome(item.Path)
+			}
+			path = item.Path
+		}
+	}
+	return label, path
+}
+
+func (m teaModel) lastWorkspaceText() string {
+	label, path := m.lastWorkspaceStatus()
+	line := sectionStyle.Render("LAST WORKSPACE") + countStyle.Render(" · ") + rowLabelStyle.Render(label)
+	displayPath := compactHome(path)
+	if !m.hideLastWorkspacePath && displayPath != "" && displayPath != label {
+		line += pathStyle.Render("  " + displayPath)
+	}
+	return line
+}
+
+func (m teaModel) lastWorkspaceCompactText() string {
+	label, _ := m.lastWorkspaceStatus()
+	return sectionStyle.Render("last:") + rowLabelStyle.Render(" "+label)
+}
+
+// footerLine keeps the keybind help (or a close error, which gets the whole
+// row) intact and fits the last-workspace status into the remaining width,
+// compacting or dropping it rather than truncating the help.
+func (m teaModel) footerLine(footer string, width int) string {
+	if m.closeError != "" || m.hideLastWorkspace {
+		return fitLine(footer, width)
+	}
+	available := width - lipgloss.Width(footer) - 2
+	last := m.lastWorkspaceText()
+	if lipgloss.Width(last) > available {
+		last = m.lastWorkspaceCompactText()
+	}
+	if lipgloss.Width(last) > available {
+		return fitLine(footer, width)
+	}
+	gap := maxInt(1, width-lipgloss.Width(footer)-lipgloss.Width(last))
+	return fitLine(footer+strings.Repeat(" ", gap)+last, width)
 }
 
 func (m teaModel) previewView(width, maxLines int) string {

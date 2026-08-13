@@ -187,6 +187,41 @@ func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
 	}
 }
 
+func TestLoadExplicitFalseShowLastWorkspacePathOverridesImportedValue(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_last_workspace_path = true\n")
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_last_workspace_path = false\n")
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.ShowLastWorkspacePath {
+		t.Fatal("show_last_workspace_path = true, want false")
+	}
+}
+
+func TestLoadExplicitFalseShowLastWorkspaceOverridesImportedValue(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_last_workspace = true\n")
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_last_workspace = false\n")
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.ShowLastWorkspace {
+		t.Fatal("show_last_workspace = true, want false")
+	}
+}
+
+func TestDefaultShowsLastWorkspacePath(t *testing.T) {
+	cfg := Default()
+	if !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath {
+		t.Fatalf("last workspace defaults = show %v, show path %v; want true", cfg.TUI.ShowLastWorkspace, cfg.TUI.ShowLastWorkspacePath)
+	}
+}
+
 func TestLoadTUIDefaultSort(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sesh.toml")
 	mustWrite(t, p, "[tui]\ndefault_sort = \"recent\"\n")

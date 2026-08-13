@@ -96,10 +96,12 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 			PreviewCommand *string `toml:"preview_command"`
 		} `toml:"default_session"`
 		TUI struct {
-			Prompt      *string `toml:"prompt"`
-			Placeholder *string `toml:"placeholder"`
-			ShowIcons   *bool   `toml:"show_icons"`
-			DefaultSort *string `toml:"default_sort"`
+			Prompt                *string `toml:"prompt"`
+			Placeholder           *string `toml:"placeholder"`
+			ShowIcons             *bool   `toml:"show_icons"`
+			ShowLastWorkspace     *bool   `toml:"show_last_workspace"`
+			ShowLastWorkspacePath *bool   `toml:"show_last_workspace_path"`
+			DefaultSort           *string `toml:"default_sort"`
 		} `toml:"tui"`
 	}
 	_ = toml.Unmarshal(data, &probe)
@@ -127,12 +129,14 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 		probe.TUI.Prompt != nil,
 		probe.TUI.Placeholder != nil,
 		probe.TUI.ShowIcons != nil,
+		probe.TUI.ShowLastWorkspace != nil,
+		probe.TUI.ShowLastWorkspacePath != nil,
 		probe.TUI.DefaultSort != nil,
 	)
 	return nil
 }
 
-func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet, defaultSortSet bool) {
+func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet, showLastWorkspaceSet, showLastWorkspacePathSet, defaultSortSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -153,6 +157,12 @@ func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet
 	}
 	if showIconsSet {
 		dst.TUI.ShowIcons = src.TUI.ShowIcons
+	}
+	if showLastWorkspaceSet {
+		dst.TUI.ShowLastWorkspace = src.TUI.ShowLastWorkspace
+	}
+	if showLastWorkspacePathSet {
+		dst.TUI.ShowLastWorkspacePath = src.TUI.ShowLastWorkspacePath
 	}
 	if promptSet {
 		dst.TUI.Prompt = src.TUI.Prompt

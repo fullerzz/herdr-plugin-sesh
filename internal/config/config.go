@@ -37,10 +37,12 @@ type SessionConfig struct {
 }
 
 type TUIConfig struct {
-	ShowIcons   bool   `toml:"show_icons"`
-	Prompt      string `toml:"prompt"`
-	Placeholder string `toml:"placeholder"`
-	DefaultSort string `toml:"default_sort"`
+	ShowIcons             bool   `toml:"show_icons"`
+	ShowLastWorkspace     bool   `toml:"show_last_workspace"`
+	ShowLastWorkspacePath bool   `toml:"show_last_workspace_path"`
+	Prompt                string `toml:"prompt"`
+	Placeholder           string `toml:"placeholder"`
+	DefaultSort           string `toml:"default_sort"`
 }
 
 type WildcardConfig struct {
@@ -56,6 +58,10 @@ func Default() Config {
 		DirLength:            1,
 		SortOrder:            []string{"herdr", "config", "zoxide", "dir"},
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
-		TUI:                  TUIConfig{DefaultSort: DefaultWorkspaceSort},
+		TUI: TUIConfig{
+			DefaultSort:           DefaultWorkspaceSort,
+			ShowLastWorkspace:     true,
+			ShowLastWorkspacePath: true,
+		},
 	}
 }
