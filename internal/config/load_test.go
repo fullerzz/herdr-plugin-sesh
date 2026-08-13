@@ -187,6 +187,26 @@ func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
 	}
 }
 
+func TestLoadExplicitFalseShowLastWorkspacePathOverridesImportedValue(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_last_workspace_path = true\n")
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_last_workspace_path = false\n")
+	cfg, _, err := Load(LoadOptions{Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.ShowLastWorkspacePath {
+		t.Fatal("show_last_workspace_path = true, want false")
+	}
+}
+
+func TestDefaultShowsLastWorkspacePath(t *testing.T) {
+	if !Default().TUI.ShowLastWorkspacePath {
+		t.Fatal("show_last_workspace_path = false, want true")
+	}
+}
+
 func TestLoadTUIDefaultSort(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sesh.toml")
 	mustWrite(t, p, "[tui]\ndefault_sort = \"recent\"\n")

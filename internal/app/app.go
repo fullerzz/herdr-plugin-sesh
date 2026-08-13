@@ -244,6 +244,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		Prompt:                cfg.TUI.Prompt,
 		Placeholder:           cfg.TUI.Placeholder,
 		ShowIcons:             cfg.TUI.ShowIcons,
+		HideLastWorkspacePath: !cfg.TUI.ShowLastWorkspacePath,
 		SeparatorAware:        cfg.SeparatorAware,
 		DefaultPreviewCommand: cfg.DefaultSessionConfig.PreviewCommand,
 	}

@@ -112,6 +112,7 @@ type Options struct {
 	Prompt                string
 	Placeholder           string
 	ShowIcons             bool
+	HideLastWorkspacePath bool
 	SeparatorAware        bool
 	DefaultPreviewCommand string
 	FZFCommand            string
@@ -179,6 +180,7 @@ type teaModel struct {
 
 	defaultPreviewCommand   string
 	showIcons               bool
+	hideLastWorkspacePath   bool
 	refreshAgentStatuses    func() (map[string]string, error)
 	workspaceOrder          []string
 	recentWorkspaceIDs      []string
@@ -261,6 +263,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
+		hideLastWorkspacePath: opts.HideLastWorkspacePath,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
 		workspaceOrder:        workspaceOrder,
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
@@ -820,7 +823,7 @@ func (m teaModel) lastWorkspaceText() string {
 	label, path := m.lastWorkspaceStatus()
 	line := sectionStyle.Render("LAST WORKSPACE") + countStyle.Render(" · ") + rowLabelStyle.Render(label)
 	displayPath := compactHome(path)
-	if displayPath != "" && displayPath != label {
+	if !m.hideLastWorkspacePath && displayPath != "" && displayPath != label {
 		line += pathStyle.Render("  " + displayPath)
 	}
 	return line
