@@ -599,7 +599,19 @@ func (a *App) config(_ context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		a.warnf("migrated %s; the native file now takes precedence — delete the legacy file once satisfied: %s", legacy, legacy)
+		if envPath := config.ExpandHome(os.Getenv("HERDR_SESH_CONFIG"), ""); envPath != "" {
+			//nolint:gosec // config paths are user-selected by design.
+			envInfo, envErr := os.Stat(envPath)
+			//nolint:gosec // config paths are user-selected by design.
+			legacyInfo, legacyErr := os.Stat(legacy)
+			if envErr == nil && legacyErr == nil && os.SameFile(envInfo, legacyInfo) {
+				a.warnf("migrated %s; set HERDR_SESH_CONFIG=%s before deleting %s", legacy, native, legacy)
+			} else {
+				a.warnf("migrated %s; HERDR_SESH_CONFIG continues to select %s", legacy, envPath)
+			}
+		} else {
+			a.warnf("migrated %s; the native file now takes precedence — delete the legacy file once satisfied: %s", legacy, legacy)
+		}
 		_, err = fmt.Fprintln(a.Out, native)
 		return err
 	default:

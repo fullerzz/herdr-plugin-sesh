@@ -41,11 +41,13 @@ type nativeNaming struct {
 type nativePicker struct {
 	// No omitempty: migration must keep an explicitly configured false, and
 	// an always-present value keeps icon behavior self-documenting.
-	ShowIcons      bool   `toml:"show_icons"`
-	Prompt         string `toml:"prompt,omitempty"`
-	Placeholder    string `toml:"placeholder,omitempty"`
-	SeparatorAware bool   `toml:"separator_aware,omitempty"`
-	WorkspaceSort  string `toml:"workspace_sort,omitempty"`
+	ShowIcons             bool   `toml:"show_icons"`
+	ShowLastWorkspace     *bool  `toml:"show_last_workspace,omitempty"`
+	ShowLastWorkspacePath *bool  `toml:"show_last_workspace_path,omitempty"`
+	Prompt                string `toml:"prompt,omitempty"`
+	Placeholder           string `toml:"placeholder,omitempty"`
+	SeparatorAware        bool   `toml:"separator_aware,omitempty"`
+	WorkspaceSort         string `toml:"workspace_sort,omitempty"`
 }
 
 type nativeDefaults struct {
@@ -193,6 +195,12 @@ func (n nativeConfig) apply(cfg *Config) {
 	}
 	cfg.SeparatorAware = n.Picker.SeparatorAware
 	cfg.TUI.ShowIcons = n.Picker.ShowIcons
+	if n.Picker.ShowLastWorkspace != nil {
+		cfg.TUI.ShowLastWorkspace = *n.Picker.ShowLastWorkspace
+	}
+	if n.Picker.ShowLastWorkspacePath != nil {
+		cfg.TUI.ShowLastWorkspacePath = *n.Picker.ShowLastWorkspacePath
+	}
 	cfg.TUI.Prompt = n.Picker.Prompt
 	cfg.TUI.Placeholder = n.Picker.Placeholder
 	if n.Picker.WorkspaceSort != "" {

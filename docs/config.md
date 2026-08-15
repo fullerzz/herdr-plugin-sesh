@@ -177,7 +177,11 @@ can also be supplied positionally, for example
 `herdr-sesh config migrate ~/.config/sesh/sesh.toml --force`. Values the native schema rejects
 (invalid regexes, duplicate names, missing tab references) fail with an error
 before anything is written. Comments and key order do not survive conversion.
-Delete the legacy file once the native one looks right.
+Delete the legacy file once the native one looks right. If
+`HERDR_SESH_CONFIG` selects the legacy file, point it at the printed native path
+before deleting the legacy file. A legacy file already named `config.toml`
+cannot be migrated in place, even with `--force`; rename it first so migration
+can leave the source untouched.
 
 Two values are modernized during conversion: a legacy file that never sets
 `tui.show_icons` migrates with `show_icons = true` (an explicit legacy `true`
@@ -200,6 +204,8 @@ meaning under the renamed table.
 | `dir_length` | `naming.path_components` |
 | `separator_aware` | `picker.separator_aware` |
 | `tui.show_icons` | `picker.show_icons` |
+| `tui.show_last_workspace` | `picker.show_last_workspace` |
+| `tui.show_last_workspace_path` | `picker.show_last_workspace_path` |
 | `tui.prompt` | `picker.prompt` |
 | `tui.placeholder` | `picker.placeholder` |
 | `tui.default_sort` | `picker.workspace_sort` |

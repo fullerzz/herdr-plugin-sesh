@@ -165,6 +165,16 @@ func TestMigrateEmitsShowIconsExplicitly(t *testing.T) {
 	})
 }
 
+func TestMigratePreservesLastWorkspacePickerSettings(t *testing.T) {
+	text, cfg := migrateAndRead(t, "[tui]\nshow_last_workspace = false\nshow_last_workspace_path = false\n")
+	if !strings.Contains(text, "show_last_workspace = false") || !strings.Contains(text, "show_last_workspace_path = false") {
+		t.Fatalf("last workspace settings dropped from output:\n%s", text)
+	}
+	if cfg.TUI.ShowLastWorkspace || cfg.TUI.ShowLastWorkspacePath {
+		t.Fatalf("migrated last workspace settings = %t, %t; want false, false", cfg.TUI.ShowLastWorkspace, cfg.TUI.ShowLastWorkspacePath)
+	}
+}
+
 // The exact shape older releases generated via `config init`: no [tui] table
 // and the former colorless default preview baked in as an explicit value.
 func TestMigrateFormerGeneratedStarterShape(t *testing.T) {
@@ -238,6 +248,23 @@ func TestMigrateErrors(t *testing.T) {
 		_, _, err := Migrate(LoadOptions{Path: legacy}, "", false)
 		if err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
 			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("forced target cannot replace source", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), NativeFileName)
+		const body = "cache = true\n"
+		mustWrite(t, p, body)
+		_, _, err := Migrate(LoadOptions{Path: p}, "", true)
+		if err == nil || !strings.Contains(err.Error(), "same file") {
+			t.Fatalf("err = %v", err)
+		}
+		//nolint:gosec // p is a test-owned temporary path.
+		got, readErr := os.ReadFile(p)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if string(got) != body {
+			t.Fatalf("source was changed to %q", got)
 		}
 	})
 	t.Run("invalid legacy value fails native validation without writing", func(t *testing.T) {

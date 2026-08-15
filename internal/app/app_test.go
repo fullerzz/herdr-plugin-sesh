@@ -171,6 +171,55 @@ func TestConfigMigrateForceOverwritesExistingNativeConfig(t *testing.T) {
 	}
 }
 
+func TestConfigMigrateWarnsToRepointEnvBeforeDeletingLegacy(t *testing.T) {
+	d := t.TempDir()
+	legacy := filepath.Join(d, config.LegacyFileName)
+	native := filepath.Join(d, config.NativeFileName)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", legacy)
+	t.Setenv("HOME", d)
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errb bytes.Buffer
+	a := &App{Out: &bytes.Buffer{}, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate"}); err != nil {
+		t.Fatal(err)
+	}
+	warning := errb.String()
+	if !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy) {
+		t.Fatalf("stderr = %q", warning)
+	}
+}
+
+func TestConfigMigrateKeepsUnrelatedEnvSelection(t *testing.T) {
+	d := t.TempDir()
+	active := filepath.Join(d, "active", config.LegacyFileName)
+	legacy := filepath.Join(d, "other", config.LegacyFileName)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", active)
+	t.Setenv("HOME", d)
+	for _, p := range []string{active, legacy} {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("cache = true\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var errb bytes.Buffer
+	a := &App{Out: &bytes.Buffer{}, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate", "--config", legacy}); err != nil {
+		t.Fatal(err)
+	}
+	warning := errb.String()
+	if strings.Contains(warning, "set HERDR_SESH_CONFIG=") || !strings.Contains(warning, "HERDR_SESH_CONFIG continues to select "+active) {
+		t.Fatalf("stderr = %q", warning)
+	}
+}
+
 func TestListIgnoresCorruptSessionCache(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")

@@ -106,8 +106,17 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 		targetDir = fallbackDir
 	}
 	target := filepath.Join(targetDir, NativeFileName)
-	if _, err := os.Stat(target); err == nil && !force {
-		return "", "", fmt.Errorf("refusing to overwrite existing %s", target)
+	if targetInfo, statErr := os.Stat(target); statErr == nil {
+		sourceInfo, sourceErr := os.Stat(path)
+		if sourceErr != nil {
+			return "", "", sourceErr
+		}
+		if os.SameFile(sourceInfo, targetInfo) {
+			return "", "", fmt.Errorf("source and destination are the same file: %s; rename the legacy file before migrating", path)
+		}
+		if !force {
+			return "", "", fmt.Errorf("refusing to overwrite existing %s", target)
+		}
 	}
 
 	out, err := marshalNative(cfg)
@@ -130,6 +139,8 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 
 func marshalNative(cfg Config) ([]byte, error) {
 	dirLength := cfg.DirLength
+	showLastWorkspace := cfg.TUI.ShowLastWorkspace
+	showLastWorkspacePath := cfg.TUI.ShowLastWorkspacePath
 	n := nativeConfig{
 		Version: NativeVersion,
 		List: nativeList{
@@ -139,11 +150,13 @@ func marshalNative(cfg Config) ([]byte, error) {
 		},
 		Naming: nativeNaming{PathComponents: &dirLength},
 		Picker: nativePicker{
-			ShowIcons:      cfg.TUI.ShowIcons,
-			Prompt:         cfg.TUI.Prompt,
-			Placeholder:    cfg.TUI.Placeholder,
-			SeparatorAware: cfg.SeparatorAware,
-			WorkspaceSort:  cfg.TUI.DefaultSort,
+			ShowIcons:             cfg.TUI.ShowIcons,
+			ShowLastWorkspace:     &showLastWorkspace,
+			ShowLastWorkspacePath: &showLastWorkspacePath,
+			Prompt:                cfg.TUI.Prompt,
+			Placeholder:           cfg.TUI.Placeholder,
+			SeparatorAware:        cfg.SeparatorAware,
+			WorkspaceSort:         cfg.TUI.DefaultSort,
 		},
 		WorkspaceDefaults: nativeDefaults{
 			Startup: cfg.DefaultSessionConfig.StartupCommand,
