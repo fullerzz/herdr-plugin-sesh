@@ -2,10 +2,12 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -375,6 +377,45 @@ func TestMissingEnvConfigErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing HERDR_SESH_CONFIG target")
 	}
+}
+
+func TestResolvePathPropagatesFilesystemErrors(t *testing.T) {
+	home := t.TempDir()
+	notDir := filepath.Join(home, "not-a-directory")
+	mustWrite(t, notDir, "blocked\n")
+
+	t.Run("explicit path", func(t *testing.T) {
+		_, err := ResolvePath(LoadOptions{Path: filepath.Join(notDir, NativeFileName), Home: home, Env: map[string]string{}})
+		if !errors.Is(err, syscall.ENOTDIR) {
+			t.Fatalf("err = %v, want original filesystem error", err)
+		}
+	})
+
+	t.Run("environment path", func(t *testing.T) {
+		_, err := ResolvePath(LoadOptions{
+			Home: home,
+			Env:  map[string]string{"HERDR_SESH_CONFIG": filepath.Join(notDir, NativeFileName)},
+		})
+		if !errors.Is(err, syscall.ENOTDIR) {
+			t.Fatalf("err = %v, want original filesystem error", err)
+		}
+	})
+
+	t.Run("default discovery", func(t *testing.T) {
+		fallbackDir := filepath.Join(home, ".config", "herdr-sesh")
+		if err := os.MkdirAll(fallbackDir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(fallbackDir, NativeFileName), "version = 1\n")
+
+		_, err := ResolvePath(LoadOptions{
+			Home: home,
+			Env:  map[string]string{"HERDR_PLUGIN_CONFIG_DIR": notDir},
+		})
+		if !errors.Is(err, syscall.ENOTDIR) {
+			t.Fatalf("err = %v, want higher-priority filesystem error", err)
+		}
+	})
 }
 
 func TestInitConfigWritesNativeStarter(t *testing.T) {

@@ -108,14 +108,20 @@ func resolve(opts LoadOptions) (string, fileKind, error) {
 	if opts.Path != "" {
 		p := ExpandHome(opts.Path, home)
 		if _, err := os.Stat(p); err != nil {
-			return "", kindExplicit, os.ErrNotExist
+			if os.IsNotExist(err) {
+				return "", kindExplicit, os.ErrNotExist
+			}
+			return "", kindExplicit, err
 		}
 		return p, kindExplicit, nil
 	}
 	if v := env["HERDR_SESH_CONFIG"]; v != "" {
 		p := ExpandHome(v, home)
 		if _, err := os.Stat(p); err != nil {
-			return "", kindExplicit, fmt.Errorf("HERDR_SESH_CONFIG %s: %w", p, os.ErrNotExist)
+			if os.IsNotExist(err) {
+				return "", kindExplicit, fmt.Errorf("HERDR_SESH_CONFIG %s: %w", p, os.ErrNotExist)
+			}
+			return "", kindExplicit, fmt.Errorf("HERDR_SESH_CONFIG %s: %w", p, err)
 		}
 		return p, kindExplicit, nil
 	}
@@ -141,6 +147,8 @@ func resolve(opts LoadOptions) (string, fileKind, error) {
 		p := ExpandHome(c.path, home)
 		if _, err := os.Stat(p); err == nil {
 			return p, c.kind, nil
+		} else if !os.IsNotExist(err) {
+			return "", c.kind, err
 		}
 	}
 	return "", kindNative, nil

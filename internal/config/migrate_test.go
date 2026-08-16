@@ -106,6 +106,56 @@ func TestMigrateSharedSeshDirUsesFallback(t *testing.T) {
 	}
 }
 
+func TestMigrateRelativeSharedSeshPathUsesFallback(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seshDir := filepath.Join(home, ".config", "sesh")
+	if err := os.MkdirAll(seshDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(seshDir, LegacyFileName)
+	mustWrite(t, legacy, "cache = true\n")
+	fallback := filepath.Join(home, ".config", "herdr-sesh")
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(home); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+
+	relativeLegacy := filepath.Join(".config", "sesh", LegacyFileName)
+	wantLegacy, err := filepath.Abs(relativeLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotLegacy, native, err := Migrate(LoadOptions{Path: relativeLegacy, Home: home}, fallback, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotLegacy != wantLegacy {
+		t.Fatalf("legacy = %q, want absolute path %q", gotLegacy, wantLegacy)
+	}
+	if native != filepath.Join(fallback, NativeFileName) {
+		t.Fatalf("native = %q, want discoverable path inside %q", native, fallback)
+	}
+	resolved, err := ResolvePath(LoadOptions{Home: home, Env: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != native {
+		t.Fatalf("resolved = %q, want migrated config %q", resolved, native)
+	}
+}
+
 func migrateAndRead(t *testing.T, legacyBody string) (string, Config) {
 	t.Helper()
 	d := t.TempDir()
@@ -222,6 +272,61 @@ func TestMigrateKeepsCustomPreviewVerbatim(t *testing.T) {
 	text, cfg := migrateAndRead(t, "[default_session]\npreview_command = \"printf custom {}\"\n")
 	if !strings.Contains(text, "printf custom {}") || cfg.DefaultSessionConfig.PreviewCommand != "printf custom {}" {
 		t.Fatalf("custom preview rewritten:\n%s", text)
+	}
+}
+
+func TestMigrateForceRejectsUnrelatedTarget(t *testing.T) {
+	d := t.TempDir()
+	legacy := filepath.Join(d, LegacyFileName)
+	target := filepath.Join(d, NativeFileName)
+	mustWrite(t, legacy, "cache = true\n")
+	const unrelated = "not a herdr-sesh config\n"
+	//nolint:gosec // an existing non-private target verifies forced migration rejects it unchanged.
+	if err := os.WriteFile(target, []byte(unrelated), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := Migrate(LoadOptions{Path: legacy}, "", true)
+	if err == nil || !strings.Contains(err.Error(), "not a native config") {
+		t.Fatalf("err = %v", err)
+	}
+	//nolint:gosec // target is a test-owned temporary path.
+	got, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != unrelated {
+		t.Fatalf("unrelated target was overwritten with %q", got)
+	}
+}
+
+func TestMigrateForceReplacesNativeTargetWithPrivateMode(t *testing.T) {
+	d := t.TempDir()
+	legacy := filepath.Join(d, LegacyFileName)
+	target := filepath.Join(d, NativeFileName)
+	mustWrite(t, legacy, "cache = true\n")
+	//nolint:gosec // an existing non-private target verifies migration replaces its mode with 0600.
+	if err := os.WriteFile(target, []byte("version = 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := Migrate(LoadOptions{Path: legacy}, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
+	}
+	cfg, _, err := Load(LoadOptions{Path: target, Warn: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cache {
+		t.Fatal("forced migration did not replace native target")
 	}
 }
 

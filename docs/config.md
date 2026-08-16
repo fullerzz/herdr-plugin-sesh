@@ -169,27 +169,33 @@ tabs = ["git"]
 
 Legacy Sesh-compatible files keep loading for at least one released version.
 Run `herdr-sesh config migrate` to convert the active legacy file
-automatically: it writes an equivalent native `config.toml` (flattening any
-`import` files), leaves the legacy file untouched, and prints the new path.
+automatically. Conversion intentionally modernizes two defaults: when
+`tui.show_icons` was never set, the native config enables icons; and the former
+colorless default preview (`eza --icons=always -la {}`) is replaced by the
+color-forced runtime default. Explicit icon settings and custom preview commands
+are preserved. The command flattens any `import` files into a native
+`config.toml`, leaves the legacy file untouched, and prints the new path.
+
+For an installed plugin, invoke its managed binary directly:
+
+```bash
+"$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')/bin/herdr-sesh" config migrate
+```
+
 Pass `--config PATH` to convert a specific file. The command refuses to
-overwrite an existing native file unless `--force` is passed. A specific file
-can also be supplied positionally, for example
-`herdr-sesh config migrate ~/.config/sesh/sesh.toml --force`. Values the native schema rejects
-(invalid regexes, duplicate names, missing tab references) fail with an error
-before anything is written. Comments and key order do not survive conversion.
+overwrite an existing native file unless `--force` is passed; even with
+`--force`, unrelated or invalid `config.toml` files are never replaced. The
+native file is installed atomically with `0600` permissions. A specific file can
+also be supplied positionally, for example
+`herdr-sesh config migrate ~/.config/sesh/sesh.toml --force`. Values the native
+schema rejects (invalid regexes, duplicate names, missing tab references) fail
+with an error before anything is written. Comments and key order do not survive
+conversion.
 Delete the legacy file once the native one looks right. If
 `HERDR_SESH_CONFIG` selects the legacy file, point it at the printed native path
 before deleting the legacy file. A legacy file already named `config.toml`
 cannot be migrated in place, even with `--force`; rename it first so migration
 can leave the source untouched.
-
-Two values are modernized during conversion: a legacy file that never sets
-`tui.show_icons` migrates with `show_icons = true` (an explicit legacy `true`
-or `false` is kept), and the former colorless default preview
-`eza --icons=always -la {}` is recognized as the built-in default rather than
-a custom command — it is dropped (or upgraded, inside workspaces and rules) so
-the color-forced runtime default applies. All other preview commands are
-preserved verbatim.
 
 For manual migration, rename keys as follows; unlisted fields keep their
 meaning under the renamed table.

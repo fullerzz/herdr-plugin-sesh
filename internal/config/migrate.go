@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -76,6 +77,11 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 	if path == "" {
 		return "", "", fmt.Errorf("no config file found to migrate")
 	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	path = filepath.Clean(path)
 	//nolint:gosec // the config path is user-selected by design.
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -117,6 +123,19 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 		if !force {
 			return "", "", fmt.Errorf("refusing to overwrite existing %s", target)
 		}
+		//nolint:gosec // the destination is derived from the user-selected config path.
+		targetData, readErr := os.ReadFile(target)
+		if readErr != nil {
+			return "", "", readErr
+		}
+		if !hasVersionKey(targetData) {
+			return "", "", fmt.Errorf("refusing to overwrite %s: not a native config", target)
+		}
+		if _, decodeErr := decodeNative(target, targetData); decodeErr != nil {
+			return "", "", fmt.Errorf("refusing to overwrite invalid native config: %w", decodeErr)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return "", "", statErr
 	}
 
 	out, err := marshalNative(cfg)
@@ -131,10 +150,40 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 	if err := os.MkdirAll(targetDir, 0700); err != nil {
 		return "", "", err
 	}
-	if err := os.WriteFile(target, out, 0600); err != nil {
+	if err := writePrivateFileAtomic(target, out); err != nil {
 		return "", "", err
 	}
 	return path, target, nil
+}
+
+func writePrivateFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = tmp.Close()
+		}
+		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		return err
+	}
+	n, err := tmp.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	closed = true
+	return os.Rename(tmpName, path)
 }
 
 func marshalNative(cfg Config) ([]byte, error) {
