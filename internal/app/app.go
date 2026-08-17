@@ -77,6 +77,17 @@ func (a *App) warnf(format string, args ...any) {
 	_, _ = fmt.Fprintf(a.Err, "warning: "+format+"\n", args...)
 }
 
+func sameFile(first, second string) bool {
+	//nolint:gosec // config paths are user-selected by design.
+	firstInfo, firstErr := os.Stat(first)
+	if firstErr != nil {
+		return false
+	}
+	//nolint:gosec // config paths are user-selected by design.
+	secondInfo, secondErr := os.Stat(second)
+	return secondErr == nil && os.SameFile(firstInfo, secondInfo)
+}
+
 func (a *App) loadConfig(path string) (config.Config, error) {
 	cfg, _, err := config.Load(config.LoadOptions{Path: path, Warn: a.Err})
 	return cfg, err
@@ -600,17 +611,18 @@ func (a *App) config(_ context.Context, args []string) error {
 			return err
 		}
 		if envPath := config.ExpandHome(os.Getenv("HERDR_SESH_CONFIG"), ""); envPath != "" {
-			//nolint:gosec // config paths are user-selected by design.
-			envInfo, envErr := os.Stat(envPath)
-			//nolint:gosec // config paths are user-selected by design.
-			legacyInfo, legacyErr := os.Stat(legacy)
-			if envErr == nil && legacyErr == nil && os.SameFile(envInfo, legacyInfo) {
+			if sameFile(envPath, legacy) {
 				a.warnf("migrated %s; set HERDR_SESH_CONFIG=%s before deleting %s", legacy, native, legacy)
 			} else {
 				a.warnf("migrated %s; HERDR_SESH_CONFIG continues to select %s", legacy, envPath)
 			}
 		} else {
-			a.warnf("migrated %s; the native file now takes precedence — delete the legacy file once satisfied: %s", legacy, legacy)
+			resolved, resolveErr := config.ResolvePath(config.LoadOptions{})
+			if resolveErr == nil && filepath.Base(resolved) == config.NativeFileName && sameFile(resolved, native) {
+				a.warnf("migrated %s; the native file now takes precedence — delete the legacy file once satisfied: %s", legacy, legacy)
+			} else {
+				a.warnf("migrated %s; set HERDR_SESH_CONFIG=%s before deleting %s (or keep using --config %s)", legacy, native, legacy, native)
+			}
 		}
 		_, err = fmt.Fprintln(a.Out, native)
 		return err
