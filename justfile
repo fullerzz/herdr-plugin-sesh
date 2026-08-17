@@ -4,6 +4,14 @@ _default:
 run:
     go run ./cmd/herdr-sesh
 
+# Build the documentation site
+build-docs:
+    uv run --frozen --group docs zensical build --clean --strict
+
+# Serve the documentation site locally
+serve-docs:
+    uv run --frozen --group docs zensical serve
+
 # Clean build artifacts
 clean:
     @echo "{{ BOLD + RED + BG_BLACK }}󰿞 Cleaning build artifacts...{{ NORMAL }}"

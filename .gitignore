@@ -1,4 +1,6 @@
 bin/
+.venv/
+site/
 *.test
 .DS_Store
 coverage.out

@@ -127,6 +127,11 @@ The plugin binary also exposes its underlying operations directly:
 The binary lives inside Herdr's managed plugin checkout after installation; the
 plugin actions are the normal entry points for day-to-day use.
 
+## Documentation
+
+The complete documentation is published at
+[fullerzz.github.io/herdr-plugin-sesh](https://fullerzz.github.io/herdr-plugin-sesh/).
+
 ## Local development
 
 Tool versions are pinned in [`mise.toml`](mise.toml), and common tasks live in
@@ -136,6 +141,7 @@ the [`justfile`](justfile).
 mise install
 just check
 just install-plugin
+just serve-docs
 ```
 
 `just install-plugin` builds the binary and links the current checkout into

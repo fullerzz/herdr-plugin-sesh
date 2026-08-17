@@ -1,0 +1,65 @@
+[project]
+site_name = "Sesh for Herdr"
+site_url = "https://fullerzz.github.io/herdr-plugin-sesh/"
+repo_url = "https://github.com/fullerzz/herdr-plugin-sesh"
+repo_name = "fullerzz/herdr-plugin-sesh"
+copyright = "Copyright &copy; 2026 Zach Fuller"
+
+nav = [
+    { "Overview" = "index.md" },
+    { "Configuration" = "config.md" },
+    { "Keybindings" = "keybindings.md" },
+]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/fullerzz/herdr-plugin-sesh"
+
+[project.theme]
+variant = "modern"
+features = [
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    "navigation.instant.progress",
+    "navigation.tracking",
+    "navigation.top",
+    "navigation.footer",
+    "toc.follow",
+    "search.highlight",
+    "content.code.copy",
+]
+
+[project.theme.icon]
+logo = "fontawesome/solid/terminal"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "material/brightness-auto"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "deep purple"
+toggle.icon = "material/toggle-switch"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "deep purple"
+toggle.icon = "material/toggle-switch-off-outline"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions.tables]
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+pygments_lang_class = true
+
+[project.markdown_extensions.pymdownx.superfences]
+
+[project.markdown_extensions.toc]
+permalink = true

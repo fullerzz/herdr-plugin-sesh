@@ -31,6 +31,15 @@
     },
     {
       "matchManagers": [
+        "pep621"
+      ],
+      "groupName": "python dependencies",
+      "semanticCommitScope": "python-deps",
+      "semanticCommitType": "fix",
+      "minimumReleaseAgeBehaviour": "timestamp-required"
+    },
+    {
+      "matchManagers": [
         "mise"
       ],
       "groupName": "mise tools"
