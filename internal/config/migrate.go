@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -187,6 +188,7 @@ func writePrivateFileAtomic(path string, data []byte) error {
 }
 
 func marshalNative(cfg Config) ([]byte, error) {
+	defaults := Default()
 	dirLength := cfg.DirLength
 	showLastWorkspace := cfg.TUI.ShowLastWorkspace
 	showLastWorkspacePath := cfg.TUI.ShowLastWorkspacePath
@@ -211,6 +213,12 @@ func marshalNative(cfg Config) ([]byte, error) {
 			Startup: cfg.DefaultSessionConfig.StartupCommand,
 			Preview: cfg.DefaultSessionConfig.PreviewCommand,
 		},
+	}
+	if slices.Equal(n.List.SourceOrder, defaults.SortOrder) {
+		n.List.SourceOrder = nil
+	}
+	if *n.Naming.PathComponents == defaults.DirLength {
+		n.Naming.PathComponents = nil
 	}
 	// attachDefaults injected the built-in preview when the legacy file never
 	// set one, and older generated configs carry the former colorless default

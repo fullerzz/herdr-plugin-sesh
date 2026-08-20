@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -265,6 +266,17 @@ func TestMigrateLeavesDefaultPreviewToRuntime(t *testing.T) {
 	}
 	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
 		t.Fatalf("preview = %q, want runtime default", cfg.DefaultSessionConfig.PreviewCommand)
+	}
+}
+
+func TestMigrateLeavesListAndNamingDefaultsToRuntime(t *testing.T) {
+	text, cfg := migrateAndRead(t, "cache = true\n")
+	if strings.Contains(text, "source_order") || strings.Contains(text, "path_components") {
+		t.Fatalf("unset list or naming defaults were baked into migrated file:\n%s", text)
+	}
+	defaults := Default()
+	if !cfg.Cache || !slices.Equal(cfg.SortOrder, defaults.SortOrder) || cfg.DirLength != defaults.DirLength {
+		t.Fatalf("migrated list config = cache %t, source order %v, path components %d", cfg.Cache, cfg.SortOrder, cfg.DirLength)
 	}
 }
 
