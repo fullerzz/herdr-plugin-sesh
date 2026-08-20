@@ -40,6 +40,6 @@ jobs:
         run: |
           ./bin/herdr-sesh --version
           ./bin/herdr-sesh list --json \
-            --config testdata/sesh.toml \
+            --config testdata/herdr-sesh.toml \
             >/tmp/herdr-sesh-list.json
           test -s /tmp/herdr-sesh-list.json

@@ -1,0 +1,234 @@
+package config
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/pelletier/go-toml/v2"
+
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+)
+
+const NativeVersion = 1
+
+type nativeConfig struct {
+	Version           int               `toml:"version"`
+	List              nativeList        `toml:"list,omitempty"`
+	Naming            nativeNaming      `toml:"naming"`
+	Picker            nativePicker      `toml:"picker,omitempty"`
+	WorkspaceDefaults nativeDefaults    `toml:"workspace_defaults,omitempty"`
+	Tabs              []nativeTab       `toml:"tab,omitempty"`
+	Workspaces        []nativeWorkspace `toml:"workspace,omitempty"`
+	Rules             []nativeRule      `toml:"rule,omitempty"`
+}
+
+type nativeList struct {
+	Cache       bool     `toml:"cache,omitempty"`
+	SourceOrder []string `toml:"source_order,omitempty"`
+	Blacklist   []string `toml:"blacklist,omitempty"`
+}
+
+type nativeNaming struct {
+	// Pointer distinguishes an absent key (use the default) from an explicit
+	// invalid zero, which strict validation must reject.
+	PathComponents *int `toml:"path_components"`
+}
+
+type nativePicker struct {
+	// No omitempty: migration must keep an explicitly configured false, and
+	// an always-present value keeps icon behavior self-documenting.
+	ShowIcons             bool   `toml:"show_icons"`
+	ShowLastWorkspace     *bool  `toml:"show_last_workspace,omitempty"`
+	ShowLastWorkspacePath *bool  `toml:"show_last_workspace_path,omitempty"`
+	Prompt                string `toml:"prompt,omitempty"`
+	Placeholder           string `toml:"placeholder,omitempty"`
+	SeparatorAware        bool   `toml:"separator_aware,omitempty"`
+	WorkspaceSort         string `toml:"workspace_sort,omitempty"`
+}
+
+type nativeDefaults struct {
+	Startup string `toml:"startup,omitempty"`
+	Preview string `toml:"preview,omitempty"`
+}
+
+type nativeTab struct {
+	Name    string `toml:"name"`
+	Startup string `toml:"startup,omitempty"`
+	Path    string `toml:"path,omitempty"`
+}
+
+type nativeWorkspace struct {
+	Name           string   `toml:"name"`
+	Path           string   `toml:"path,omitempty"`
+	Startup        string   `toml:"startup,omitempty"`
+	Preview        string   `toml:"preview,omitempty"`
+	DisableStartup *bool    `toml:"disable_startup,omitempty"`
+	Tabs           []string `toml:"tabs,omitempty"`
+}
+
+type nativeRule struct {
+	PathGlob       string   `toml:"path_glob"`
+	Startup        string   `toml:"startup,omitempty"`
+	Preview        string   `toml:"preview,omitempty"`
+	DisableStartup bool     `toml:"disable_startup,omitempty"`
+	Tabs           []string `toml:"tabs,omitempty"`
+}
+
+// hasVersionKey reports whether the document carries a top-level version key of
+// any type, which selects native decoding for explicitly chosen paths.
+func hasVersionKey(data []byte) bool {
+	var probe struct {
+		Version any `toml:"version"`
+	}
+	_ = toml.Unmarshal(data, &probe)
+	return probe.Version != nil
+}
+
+func decodeNative(path string, data []byte) (Config, error) {
+	cfg := Default()
+	dec := toml.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var n nativeConfig
+	if err := dec.Decode(&n); err != nil {
+		var missing *toml.StrictMissingError
+		if errors.As(err, &missing) {
+			return cfg, fmt.Errorf("load %s: unknown keys:\n%s", path, missing.String())
+		}
+		return cfg, fmt.Errorf("load %s: %w", path, err)
+	}
+	if n.Version != NativeVersion {
+		return cfg, fmt.Errorf("load %s: version: must be %d, got %d", path, NativeVersion, n.Version)
+	}
+	if err := n.validate(path); err != nil {
+		return cfg, err
+	}
+	n.apply(&cfg)
+	return cfg, nil
+}
+
+var knownSources = map[string]bool{"herdr": true, "config": true, "zoxide": true, "dir": true}
+
+func (n nativeConfig) validate(path string) error {
+	fail := func(key, format string, args ...any) error {
+		return fmt.Errorf("load %s: %s: %s", path, key, fmt.Sprintf(format, args...))
+	}
+	if n.Naming.PathComponents != nil && *n.Naming.PathComponents < 1 {
+		return fail("naming.path_components", "must be at least 1")
+	}
+	if s := n.Picker.WorkspaceSort; s != "" && s != "workspace" && s != "recent" {
+		return fail("picker.workspace_sort", "must be \"workspace\" or \"recent\", got %q", s)
+	}
+	seenSources := map[string]bool{}
+	for _, s := range n.List.SourceOrder {
+		if !knownSources[s] {
+			return fail("list.source_order", "unknown source %q", s)
+		}
+		if seenSources[s] {
+			return fail("list.source_order", "duplicate source %q", s)
+		}
+		seenSources[s] = true
+	}
+	for _, expr := range n.List.Blacklist {
+		if _, err := regexp.Compile(expr); err != nil {
+			return fail("list.blacklist", "invalid regex %q: %v", expr, err)
+		}
+	}
+	tabNames := map[string]bool{}
+	for _, t := range n.Tabs {
+		if t.Name == "" {
+			return fail("tab.name", "must not be empty")
+		}
+		if tabNames[t.Name] {
+			return fail("tab.name", "duplicate tab %q", t.Name)
+		}
+		tabNames[t.Name] = true
+	}
+	workspaceNames := map[string]bool{}
+	for _, w := range n.Workspaces {
+		if w.Name == "" {
+			return fail("workspace.name", "must not be empty")
+		}
+		if w.Path == "" {
+			return fail("workspace.path", "must not be empty for workspace %q", w.Name)
+		}
+		if workspaceNames[w.Name] {
+			return fail("workspace.name", "duplicate workspace %q", w.Name)
+		}
+		workspaceNames[w.Name] = true
+		for _, ref := range w.Tabs {
+			if !tabNames[ref] {
+				return fail("workspace.tabs", "workspace %q references unknown tab %q", w.Name, ref)
+			}
+		}
+	}
+	for _, r := range n.Rules {
+		if r.PathGlob == "" {
+			return fail("rule.path_glob", "must not be empty")
+		}
+		glob := strings.TrimSuffix(r.PathGlob, "/**")
+		if _, err := filepath.Match(glob, ""); err != nil {
+			return fail("rule.path_glob", "invalid glob %q: %v", r.PathGlob, err)
+		}
+		for _, ref := range r.Tabs {
+			if !tabNames[ref] {
+				return fail("rule.tabs", "rule %q references unknown tab %q", r.PathGlob, ref)
+			}
+		}
+	}
+	return nil
+}
+
+// apply converts the validated native document onto a Default()-initialized
+// runtime Config so downstream consumers see the same shape as legacy loads.
+func (n nativeConfig) apply(cfg *Config) {
+	cfg.Cache = n.List.Cache
+	cfg.Blacklist = n.List.Blacklist
+	if len(n.List.SourceOrder) > 0 {
+		cfg.SortOrder = n.List.SourceOrder
+	}
+	if n.Naming.PathComponents != nil {
+		cfg.DirLength = *n.Naming.PathComponents
+	}
+	cfg.SeparatorAware = n.Picker.SeparatorAware
+	cfg.TUI.ShowIcons = n.Picker.ShowIcons
+	if n.Picker.ShowLastWorkspace != nil {
+		cfg.TUI.ShowLastWorkspace = *n.Picker.ShowLastWorkspace
+	}
+	if n.Picker.ShowLastWorkspacePath != nil {
+		cfg.TUI.ShowLastWorkspacePath = *n.Picker.ShowLastWorkspacePath
+	}
+	cfg.TUI.Prompt = n.Picker.Prompt
+	cfg.TUI.Placeholder = n.Picker.Placeholder
+	if n.Picker.WorkspaceSort != "" {
+		cfg.TUI.DefaultSort = n.Picker.WorkspaceSort
+	}
+	cfg.DefaultSessionConfig.StartupCommand = n.WorkspaceDefaults.Startup
+	if n.WorkspaceDefaults.Preview != "" {
+		cfg.DefaultSessionConfig.PreviewCommand = n.WorkspaceDefaults.Preview
+	}
+	for _, t := range n.Tabs {
+		cfg.WindowConfigs = append(cfg.WindowConfigs, model.WindowConfig{Name: t.Name, StartupScript: t.Startup, Path: t.Path})
+	}
+	for _, w := range n.Workspaces {
+		cfg.SessionConfigs = append(cfg.SessionConfigs, SessionConfig{
+			DefaultSessionConfig: DefaultSessionConfig{StartupCommand: w.Startup, PreviewCommand: w.Preview},
+			Name:                 w.Name,
+			Path:                 w.Path,
+			DisableStartCommand:  w.DisableStartup,
+			Windows:              w.Tabs,
+		})
+	}
+	for _, r := range n.Rules {
+		cfg.WildcardConfigs = append(cfg.WildcardConfigs, WildcardConfig{
+			Pattern:             r.PathGlob,
+			StartupCommand:      r.Startup,
+			PreviewCommand:      r.Preview,
+			DisableStartCommand: r.DisableStartup,
+			Windows:             r.Tabs,
+		})
+	}
+}

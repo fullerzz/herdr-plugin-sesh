@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -29,13 +31,293 @@ func TestVersionCommand(t *testing.T) {
 }
 
 func TestConfigPathCommand(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
 	if err := a.Run(context.Background(), []string{"config", "path"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "sesh.toml") {
-		t.Fatalf("got %q", out.String())
+	want := filepath.Join(d, "config.toml")
+	if strings.TrimSpace(out.String()) != want {
+		t.Fatalf("no-candidate path = %q, want %q", out.String(), want)
+	}
+
+	legacy := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := a.Run(context.Background(), []string{"config", "path"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != legacy {
+		t.Fatalf("legacy path = %q, want %q", out.String(), legacy)
+	}
+}
+
+func TestConfigInitDoesNotShadowActiveLegacyConfig(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	legacy := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"config", "init"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != legacy {
+		t.Fatalf("init printed %q, want existing legacy %q", out.String(), legacy)
+	}
+	if _, err := os.Stat(filepath.Join(d, "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("init created shadowing config.toml: %v", err)
+	}
+}
+
+func TestConfigInitHonorsEnvTarget(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HOME", d)
+	target := filepath.Join(d, "custom", "mine.toml")
+	t.Setenv("HERDR_SESH_CONFIG", target)
+
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"config", "init"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != target {
+		t.Fatalf("init printed %q, want env target %q", out.String(), target)
+	}
+	cfg, _, err := config.Load(config.LoadOptions{Path: target, Warn: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultSessionConfig.PreviewCommand != config.DefaultPreviewCommand {
+		t.Fatalf("starter preview = %q", cfg.DefaultSessionConfig.PreviewCommand)
+	}
+}
+
+func TestConfigInitRejectsDirectoryCandidate(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	if err := os.Mkdir(filepath.Join(d, config.NativeFileName), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "init"})
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("err = %v, want non-regular config path error", err)
+	}
+}
+
+func TestConfigInitPropagatesResolveError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "sesh"), []byte("blocked\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "init"})
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("err = %v, want higher-priority filesystem error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, ".config", "herdr-sesh", config.NativeFileName)); !os.IsNotExist(statErr) {
+		t.Fatalf("init created config after resolver error: %v", statErr)
+	}
+}
+
+func TestConfigMigrateCommand(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	legacy := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(legacy, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	a := &App{Out: &out, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate"}); err != nil {
+		t.Fatal(err)
+	}
+	native := filepath.Join(d, "config.toml")
+	if strings.TrimSpace(out.String()) != native {
+		t.Fatalf("stdout = %q, want %q", out.String(), native)
+	}
+	if !strings.Contains(errb.String(), "delete the legacy file") {
+		t.Fatalf("stderr = %q", errb.String())
+	}
+	cfg, _, err := config.Load(config.LoadOptions{Path: native, Warn: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cache || len(cfg.SessionConfigs) != 1 || cfg.SessionConfigs[0].Name != "api" {
+		t.Fatalf("migrated cfg = %#v", cfg)
+	}
+	// The native file now wins discovery over the untouched legacy file.
+	got, err := config.ResolvePath(config.LoadOptions{})
+	if err != nil || got != native {
+		t.Fatalf("resolved %q err %v, want %q", got, err, native)
+	}
+}
+
+func TestConfigMigrateForceOverwritesExistingNativeConfig(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	legacy := filepath.Join(d, "sesh.toml")
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	native := filepath.Join(d, config.NativeFileName)
+	if err := os.WriteFile(native, []byte("version = 1\n[list]\ncache = false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"config", "migrate", legacy, "--force"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != native {
+		t.Fatalf("stdout = %q, want %q", out.String(), native)
+	}
+	cfg, _, err := config.Load(config.LoadOptions{Path: native, Warn: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Cache {
+		t.Fatal("forced migration did not replace existing native config")
+	}
+}
+
+func TestConfigMigrateWarnsToRepointEnvBeforeDeletingLegacy(t *testing.T) {
+	d := t.TempDir()
+	legacy := filepath.Join(d, config.LegacyFileName)
+	native := filepath.Join(d, config.NativeFileName)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", legacy)
+	t.Setenv("HOME", d)
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errb bytes.Buffer
+	a := &App{Out: &bytes.Buffer{}, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate"}); err != nil {
+		t.Fatal(err)
+	}
+	warning := errb.String()
+	if !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy) {
+		t.Fatalf("stderr = %q", warning)
+	}
+}
+
+func TestConfigMigrateKeepsUnrelatedEnvSelection(t *testing.T) {
+	d := t.TempDir()
+	active := filepath.Join(d, "active", config.LegacyFileName)
+	legacy := filepath.Join(d, "other", config.LegacyFileName)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", active)
+	t.Setenv("HOME", d)
+	for _, p := range []string{active, legacy} {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("cache = true\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var errb bytes.Buffer
+	a := &App{Out: &bytes.Buffer{}, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate", "--config", legacy}); err != nil {
+		t.Fatal(err)
+	}
+	warning := errb.String()
+	if strings.Contains(warning, "set HERDR_SESH_CONFIG=") || !strings.Contains(warning, "HERDR_SESH_CONFIG continues to select "+active) {
+		t.Fatalf("stderr = %q", warning)
+	}
+}
+
+func TestConfigMigrateExplicitPathWarnsWhenNativeIsNotDiscovered(t *testing.T) {
+	home := t.TempDir()
+	legacyDir := t.TempDir()
+	legacy := filepath.Join(legacyDir, config.LegacyFileName)
+	native := filepath.Join(legacyDir, config.NativeFileName)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", filepath.Join(home, "plugin-config"))
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errb bytes.Buffer
+	a := &App{Out: &bytes.Buffer{}, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate", legacy}); err != nil {
+		t.Fatal(err)
+	}
+	warning := errb.String()
+	if strings.Contains(warning, "now takes precedence") || !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy) {
+		t.Fatalf("stderr = %q", warning)
+	}
+}
+
+func TestConfigMigrateLegacySymlinkDoesNotClaimNativePrecedence(t *testing.T) {
+	home := t.TempDir()
+	pluginDir := filepath.Join(home, "plugin-config")
+	legacyDir := t.TempDir()
+	legacy := filepath.Join(legacyDir, config.LegacyFileName)
+	native := filepath.Join(legacyDir, config.NativeFileName)
+	legacyLink := filepath.Join(pluginDir, config.LegacyFileName)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", pluginDir)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(pluginDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(native, legacyLink); err != nil {
+		t.Fatal(err)
+	}
+
+	var errb bytes.Buffer
+	a := &App{Out: &bytes.Buffer{}, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "migrate", legacy}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, resolved, err := config.Load(config.LoadOptions{Warn: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != legacyLink || cfg.Cache {
+		t.Fatalf("resolved %q with cache=%t, want legacy decoding through %q", resolved, cfg.Cache, legacyLink)
+	}
+	warning := errb.String()
+	if strings.Contains(warning, "now takes precedence") || !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native) {
+		t.Fatalf("stderr = %q", warning)
 	}
 }
 

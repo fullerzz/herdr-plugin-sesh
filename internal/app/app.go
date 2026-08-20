@@ -77,8 +77,19 @@ func (a *App) warnf(format string, args ...any) {
 	_, _ = fmt.Fprintf(a.Err, "warning: "+format+"\n", args...)
 }
 
+func sameFile(first, second string) bool {
+	//nolint:gosec // config paths are user-selected by design.
+	firstInfo, firstErr := os.Stat(first)
+	if firstErr != nil {
+		return false
+	}
+	//nolint:gosec // config paths are user-selected by design.
+	secondInfo, secondErr := os.Stat(second)
+	return secondErr == nil && os.SameFile(firstInfo, secondInfo)
+}
+
 func (a *App) loadConfig(path string) (config.Config, error) {
-	cfg, _, err := config.Load(config.LoadOptions{Path: path})
+	cfg, _, err := config.Load(config.LoadOptions{Path: path, Warn: a.Err})
 	return cfg, err
 }
 func (a *App) collect(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
@@ -161,7 +172,7 @@ func (a *App) list(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg, resolvedConfigPath, err := config.Load(config.LoadOptions{Path: *cfgPath})
+	cfg, resolvedConfigPath, err := config.Load(config.LoadOptions{Path: *cfgPath, Warn: a.Err})
 	if err != nil {
 		return err
 	}
@@ -529,7 +540,7 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 }
 func (a *App) config(_ context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("config requires path or init")
+		return errors.New("config requires path, init, or migrate")
 	}
 	dir := os.Getenv("HERDR_PLUGIN_CONFIG_DIR")
 	if dir == "" {
@@ -538,14 +549,85 @@ func (a *App) config(_ context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "path":
-		_, err := fmt.Fprintln(a.Out, filepath.Join(dir, "sesh.toml"))
+		p, err := config.ResolvePath(config.LoadOptions{})
+		if err != nil {
+			return err
+		}
+		if p == "" {
+			p = filepath.Join(dir, config.NativeFileName)
+		}
+		_, err = fmt.Fprintln(a.Out, p)
 		return err
 	case "init":
-		p, err := config.InitConfig(dir)
+		// Never shadow a config that already loads: an existing candidate
+		// anywhere in the lookup order is returned instead of creating a
+		// higher-precedence native file next to it.
+		p, err := config.ResolvePath(config.LoadOptions{})
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err == nil && p != "" {
+			_, err = fmt.Fprintln(a.Out, p)
+			return err
+		}
+		if target := os.Getenv("HERDR_SESH_CONFIG"); target != "" {
+			p, err := config.InitConfigAt(config.ExpandHome(target, ""))
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(a.Out, p)
+			return err
+		}
+		p, err = config.InitConfig(dir)
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprintln(a.Out, p)
+		return err
+	case "migrate":
+		fs := flag.NewFlagSet("config migrate", flag.ContinueOnError)
+		fs.SetOutput(a.Err)
+		cfgPath := fs.String("config", "", "")
+		force := fs.Bool("force", false, "overwrite an existing native config")
+		flagArgs := args[1:]
+		positionalPath := ""
+		if len(flagArgs) > 0 && !strings.HasPrefix(flagArgs[0], "-") {
+			positionalPath = flagArgs[0]
+			flagArgs = flagArgs[1:]
+		}
+		if err := fs.Parse(flagArgs); err != nil {
+			return err
+		}
+		if positionalPath == "" && fs.NArg() == 1 {
+			positionalPath = fs.Arg(0)
+		} else if fs.NArg() != 0 {
+			return errors.New("config migrate accepts at most one path")
+		}
+		if positionalPath != "" {
+			if *cfgPath != "" {
+				return errors.New("config migrate path provided twice")
+			}
+			*cfgPath = positionalPath
+		}
+		legacy, native, err := config.Migrate(config.LoadOptions{Path: *cfgPath}, dir, *force)
+		if err != nil {
+			return err
+		}
+		if envPath := config.ExpandHome(os.Getenv("HERDR_SESH_CONFIG"), ""); envPath != "" {
+			if sameFile(envPath, legacy) {
+				a.warnf("migrated %s; set HERDR_SESH_CONFIG=%s before deleting %s", legacy, native, legacy)
+			} else {
+				a.warnf("migrated %s; HERDR_SESH_CONFIG continues to select %s", legacy, envPath)
+			}
+		} else {
+			resolved, resolveErr := config.ResolvePath(config.LoadOptions{})
+			if resolveErr == nil && filepath.Base(resolved) == config.NativeFileName && sameFile(resolved, native) {
+				a.warnf("migrated %s; the native file now takes precedence — delete the legacy file once satisfied: %s", legacy, legacy)
+			} else {
+				a.warnf("migrated %s; set HERDR_SESH_CONFIG=%s before deleting %s (or keep using --config %s)", legacy, native, legacy, native)
+			}
+		}
+		_, err = fmt.Fprintln(a.Out, native)
 		return err
 	default:
 		return errors.New("unknown config command")
