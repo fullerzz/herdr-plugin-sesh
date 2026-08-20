@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -101,6 +103,44 @@ func TestConfigInitHonorsEnvTarget(t *testing.T) {
 	}
 	if cfg.DefaultSessionConfig.PreviewCommand != config.DefaultPreviewCommand {
 		t.Fatalf("starter preview = %q", cfg.DefaultSessionConfig.PreviewCommand)
+	}
+}
+
+func TestConfigInitRejectsDirectoryCandidate(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	if err := os.Mkdir(filepath.Join(d, config.NativeFileName), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "init"})
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("err = %v, want non-regular config path error", err)
+	}
+}
+
+func TestConfigInitPropagatesResolveError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "sesh"), []byte("blocked\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "init"})
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("err = %v, want higher-priority filesystem error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, ".config", "herdr-sesh", config.NativeFileName)); !os.IsNotExist(statErr) {
+		t.Fatalf("init created config after resolver error: %v", statErr)
 	}
 }
 

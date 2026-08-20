@@ -442,3 +442,13 @@ func TestInitConfigWritesNativeStarter(t *testing.T) {
 		t.Fatalf("mode = %v", info.Mode().Perm())
 	}
 }
+
+func TestInitConfigAtRejectsDirectory(t *testing.T) {
+	p := filepath.Join(t.TempDir(), NativeFileName)
+	if err := os.Mkdir(p, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitConfigAt(p); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("err = %v, want non-regular config path error", err)
+	}
+}

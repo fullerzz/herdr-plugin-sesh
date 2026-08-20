@@ -563,6 +563,9 @@ func (a *App) config(_ context.Context, args []string) error {
 		// anywhere in the lookup order is returned instead of creating a
 		// higher-precedence native file next to it.
 		p, err := config.ResolvePath(config.LoadOptions{})
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		if err == nil && p != "" {
 			_, err = fmt.Fprintln(a.Out, p)
 			return err

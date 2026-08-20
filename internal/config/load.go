@@ -107,7 +107,7 @@ func resolve(opts LoadOptions) (string, fileKind, error) {
 	}
 	if opts.Path != "" {
 		p := ExpandHome(opts.Path, home)
-		if _, err := os.Stat(p); err != nil {
+		if err := statConfigFile(p); err != nil {
 			if os.IsNotExist(err) {
 				return "", kindExplicit, os.ErrNotExist
 			}
@@ -117,7 +117,7 @@ func resolve(opts LoadOptions) (string, fileKind, error) {
 	}
 	if v := env["HERDR_SESH_CONFIG"]; v != "" {
 		p := ExpandHome(v, home)
-		if _, err := os.Stat(p); err != nil {
+		if err := statConfigFile(p); err != nil {
 			if os.IsNotExist(err) {
 				return "", kindExplicit, fmt.Errorf("HERDR_SESH_CONFIG %s: %w", p, os.ErrNotExist)
 			}
@@ -145,13 +145,24 @@ func resolve(opts LoadOptions) (string, fileKind, error) {
 	}
 	for _, c := range candidates {
 		p := ExpandHome(c.path, home)
-		if _, err := os.Stat(p); err == nil {
+		if err := statConfigFile(p); err == nil {
 			return p, c.kind, nil
 		} else if !os.IsNotExist(err) {
 			return "", c.kind, err
 		}
 	}
 	return "", kindNative, nil
+}
+
+func statConfigFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("config path %s is not a regular file", path)
+	}
+	return nil
 }
 
 func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error {
@@ -312,7 +323,7 @@ func InitConfig(dir string) (string, error) {
 }
 
 // InitConfigAt writes the native starter file at the given path, creating
-// parent directories. An existing file is returned untouched.
+// parent directories. An existing regular file is returned untouched.
 func InitConfigAt(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("config path required")
@@ -320,8 +331,10 @@ func InitConfigAt(p string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(p); err == nil {
+	if err := statConfigFile(p); err == nil {
 		return p, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
 	}
 	starter := fmt.Sprintf("version = %d\n\n[workspace_defaults]\npreview = %q\n\n# [[workspace]]\n# name = \"Example\"\n# path = \"~/projects/example\"\n", NativeVersion, DefaultPreviewCommand)
 	return p, os.WriteFile(p, []byte(starter), 0600)
