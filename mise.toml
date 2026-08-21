@@ -1,7 +1,7 @@
 [tools]
-go = "1.26"
+go = "1.27.0"
 cargo-binstall = "1.21.1"
-golangci-lint = "v2.12.2"
+golangci-lint = "2.13.1"
 gotestsum = "1.13.0"
 just = "1.58.0"
 fzf = "0.74.3"
