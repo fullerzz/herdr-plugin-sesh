@@ -23,7 +23,9 @@ as legacy. `config path` prints the file that would load, or the native
 starter file only when no config exists anywhere in the lookup order; an
 existing config (legacy included) is printed instead so init can never shadow
 it. With `HERDR_SESH_CONFIG` set to a missing path, init creates the starter
-at that exact path.
+at that exact path. `config validate [PATH]` strictly validates the active or
+specified config and prints its resolved path on success. It returns an error
+when no config exists; legacy files remain valid but emit the migration warning.
 
 For a linked Herdr plugin, create or inspect the plugin-owned config with:
 

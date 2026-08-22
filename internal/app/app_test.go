@@ -59,6 +59,122 @@ func TestConfigPathCommand(t *testing.T) {
 	}
 }
 
+func TestConfigValidatePrintsResolvedNativePath(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+	native := filepath.Join(d, config.NativeFileName)
+	if err := os.WriteFile(native, []byte("version = 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"config", "validate"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != native {
+		t.Fatalf("stdout = %q, want %q", out.String(), native)
+	}
+}
+
+func TestConfigValidateWarnsForLegacyConfig(t *testing.T) {
+	legacy := filepath.Join(t.TempDir(), config.LegacyFileName)
+	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	a := &App{Out: &out, Err: &errb}
+	if err := a.Run(context.Background(), []string{"config", "validate", legacy}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != legacy {
+		t.Fatalf("stdout = %q, want %q", out.String(), legacy)
+	}
+	if !strings.Contains(errb.String(), "deprecated Sesh-compatible schema") {
+		t.Fatalf("stderr = %q, want legacy deprecation warning", errb.String())
+	}
+}
+
+func TestConfigValidateRejectsUnknownLegacyKey(t *testing.T) {
+	legacy := filepath.Join(t.TempDir(), config.LegacyFileName)
+	if err := os.WriteFile(legacy, []byte("cahe = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "validate", legacy})
+	if err == nil || !strings.Contains(err.Error(), "cahe") {
+		t.Fatalf("err = %v, want unknown legacy key", err)
+	}
+}
+
+func TestConfigValidateRejectsUnknownLegacyKeyInImport(t *testing.T) {
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "extra.toml"), []byte("cahe = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(d, config.LegacyFileName)
+	if err := os.WriteFile(legacy, []byte("import = [\"extra.toml\"]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "validate", legacy})
+	if err == nil || !strings.Contains(err.Error(), "cahe") {
+		t.Fatalf("err = %v, want unknown imported legacy key", err)
+	}
+}
+
+func TestConfigValidateRejectsInvalidNativeConfig(t *testing.T) {
+	native := filepath.Join(t.TempDir(), config.NativeFileName)
+	if err := os.WriteFile(native, []byte("version = 1\nunknown = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "validate", native})
+	if err == nil || !strings.Contains(err.Error(), "unknown keys") {
+		t.Fatalf("err = %v, want native validation error", err)
+	}
+}
+
+func TestConfigValidateRequiresExistingConfig(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "validate"})
+	if err == nil || !strings.Contains(err.Error(), "no config file found") {
+		t.Fatalf("err = %v, want missing config error", err)
+	}
+}
+
+func TestConfigValidateAcceptsAtMostOnePath(t *testing.T) {
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "validate", "first.toml", "second.toml"})
+	if err == nil || !strings.Contains(err.Error(), "accepts at most one path") {
+		t.Fatalf("err = %v, want extra path error", err)
+	}
+}
+
+func TestConfigValidateRejectsEmptyPath(t *testing.T) {
+	d := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HOME", d)
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"config", "validate", ""})
+	if err == nil || !strings.Contains(err.Error(), "path must not be empty") {
+		t.Fatalf("err = %v, want empty path error", err)
+	}
+}
+
 func TestConfigInitDoesNotShadowActiveLegacyConfig(t *testing.T) {
 	d := t.TempDir()
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)

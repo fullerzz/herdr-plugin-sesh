@@ -540,7 +540,7 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 }
 func (a *App) config(_ context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("config requires path, init, or migrate")
+		return errors.New("config requires path, init, validate, or migrate")
 	}
 	dir := os.Getenv("HERDR_PLUGIN_CONFIG_DIR")
 	if dir == "" {
@@ -584,6 +584,8 @@ func (a *App) config(_ context.Context, args []string) error {
 		}
 		_, err = fmt.Fprintln(a.Out, p)
 		return err
+	case "validate":
+		return a.validateConfig(args[1:])
 	case "migrate":
 		fs := flag.NewFlagSet("config migrate", flag.ContinueOnError)
 		fs.SetOutput(a.Err)
@@ -632,4 +634,26 @@ func (a *App) config(_ context.Context, args []string) error {
 	default:
 		return errors.New("unknown config command")
 	}
+}
+
+func (a *App) validateConfig(args []string) error {
+	if len(args) > 1 {
+		return errors.New("config validate accepts at most one path")
+	}
+	var path string
+	if len(args) == 1 {
+		path = args[0] //nolint:gosec // len(args) is exactly one.
+		if path == "" {
+			return errors.New("config validate path must not be empty")
+		}
+	}
+	_, resolved, err := config.Load(config.LoadOptions{Path: path, Warn: a.Err, StrictLegacy: true})
+	if err != nil {
+		return err
+	}
+	if resolved == "" {
+		return errors.New("no config file found")
+	}
+	_, err = fmt.Fprintln(a.Out, resolved)
+	return err
 }
