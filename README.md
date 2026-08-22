@@ -156,9 +156,10 @@ Release tags must begin with `v` and match `version` in
 just release vX.Y.Z
 ```
 
-The recipe requires a clean working tree, validates the tag against the
-manifest version, runs the repository checks and CLI smoke tests, creates an
-annotated tag, and atomically pushes the current commit and tag.
+The recipe must run from `main` with a clean working tree. It validates the tag
+against the manifest version, runs the repository checks and CLI smoke tests,
+generates `CHANGELOG.md`, tags the release source commit, commits the changelog
+as a follow-up, and atomically pushes `main` and the tag.
 
 ## License
 

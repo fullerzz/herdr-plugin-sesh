@@ -6,6 +6,7 @@ repo_root=$(git rev-parse --show-toplevel)
 workflow="$repo_root/.github/workflows/release.yml"
 changelog_workflow="$repo_root/.github/workflows/changelog.yml"
 helper="$repo_root/.github/scripts/checkout-release-ref.sh"
+justfile="$repo_root/justfile"
 
 # shellcheck disable=SC2016 # Match the workflow's literal shell variables.
 if ! grep -Fq 'bash .github/scripts/checkout-release-ref.sh "$RELEASE_REF"' "$workflow"; then
@@ -137,3 +138,119 @@ for unsafe_tag in 'v#probe' 'v%2Fprobe' 'v/path' 'v?probe'; do
     *) echo "unsafe release tag $unsafe_tag failed unclearly: $unsafe" >&2; exit 1 ;;
   esac
 done
+
+just_bin=$(mise which just)
+git_cliff_bin=$(mise which git-cliff)
+release_tools="$tmp/release-tools"
+mkdir -p "$release_tools"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$release_tools/just"
+# shellcheck disable=SC2016 # Write literal shell variables into the fake mise script.
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -euo pipefail' \
+  'if [ "$1" != exec ] || [ "$2" != -- ] || [ "$3" != git-cliff ]; then' \
+  '  echo "unexpected mise invocation: $*" >&2' \
+  '  exit 1' \
+  'fi' \
+  'shift 3' \
+  'exec "$RELEASE_TEST_GIT_CLIFF" "$@"' \
+  >"$release_tools/mise"
+chmod +x "$release_tools/just" "$release_tools/mise"
+
+setup_release_repo() {
+  release_repo=$1
+  release_remote=$2
+  git init -q -b main "$release_repo"
+  git init -q --bare "$release_remote"
+  git -C "$release_repo" config user.email test@example.com
+  git -C "$release_repo" config user.name 'Release recipe test'
+  git -C "$release_repo" config commit.gpgsign false
+  cp "$justfile" "$repo_root/cliff.toml" "$release_repo/"
+  mkdir -p "$release_repo/bin"
+  printf 'version = "1.2.3"\n' >"$release_repo/herdr-plugin.toml"
+  printf '## v1.2.2 (2026-08-20)\n' >"$release_repo/CHANGELOG.md"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$release_repo/bin/herdr-sesh"
+  chmod +x "$release_repo/bin/herdr-sesh"
+  git -C "$release_repo" add .
+  git -C "$release_repo" commit -qm 'chore(release): release v1.2.3'
+  git -C "$release_repo" remote add origin "$release_remote"
+}
+
+run_release_recipe() {
+  release_repo=$1
+  (
+    cd "$release_repo"
+    PATH="$release_tools:$PATH" \
+      RELEASE_TEST_GIT_CLIFF="$git_cliff_bin" \
+      "$just_bin" --yes release v1.2.3
+  )
+}
+
+success_repo="$tmp/release-success"
+success_remote="$tmp/release-success.git"
+setup_release_repo "$success_repo" "$success_remote"
+run_release_recipe "$success_repo"
+success_head=$(git -C "$success_repo" rev-parse HEAD)
+success_parent=$(git -C "$success_repo" rev-parse HEAD^)
+success_tag=$(git -C "$success_repo" rev-parse 'refs/tags/v1.2.3^{commit}')
+remote_head=$(git --git-dir="$success_remote" rev-parse refs/heads/main)
+remote_tag=$(git --git-dir="$success_remote" rev-parse 'refs/tags/v1.2.3^{commit}')
+if [ "$success_tag" != "$success_parent" ] ||
+  [ "$remote_head" != "$success_head" ] ||
+  [ "$remote_tag" != "$success_tag" ]; then
+  echo 'release recipe must atomically push the changelog commit and its tagged parent' >&2
+  exit 1
+fi
+if [ "$(git -C "$success_repo" diff-tree --no-commit-id --name-only -r HEAD)" != CHANGELOG.md ]; then
+  echo 'release recipe must commit only CHANGELOG.md' >&2
+  exit 1
+fi
+(
+  cd "$success_repo"
+  "$git_cliff_bin" --output "$tmp/post-tag-CHANGELOG.md"
+)
+if ! cmp -s "$success_repo/CHANGELOG.md" "$tmp/post-tag-CHANGELOG.md"; then
+  echo 'tag-triggered changelog generation must be a no-op on main' >&2
+  exit 1
+fi
+
+branch_repo="$tmp/release-branch"
+branch_remote="$tmp/release-branch.git"
+setup_release_repo "$branch_repo" "$branch_remote"
+git -C "$branch_repo" switch -qc release/v1.2.3
+if branch_error=$(run_release_recipe "$branch_repo" 2>&1); then
+  echo 'release recipe must reject non-main branches' >&2
+  exit 1
+fi
+case "$branch_error" in
+  *'Releases must be created from main, got: release/v1.2.3'*) ;;
+  *) echo "non-main release failed unclearly: $branch_error" >&2; exit 1 ;;
+esac
+if git -C "$branch_repo" rev-parse --verify --quiet refs/tags/v1.2.3 >/dev/null; then
+  echo 'rejected non-main release must not create a tag' >&2
+  exit 1
+fi
+
+failure_repo="$tmp/release-commit-failure"
+failure_remote="$tmp/release-commit-failure.git"
+setup_release_repo "$failure_repo" "$failure_remote"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"$failure_repo/.git/hooks/pre-commit"
+chmod +x "$failure_repo/.git/hooks/pre-commit"
+if run_release_recipe "$failure_repo" >/dev/null 2>&1; then
+  echo 'release recipe must propagate changelog commit failures' >&2
+  exit 1
+fi
+if git -C "$failure_repo" rev-parse --verify --quiet refs/tags/v1.2.3 >/dev/null; then
+  echo 'failed changelog commit must remove the unpushed release tag' >&2
+  exit 1
+fi
+if ! git -C "$failure_repo" diff --quiet -- CHANGELOG.md ||
+  ! git -C "$failure_repo" diff --cached --quiet -- CHANGELOG.md; then
+  echo 'failed changelog commit must restore CHANGELOG.md in the worktree and index' >&2
+  exit 1
+fi
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$failure_repo/.git/hooks/pre-commit"
+if ! run_release_recipe "$failure_repo" >/dev/null 2>&1; then
+  echo 'release recipe must be retryable after a transient commit failure' >&2
+  exit 1
+fi
