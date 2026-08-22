@@ -463,11 +463,6 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if closed.reloadErr == nil && closed.result.Sessions != nil {
 			m.workspaceOrder = herdrWorkspaceIDs(closed.result.Sessions)
 			m.list.All = append(m.list.All[:0], closed.result.Sessions...)
-			order := m.workspaceOrder
-			if m.recentSort {
-				order = m.recentWorkspaceIDs
-			}
-			sortHerdrWorkspaces(m.list.All, order)
 		} else {
 			remaining := m.list.All[:0]
 			for _, item := range m.list.All {
@@ -481,12 +476,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				remaining = append(remaining, item)
 			}
 			m.list.All = remaining
-			order := m.workspaceOrder
-			if m.recentSort {
-				order = m.recentWorkspaceIDs
-			}
-			sortHerdrWorkspaces(m.list.All, order)
 		}
+		m.resortWorkspaces()
 		m.list.Filter(m.list.Query)
 		for i, item := range m.list.Filtered {
 			if sessionmodel.Key(item) == selectedKey {
@@ -607,13 +598,17 @@ func closeWorkspaceCommand(
 	}
 }
 
-func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
-	m.recentSort = !m.recentSort
+func (m teaModel) resortWorkspaces() {
 	order := m.workspaceOrder
 	if m.recentSort {
 		order = m.recentWorkspaceIDs
 	}
 	sortHerdrWorkspaces(m.list.All, order)
+}
+
+func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
+	m.recentSort = !m.recentSort
+	m.resortWorkspaces()
 	m.list.Selected = 0
 	m.list.Filter(m.list.Query)
 	m.smearActive = false
@@ -723,96 +718,68 @@ func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
 
 	type rankedWorkspace struct {
 		session sessionmodel.Session
-		index   int
 		rank    int
-		ranked  bool
+		family  int
+		parent  bool
 	}
-	type workspaceFamily struct {
-		id         string
-		members    []rankedWorkspace
-		firstIndex int
-		rank       int
-		ranked     bool
-	}
-
 	workspaces := make([]rankedWorkspace, 0, len(items))
 	byID := make(map[string]struct{})
 	for _, item := range items {
 		if item.Source != "herdr" {
 			continue
 		}
-		entry := rankedWorkspace{session: item, index: len(workspaces)}
-		entry.rank, entry.ranked = ranks[item.WorkspaceID]
-		workspaces = append(workspaces, entry)
+		// Unranked workspaces get unique ranks past the order list, preserving
+		// their input order and sorting them after every ranked workspace.
+		rank, ranked := ranks[item.WorkspaceID]
+		if !ranked {
+			rank = len(order) + len(workspaces)
+		}
+		workspaces = append(workspaces, rankedWorkspace{session: item, rank: rank})
 		if item.WorkspaceID != "" {
 			byID[item.WorkspaceID] = struct{}{}
 		}
 	}
 
-	familiesByID := make(map[string]*workspaceFamily, len(workspaces))
-	families := make([]*workspaceFamily, 0, len(workspaces))
+	// A family is a parent workspace plus its linked worktrees; a family's rank
+	// is its best member rank. Ranks are unique, so family ranks are too.
+	familyOrdinals := make(map[string]int, len(workspaces))
+	familyRanks := make([]int, 0, len(workspaces))
 	for i := range workspaces {
-		entry := workspaces[i]
+		entry := &workspaces[i]
 		familyID := entry.session.WorkspaceID
 		parentID := entry.session.Worktree.ParentWorkspaceID
 		if _, parentPresent := byID[parentID]; parentID != "" && parentPresent {
 			familyID = parentID
 		}
-		if familyID == "" {
-			familyID = fmt.Sprintf("\x00%d", entry.index)
+		entry.parent = entry.session.WorkspaceID == familyID
+		ordinal, exists := familyOrdinals[familyID]
+		if familyID == "" || !exists {
+			ordinal = len(familyRanks)
+			familyRanks = append(familyRanks, entry.rank)
+			if familyID != "" {
+				familyOrdinals[familyID] = ordinal
+			}
+		} else if entry.rank < familyRanks[ordinal] {
+			familyRanks[ordinal] = entry.rank
 		}
-		family, exists := familiesByID[familyID]
-		if !exists {
-			family = &workspaceFamily{id: familyID, firstIndex: entry.index}
-			familiesByID[familyID] = family
-			families = append(families, family)
-		}
-		family.members = append(family.members, entry)
-		if entry.index < family.firstIndex {
-			family.firstIndex = entry.index
-		}
-		if entry.ranked && (!family.ranked || entry.rank < family.rank) {
-			family.rank = entry.rank
-			family.ranked = true
-		}
+		entry.family = ordinal
 	}
 
-	for _, family := range families {
-		sort.SliceStable(family.members, func(i, j int) bool {
-			iParent := family.members[i].session.WorkspaceID == family.id
-			jParent := family.members[j].session.WorkspaceID == family.id
-			if iParent != jParent {
-				return iParent
-			}
-			if family.members[i].ranked != family.members[j].ranked {
-				return family.members[i].ranked
-			}
-			if family.members[i].ranked && family.members[i].rank != family.members[j].rank {
-				return family.members[i].rank < family.members[j].rank
-			}
-			return family.members[i].index < family.members[j].index
-		})
-	}
-	sort.SliceStable(families, func(i, j int) bool {
-		if families[i].ranked != families[j].ranked {
-			return families[i].ranked
+	sort.SliceStable(workspaces, func(i, j int) bool {
+		a, b := workspaces[i], workspaces[j]
+		if a.family != b.family {
+			return familyRanks[a.family] < familyRanks[b.family]
 		}
-		if families[i].ranked && families[i].rank != families[j].rank {
-			return families[i].rank < families[j].rank
+		if a.parent != b.parent {
+			return a.parent
 		}
-		return families[i].firstIndex < families[j].firstIndex
+		return a.rank < b.rank
 	})
 
-	ordered := make([]sessionmodel.Session, 0, len(workspaces))
-	for _, family := range families {
-		for _, member := range family.members {
-			ordered = append(ordered, member.session)
-		}
-	}
 	workspace := 0
 	for i := range items {
 		if items[i].Source == "herdr" {
-			items[i] = ordered[workspace]
+			items[i] = workspaces[workspace].session
 			workspace++
 		}
 	}
@@ -1252,21 +1219,20 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	if statusGlyph != "" {
 		status = agentStatusStyle(s.AgentStatus).Render(statusGlyph + " ")
 	}
+	// status is always two cells (glyph plus space, or blanks), as is the
+	// worktree marker "↳ ".
+	fixedWidth := lipgloss.Width(rail) + 2
 	marker := ""
+	badgeWidth := rowSourceWidth
 	if s.Worktree.Linked {
 		marker = worktreeMarkerStyle.Render("↳ ")
-		fixedWidth := lipgloss.Width(rail) + lipgloss.Width(status)
-		if width <= fixedWidth+lipgloss.Width(marker) {
-			return compactWorktreeRow(rail, status, width)
+		if width <= fixedWidth+2 {
+			return compactWorktreeRow(rail, status, width, fixedWidth)
 		}
-	}
-	badgeWidth := rowSourceWidth
-	if marker != "" {
-		fixedWidth := lipgloss.Width(rail) + lipgloss.Width(status)
-		badgeWidth = min(rowSourceWidth, maxInt(0, width-fixedWidth-lipgloss.Width(marker)-1))
+		badgeWidth = min(rowSourceWidth, maxInt(0, width-fixedWidth-2-1))
 	}
 	badge := sourceBadgeStyle(s.Source).Render(fitPlain(sourceBadge(s.Source, showIcons), badgeWidth))
-	remaining := maxInt(1, width-lipgloss.Width(rail)-lipgloss.Width(status)-badgeWidth)
+	remaining := maxInt(1, width-fixedWidth-badgeWidth)
 	path := compactHome(s.Path)
 	if path == label {
 		path = ""
@@ -1291,7 +1257,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	}
 	labelWidth := nameWidth
 	if marker != "" {
-		labelWidth = maxInt(1, labelWidth-lipgloss.Width(marker))
+		labelWidth = maxInt(1, labelWidth-2)
 	}
 	line := rail + status + badge + marker + highlightMatches(label, query, labelWidth, labelStyle)
 	if showSecondary {
@@ -1300,9 +1266,8 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	return fitLine(line, width) + "\n"
 }
 
-func compactWorktreeRow(rail, status string, width int) string {
+func compactWorktreeRow(rail, status string, width, fixedWidth int) string {
 	marker := worktreeMarkerStyle.Render("↳")
-	fixedWidth := lipgloss.Width(rail) + lipgloss.Width(status)
 	if width <= fixedWidth {
 		return fitLine(marker, width) + "\n"
 	}
@@ -1323,8 +1288,8 @@ func renderSecondary(relation, path, query string, width int) string {
 	if relation == "" {
 		return highlightMatches(path, query, width, pathStyle)
 	}
-	separator := " · "
-	pathWidth := width - lipgloss.Width(relation) - lipgloss.Width(separator)
+	const separator = " · " // three cells
+	pathWidth := width - lipgloss.Width(relation) - 3
 	if path == "" || pathWidth < 8 {
 		return worktreeRelationStyle.Render(fitPlain(relation, width))
 	}

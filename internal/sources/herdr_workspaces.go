@@ -57,7 +57,7 @@ func worktreeRelation(workspace herdr.Workspace, parentsByRepo map[string][]herd
 	}
 	relation := model.WorktreeRelation{Linked: true}
 	parents := parentsByRepo[worktree.RepoKey]
-	if worktree.RepoKey == "" || len(parents) != 1 || parents[0].ID == workspace.ID {
+	if len(parents) != 1 {
 		return relation
 	}
 	parent := parents[0]
