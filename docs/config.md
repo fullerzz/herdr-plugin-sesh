@@ -80,6 +80,29 @@ Open Herdr workspaces show the agent state reported by Herdr: an animated amber
 Jump spinner (`⢄⢂⢁⡁⡈⡐⡠`) while working, red `◉` when blocked, green `✓` when idle,
 and teal `●` when done. Workspaces with an unknown state have no indicator.
 
+## Picker colors
+
+The native picker inherits colors from Herdr's own `[theme.custom]` tokens so it
+matches the running Herdr theme. The picker reads the same config file Herdr
+uses (`HERDR_CONFIG_PATH`, then `$XDG_CONFIG_HOME/herdr/config.toml`, then
+`~/.config/herdr/config.toml`).
+
+| Herdr token | Picker role |
+| --- | --- |
+| `accent` | Prompt, cursor, and selection rail |
+| `mauve` | Title, section headers, search matches, smear trail |
+| `text` | Row labels |
+| `subtext0` | Paths, counts, help text |
+| `green` | Idle agents (`✓`) |
+| `yellow` | Working agents (spinner) and the empty-state message |
+| `red` | Blocked agents (`◉`) |
+| `overlay1` | Ghost cursor trail |
+
+Tokens that are absent, unknown, or not a `#RGB`/`#RRGGBB` hex value leave that
+role's built-in color in place, so partial `[theme.custom]` tables only affect
+the roles they define. Named themes without custom tokens are not resolved;
+add explicit `[theme.custom]` entries to tint the picker.
+
 ## `[workspace_defaults]`
 
 | Field | Runtime effect |
