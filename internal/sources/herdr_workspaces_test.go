@@ -7,6 +7,92 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 )
 
+func TestHerdrWorkspacesRelatesLinkedWorktreeToUniqueParent(t *testing.T) {
+	repo := "/repos/project/.git"
+	src := HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{
+		{ID: "w-child", Label: "feature", Worktree: &herdr.Worktree{IsLinkedWorktree: true, RepoKey: repo}},
+		{ID: "w-other", Label: "other", Worktree: &herdr.Worktree{RepoKey: "/repos/other/.git"}},
+		{ID: "w-parent", Label: "project", Worktree: &herdr.Worktree{RepoKey: repo}},
+	}}}
+
+	got, err := src.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := got.Ordered()
+	if len(sessions) != 3 {
+		t.Fatalf("sessions=%#v", sessions)
+	}
+	child := sessions[0]
+	if !child.Worktree.Linked || child.Worktree.ParentWorkspaceID != "w-parent" || child.Worktree.ParentWorkspaceName != "project" {
+		t.Fatalf("child relation=%#v", child.Worktree)
+	}
+	for _, normal := range sessions[1:] {
+		if normal.Worktree.Linked || normal.Worktree.ParentWorkspaceID != "" || normal.Worktree.ParentWorkspaceName != "" {
+			t.Fatalf("normal workspace %q has relation %#v", normal.Name, normal.Worktree)
+		}
+	}
+}
+
+func TestHerdrWorkspacesFallsBackForUnresolvedLinkedWorktree(t *testing.T) {
+	tests := []struct {
+		name       string
+		workspaces []herdr.Workspace
+	}{
+		{
+			name: "parent absent",
+			workspaces: []herdr.Workspace{
+				{ID: "w-child", Label: "feature", Worktree: &herdr.Worktree{IsLinkedWorktree: true, RepoKey: "/repos/project/.git"}},
+			},
+		},
+		{
+			name: "parent ambiguous",
+			workspaces: []herdr.Workspace{
+				{ID: "w-child", Label: "feature", Worktree: &herdr.Worktree{IsLinkedWorktree: true, RepoKey: "/repos/project/.git"}},
+				{ID: "w-parent-1", Label: "project one", Worktree: &herdr.Worktree{RepoKey: "/repos/project/.git"}},
+				{ID: "w-parent-2", Label: "project two", Worktree: &herdr.Worktree{RepoKey: "/repos/project/.git"}},
+			},
+		},
+		{
+			name: "repo key missing",
+			workspaces: []herdr.Workspace{
+				{ID: "w-child", Label: "feature", Worktree: &herdr.Worktree{IsLinkedWorktree: true}},
+				{ID: "w-parent", Label: "project", Worktree: &herdr.Worktree{}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: tt.workspaces}}
+			got, err := src.List(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			child := got.Ordered()[0]
+			if !child.Worktree.Linked || child.Worktree.ParentWorkspaceID != "" || child.Worktree.ParentWorkspaceName != "" {
+				t.Fatalf("child relation=%#v", child.Worktree)
+			}
+		})
+	}
+}
+
+func TestHerdrWorkspacesUsesParentIDWhenLabelIsEmpty(t *testing.T) {
+	repo := "/repos/project/.git"
+	src := HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{
+		{ID: "w-parent", Worktree: &herdr.Worktree{RepoKey: repo}},
+		{ID: "w-child", Label: "feature", Worktree: &herdr.Worktree{IsLinkedWorktree: true, RepoKey: repo}},
+	}}}
+	got, err := src.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := got.Ordered()[1]
+	if child.Worktree.ParentWorkspaceName != "w-parent" {
+		t.Fatalf("child relation=%#v", child.Worktree)
+	}
+}
+
 func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {
 	src := HerdrWorkspaces{Client: &herdr.FakeClient{
 		Workspaces: []herdr.Workspace{{ID: "w1", Label: "api", ActiveTabID: "w1:t2", AgentStatus: "working"}},

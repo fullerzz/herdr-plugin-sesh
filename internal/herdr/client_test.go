@@ -68,13 +68,31 @@ func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
 	}
 }
 
-func TestCLIClientDecodesWorkspaceListArray(t *testing.T) {
+func TestCLIClientDecodesWorkspaceListWorktreeMetadata(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w-root","label":"project","worktree":{"checkout_path":"/repos/project","is_linked_worktree":false,"repo_key":"/repos/project/.git","repo_name":"project","repo_root":"/repos/project"}},{"workspace_id":"w-child","label":"feature","worktree":{"checkout_path":"/worktrees/feature","is_linked_worktree":true,"repo_key":"/repos/project/.git","repo_name":"project","repo_root":"/repos/project"}}]}}`)}}
+	got, err := c.WorkspaceList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("workspaces=%#v", got)
+	}
+	root, child := got[0].Worktree, got[1].Worktree
+	if root == nil || root.IsLinkedWorktree || root.CheckoutPath != "/repos/project" || root.RepoKey != "/repos/project/.git" || root.RepoName != "project" || root.RepoRoot != "/repos/project" {
+		t.Fatalf("root worktree=%#v", root)
+	}
+	if child == nil || !child.IsLinkedWorktree || child.CheckoutPath != "/worktrees/feature" || child.RepoKey != root.RepoKey {
+		t.Fatalf("child worktree=%#v", child)
+	}
+}
+
+func TestCLIClientDecodesWorkspaceListArrayWithoutWorktreeMetadata(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1","label":"api","agent_status":"blocked"}]`)}}
 	got, err := c.WorkspaceList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "blocked" {
+	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "blocked" || got[0].Worktree != nil {
 		t.Fatalf("workspaces=%#v", got)
 	}
 }

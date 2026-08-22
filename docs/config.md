@@ -121,6 +121,14 @@ the roles they define. The ANSI-based `terminal` theme has no fixed palette to
 inherit; the picker keeps its built-in colors there unless you add explicit
 overrides.
 
+The native picker marks a linked Git worktree workspace with `↳` and groups it
+immediately beneath its open parent workspace in both workspace and recent sort
+modes, matching Herdr's sidebar. Wide layouts add `worktree of <parent>` and the
+worktree path when space permits; narrow layouts retain the `↳` marker. This is
+automatic and does not depend on `show_icons`. If Herdr reports a linked
+worktree but no single open parent can be resolved, the picker shows
+`linked worktree` without inventing or grouping under a parent.
+
 ## `[workspace_defaults]`
 
 | Field | Runtime effect |

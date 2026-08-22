@@ -23,11 +23,50 @@ func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
 	if err != nil {
 		panes = nil
 	}
+	parentsByRepo := worktreeParentsByRepo(ws)
 	for _, w := range ws {
 		path := workspacePath(w, panes)
-		out.Add(model.Session{Source: "herdr", Name: w.Label, Path: path, WorkspaceID: w.ID, AgentStatus: w.AgentStatus})
+		out.Add(model.Session{
+			Source:      "herdr",
+			Name:        w.Label,
+			Path:        path,
+			WorkspaceID: w.ID,
+			AgentStatus: w.AgentStatus,
+			Worktree:    worktreeRelation(w, parentsByRepo),
+		})
 	}
 	return out, nil
+}
+
+func worktreeParentsByRepo(workspaces []herdr.Workspace) map[string][]herdr.Workspace {
+	parents := make(map[string][]herdr.Workspace)
+	for _, workspace := range workspaces {
+		worktree := workspace.Worktree
+		if worktree == nil || worktree.IsLinkedWorktree || worktree.RepoKey == "" {
+			continue
+		}
+		parents[worktree.RepoKey] = append(parents[worktree.RepoKey], workspace)
+	}
+	return parents
+}
+
+func worktreeRelation(workspace herdr.Workspace, parentsByRepo map[string][]herdr.Workspace) model.WorktreeRelation {
+	worktree := workspace.Worktree
+	if worktree == nil || !worktree.IsLinkedWorktree {
+		return model.WorktreeRelation{}
+	}
+	relation := model.WorktreeRelation{Linked: true}
+	parents := parentsByRepo[worktree.RepoKey]
+	if worktree.RepoKey == "" || len(parents) != 1 || parents[0].ID == workspace.ID {
+		return relation
+	}
+	parent := parents[0]
+	relation.ParentWorkspaceID = parent.ID
+	relation.ParentWorkspaceName = parent.Label
+	if relation.ParentWorkspaceName == "" {
+		relation.ParentWorkspaceName = parent.ID
+	}
+	return relation
 }
 
 func workspacePath(w herdr.Workspace, panes []herdr.Pane) string {

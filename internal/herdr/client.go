@@ -11,13 +11,22 @@ import (
 	"time"
 )
 
+type Worktree struct {
+	CheckoutPath     string `json:"checkout_path"`
+	IsLinkedWorktree bool   `json:"is_linked_worktree"`
+	RepoKey          string `json:"repo_key"`
+	RepoName         string `json:"repo_name"`
+	RepoRoot         string `json:"repo_root"`
+}
+
 type Workspace struct {
-	ID            string `json:"id"`
-	Label         string `json:"label"`
-	CWD           string `json:"cwd"`
-	ForegroundCWD string `json:"foreground_cwd"`
-	ActiveTabID   string `json:"active_tab_id"`
-	AgentStatus   string `json:"agent_status"`
+	ID            string    `json:"id"`
+	Label         string    `json:"label"`
+	CWD           string    `json:"cwd"`
+	ForegroundCWD string    `json:"foreground_cwd"`
+	ActiveTabID   string    `json:"active_tab_id"`
+	AgentStatus   string    `json:"agent_status"`
+	Worktree      *Worktree `json:"worktree,omitempty"`
 }
 type Tab struct {
 	ID          string `json:"id"`

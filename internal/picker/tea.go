@@ -103,6 +103,13 @@ var (
 	pathStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
 
+	worktreeMarkerStyle = lipgloss.NewStyle().
+				Foreground(violetColor).
+				Bold(true)
+
+	worktreeRelationStyle = lipgloss.NewStyle().
+				Foreground(ghostColor)
+
 	emptyStyle = lipgloss.NewStyle().
 			Foreground(amberColor)
 
@@ -245,10 +252,12 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		closeContext = context.Background()
 	}
 	workspaceOrder := herdrWorkspaceIDs(items)
+	items = append([]sessionmodel.Session(nil), items...)
+	initialOrder := workspaceOrder
 	if opts.RecentWorkspaceSort {
-		items = append([]sessionmodel.Session(nil), items...)
-		sortHerdrWorkspaces(items, opts.RecentWorkspaceIDs)
+		initialOrder = opts.RecentWorkspaceIDs
 	}
+	sortHerdrWorkspaces(items, initialOrder)
 	list := New(items)
 	list.SeparatorAware = opts.SeparatorAware
 	prompt := opts.Prompt
@@ -454,17 +463,29 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if closed.reloadErr == nil && closed.result.Sessions != nil {
 			m.workspaceOrder = herdrWorkspaceIDs(closed.result.Sessions)
 			m.list.All = append(m.list.All[:0], closed.result.Sessions...)
+			order := m.workspaceOrder
 			if m.recentSort {
-				sortHerdrWorkspaces(m.list.All, m.recentWorkspaceIDs)
+				order = m.recentWorkspaceIDs
 			}
+			sortHerdrWorkspaces(m.list.All, order)
 		} else {
 			remaining := m.list.All[:0]
 			for _, item := range m.list.All {
-				if item.Source != "herdr" || item.WorkspaceID != closed.workspaceID {
-					remaining = append(remaining, item)
+				if item.Source == "herdr" && item.WorkspaceID == closed.workspaceID {
+					continue
 				}
+				if item.Worktree.ParentWorkspaceID == closed.workspaceID {
+					item.Worktree.ParentWorkspaceID = ""
+					item.Worktree.ParentWorkspaceName = ""
+				}
+				remaining = append(remaining, item)
 			}
 			m.list.All = remaining
+			order := m.workspaceOrder
+			if m.recentSort {
+				order = m.recentWorkspaceIDs
+			}
+			sortHerdrWorkspaces(m.list.All, order)
 		}
 		m.list.Filter(m.list.Query)
 		for i, item := range m.list.Filtered {
@@ -693,30 +714,105 @@ func herdrWorkspaceIDs(items []sessionmodel.Session) []string {
 }
 
 func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
-	rank := make(map[string]int, len(order))
+	ranks := make(map[string]int, len(order))
 	for i, id := range order {
-		if _, exists := rank[id]; id != "" && !exists {
-			rank[id] = i
+		if _, exists := ranks[id]; id != "" && !exists {
+			ranks[id] = i
 		}
 	}
-	workspaces := make([]sessionmodel.Session, 0, len(items))
+
+	type rankedWorkspace struct {
+		session sessionmodel.Session
+		index   int
+		rank    int
+		ranked  bool
+	}
+	type workspaceFamily struct {
+		id         string
+		members    []rankedWorkspace
+		firstIndex int
+		rank       int
+		ranked     bool
+	}
+
+	workspaces := make([]rankedWorkspace, 0, len(items))
+	byID := make(map[string]struct{})
 	for _, item := range items {
-		if item.Source == "herdr" {
-			workspaces = append(workspaces, item)
+		if item.Source != "herdr" {
+			continue
+		}
+		entry := rankedWorkspace{session: item, index: len(workspaces)}
+		entry.rank, entry.ranked = ranks[item.WorkspaceID]
+		workspaces = append(workspaces, entry)
+		if item.WorkspaceID != "" {
+			byID[item.WorkspaceID] = struct{}{}
 		}
 	}
-	sort.SliceStable(workspaces, func(i, j int) bool {
-		iRank, iFound := rank[workspaces[i].WorkspaceID]
-		jRank, jFound := rank[workspaces[j].WorkspaceID]
-		if iFound != jFound {
-			return iFound
+
+	familiesByID := make(map[string]*workspaceFamily, len(workspaces))
+	families := make([]*workspaceFamily, 0, len(workspaces))
+	for i := range workspaces {
+		entry := workspaces[i]
+		familyID := entry.session.WorkspaceID
+		parentID := entry.session.Worktree.ParentWorkspaceID
+		if _, parentPresent := byID[parentID]; parentID != "" && parentPresent {
+			familyID = parentID
 		}
-		return iFound && iRank < jRank
+		if familyID == "" {
+			familyID = fmt.Sprintf("\x00%d", entry.index)
+		}
+		family, exists := familiesByID[familyID]
+		if !exists {
+			family = &workspaceFamily{id: familyID, firstIndex: entry.index}
+			familiesByID[familyID] = family
+			families = append(families, family)
+		}
+		family.members = append(family.members, entry)
+		if entry.index < family.firstIndex {
+			family.firstIndex = entry.index
+		}
+		if entry.ranked && (!family.ranked || entry.rank < family.rank) {
+			family.rank = entry.rank
+			family.ranked = true
+		}
+	}
+
+	for _, family := range families {
+		sort.SliceStable(family.members, func(i, j int) bool {
+			iParent := family.members[i].session.WorkspaceID == family.id
+			jParent := family.members[j].session.WorkspaceID == family.id
+			if iParent != jParent {
+				return iParent
+			}
+			if family.members[i].ranked != family.members[j].ranked {
+				return family.members[i].ranked
+			}
+			if family.members[i].ranked && family.members[i].rank != family.members[j].rank {
+				return family.members[i].rank < family.members[j].rank
+			}
+			return family.members[i].index < family.members[j].index
+		})
+	}
+	sort.SliceStable(families, func(i, j int) bool {
+		if families[i].ranked != families[j].ranked {
+			return families[i].ranked
+		}
+		if families[i].ranked && families[i].rank != families[j].rank {
+			return families[i].rank < families[j].rank
+		}
+		return families[i].firstIndex < families[j].firstIndex
 	})
+
+	ordered := make([]sessionmodel.Session, 0, len(workspaces))
+	for _, family := range families {
+		for _, member := range family.members {
+			ordered = append(ordered, member.session)
+		}
+	}
 	workspace := 0
 	for i := range items {
 		if items[i].Source == "herdr" {
-			items[i] = workspaces[workspace]
+			items[i] = ordered[workspace]
 			workspace++
 		}
 	}
@@ -892,6 +988,9 @@ func (m teaModel) previewTitle() string {
 	}
 	if label != "" {
 		title += countStyle.Render(" · " + label)
+	}
+	if relation := worktreeDescription(current); relation != "" {
+		title += worktreeRelationStyle.Render(" · " + relation)
 	}
 	if _, status := agentStatusIndicator(current.AgentStatus, m.agentSpinner.View()); status != "" {
 		title += agentStatusStyle(current.AgentStatus).Render(" · " + status)
@@ -1153,31 +1252,83 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	if statusGlyph != "" {
 		status = agentStatusStyle(s.AgentStatus).Render(statusGlyph + " ")
 	}
-	badge := sourceBadgeStyle(s.Source).Render(fitPlain(sourceBadge(s.Source, showIcons), rowSourceWidth))
-	remaining := maxInt(1, width-lipgloss.Width(rail)-2-rowSourceWidth)
+	marker := ""
+	if s.Worktree.Linked {
+		marker = worktreeMarkerStyle.Render("↳ ")
+		fixedWidth := lipgloss.Width(rail) + lipgloss.Width(status)
+		if width <= fixedWidth+lipgloss.Width(marker) {
+			return compactWorktreeRow(rail, status, width)
+		}
+	}
+	badgeWidth := rowSourceWidth
+	if marker != "" {
+		fixedWidth := lipgloss.Width(rail) + lipgloss.Width(status)
+		badgeWidth = min(rowSourceWidth, maxInt(0, width-fixedWidth-lipgloss.Width(marker)-1))
+	}
+	badge := sourceBadgeStyle(s.Source).Render(fitPlain(sourceBadge(s.Source, showIcons), badgeWidth))
+	remaining := maxInt(1, width-lipgloss.Width(rail)-lipgloss.Width(status)-badgeWidth)
 	path := compactHome(s.Path)
-	showPath := width >= rowPathMinWidth && path != "" && path != label
+	if path == label {
+		path = ""
+	}
+	relation := worktreeDescription(s)
+	showSecondary := width >= rowPathMinWidth && (relation != "" || path != "")
 	nameWidth := remaining
-	pathWidth := 0
-	if showPath {
+	secondaryWidth := 0
+	if showSecondary {
 		available := maxInt(1, remaining-2)
 		nameWidth = min(rowNameMaxWidth, maxInt(rowNameMinWidth, available*2/5))
 		if nameWidth >= available {
-			showPath = false
+			showSecondary = false
 			nameWidth = remaining
 		} else {
-			pathWidth = available - nameWidth
+			secondaryWidth = available - nameWidth
 		}
 	}
 	labelStyle := rowLabelStyle
 	if selected {
 		labelStyle = selectedLabelStyle
 	}
-	line := rail + status + badge + highlightMatches(label, query, nameWidth, labelStyle)
-	if showPath {
-		line += "  " + highlightMatches(path, query, pathWidth, pathStyle)
+	labelWidth := nameWidth
+	if marker != "" {
+		labelWidth = maxInt(1, labelWidth-lipgloss.Width(marker))
+	}
+	line := rail + status + badge + marker + highlightMatches(label, query, labelWidth, labelStyle)
+	if showSecondary {
+		line += "  " + renderSecondary(relation, path, query, secondaryWidth)
 	}
 	return fitLine(line, width) + "\n"
+}
+
+func compactWorktreeRow(rail, status string, width int) string {
+	marker := worktreeMarkerStyle.Render("↳")
+	fixedWidth := lipgloss.Width(rail) + lipgloss.Width(status)
+	if width <= fixedWidth {
+		return fitLine(marker, width) + "\n"
+	}
+	return fitLine(rail+status, width-1) + marker + "\n"
+}
+
+func worktreeDescription(s sessionmodel.Session) string {
+	if !s.Worktree.Linked {
+		return ""
+	}
+	if s.Worktree.ParentWorkspaceName != "" {
+		return "worktree of " + s.Worktree.ParentWorkspaceName
+	}
+	return "linked worktree"
+}
+
+func renderSecondary(relation, path, query string, width int) string {
+	if relation == "" {
+		return highlightMatches(path, query, width, pathStyle)
+	}
+	separator := " · "
+	pathWidth := width - lipgloss.Width(relation) - lipgloss.Width(separator)
+	if path == "" || pathWidth < 8 {
+		return worktreeRelationStyle.Render(fitPlain(relation, width))
+	}
+	return worktreeRelationStyle.Render(relation+separator) + highlightMatches(path, query, pathWidth, pathStyle)
 }
 
 func highlightMatches(text, query string, width int, baseStyle lipgloss.Style) string {
