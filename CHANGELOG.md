@@ -1,3 +1,61 @@
+## v0.8.1 (2026-08-22)
+
+### 🐛 Bug Fixes
+
+- **release**: Persist changelog before publication ([#77](https://github.com/fullerzz/herdr-plugin-sesh/issues/77)) ([7da129b](https://github.com/fullerzz/herdr-plugin-sesh/commit/7da129bdaf15639f14df330ecb20112fdf60d8dd))
+
+- **go-deps**: Update module charm.land/bubbletea/v2 to v2.0.9 ([#74](https://github.com/fullerzz/herdr-plugin-sesh/issues/74)) ([58a5632](https://github.com/fullerzz/herdr-plugin-sesh/commit/58a5632af15e74e02776e6ef59b417db8ae00317))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- **justfile**: Add preview-changelog recipe ([0d6d1b0](https://github.com/fullerzz/herdr-plugin-sesh/commit/0d6d1b0041a3275f5d420ac11583af7a7750a1af))
+
+- **pre-commit**: Exclude CHANGELOG.md from end-of-file-fixer ([de80dc2](https://github.com/fullerzz/herdr-plugin-sesh/commit/de80dc2e50adec0e1b5c3eaad40505e759bebac4))
+
+
+## v0.8.0 (2026-08-22)
+
+### 🚀 Features
+
+- Show last workspace in picker ([#69](https://github.com/fullerzz/herdr-plugin-sesh/issues/69)) ([e30ccf0](https://github.com/fullerzz/herdr-plugin-sesh/commit/e30ccf0e3484c8b8a42d327566c6a98520c85aaf))
+
+- **config**: Add native configuration and migration ([#71](https://github.com/fullerzz/herdr-plugin-sesh/issues/71)) ([07f5e84](https://github.com/fullerzz/herdr-plugin-sesh/commit/07f5e84ec4a7e89a4c62dfac7eb33533605ffc96))
+
+- **config**: Add validation command ([#76](https://github.com/fullerzz/herdr-plugin-sesh/issues/76)) ([54be01c](https://github.com/fullerzz/herdr-plugin-sesh/commit/54be01c87fe4dbb1b0c52b6055c584b96c00dfd1))
+
+
+
+### 🐛 Bug Fixes
+
+- **go-deps**: Update go dependencies ([#70](https://github.com/fullerzz/herdr-plugin-sesh/issues/70)) ([c996928](https://github.com/fullerzz/herdr-plugin-sesh/commit/c9969280756163a7c55658280451301b39e9a87a))
+
+
+
+### 🛬 Dependency Updates
+
+- **deps**: Update mise tools ([#68](https://github.com/fullerzz/herdr-plugin-sesh/issues/68)) ([7227773](https://github.com/fullerzz/herdr-plugin-sesh/commit/722777318f25b8b2c372d182d3306646e61dd0fd))
+
+
+
+### 📚 Documentation
+
+- Add CONTRIBUTING.md ([6916b0b](https://github.com/fullerzz/herdr-plugin-sesh/commit/6916b0b10a3637ddd67bedbfb7b3e2949c2bac2d))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- Add CODEOWNERS ([9fefe1d](https://github.com/fullerzz/herdr-plugin-sesh/commit/9fefe1d1f08ec36a411e05acfb732aa71a793ba3))
+
+
+
+### 🎡 Continuous Integration
+
+- **ci-deps**: Update ci dependencies ([#64](https://github.com/fullerzz/herdr-plugin-sesh/issues/64)) ([2c21785](https://github.com/fullerzz/herdr-plugin-sesh/commit/2c2178549db847d12aae11407291ed9bf9e0b287))
+
+
 ## v0.7.0 (2026-08-06)
 
 ### 🚀 Features
