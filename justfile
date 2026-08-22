@@ -44,6 +44,17 @@ test:
 test-release-ref:
     bash .github/scripts/test-release-ref.sh
 
+# Preview the changelog on stdout, optionally using the next release version
+preview-changelog $version='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -n "$version" ]]; then
+        mise exec -- git-cliff --tag "$version"
+    else
+        mise exec -- git-cliff
+    fi
+
 # Validate, tag, and trigger the GitHub release workflow
 [confirm("Create and push release " + tag + "?")]
 release $tag:
