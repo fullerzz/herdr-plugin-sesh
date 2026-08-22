@@ -55,8 +55,17 @@ release $tag:
         echo "Tag mismatch: $tag != manifest $expected_tag" >&2
         exit 1
     fi
+    current_branch=$(git branch --show-current)
+    if [[ "$current_branch" != "main" ]]; then
+        echo "Releases must be created from main, got: ${current_branch:-detached HEAD}" >&2
+        exit 1
+    fi
     if [[ -n "$(git status --porcelain)" ]]; then
         echo "Working tree must be clean before releasing" >&2
+        exit 1
+    fi
+    if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+        echo "Tag already exists: $tag" >&2
         exit 1
     fi
 
@@ -64,7 +73,21 @@ release $tag:
     just build
     ./bin/herdr-sesh --version
     ./bin/herdr-sesh list --json --config testdata/herdr-sesh.toml >/dev/null
+    mise exec -- git-cliff --tag "$tag" --output CHANGELOG.md
+    if ! grep -Fq "## ${tag} " CHANGELOG.md; then
+        echo "Generated changelog is missing $tag" >&2
+        exit 1
+    fi
+    if git diff --quiet -- CHANGELOG.md; then
+        echo "Changelog is already up to date for $tag" >&2
+        exit 1
+    fi
+    git add CHANGELOG.md
     git tag -a "$tag" -m "Release $tag"
+    if ! git commit -m "docs(CHANGELOG): update CHANGELOG.md [skip ci]"; then
+        git tag -d "$tag"
+        exit 1
+    fi
     git push --atomic origin HEAD "refs/tags/$tag"
 
 # Run all checks for code changes
