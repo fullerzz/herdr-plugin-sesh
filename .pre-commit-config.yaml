@@ -5,6 +5,7 @@ repos:
       - id: check-toml
       - id: check-symlinks
       - id: end-of-file-fixer
+        exclude: ^CHANGELOG\.md$
       - id: trailing-whitespace
       - id: fix-byte-order-marker
       - id: detect-private-key
