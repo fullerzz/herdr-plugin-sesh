@@ -86,6 +86,7 @@ release $tag:
     git tag -a "$tag" -m "Release $tag"
     if ! git commit -m "docs(CHANGELOG): update CHANGELOG.md [skip ci]"; then
         git tag -d "$tag"
+        git restore --staged --worktree -- CHANGELOG.md
         exit 1
     fi
     git push --atomic origin HEAD "refs/tags/$tag"

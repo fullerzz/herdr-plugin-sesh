@@ -244,3 +244,13 @@ if git -C "$failure_repo" rev-parse --verify --quiet refs/tags/v1.2.3 >/dev/null
   echo 'failed changelog commit must remove the unpushed release tag' >&2
   exit 1
 fi
+if ! git -C "$failure_repo" diff --quiet -- CHANGELOG.md ||
+  ! git -C "$failure_repo" diff --cached --quiet -- CHANGELOG.md; then
+  echo 'failed changelog commit must restore CHANGELOG.md in the worktree and index' >&2
+  exit 1
+fi
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$failure_repo/.git/hooks/pre-commit"
+if ! run_release_recipe "$failure_repo" >/dev/null 2>&1; then
+  echo 'release recipe must be retryable after a transient commit failure' >&2
+  exit 1
+fi
