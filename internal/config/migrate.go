@@ -92,7 +92,7 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 		return "", "", fmt.Errorf("%s is already a native config", path)
 	}
 	cfg := Default()
-	if err := decodeLegacy(&cfg, path); err != nil {
+	if err := decodeLegacy(&cfg, path, false); err != nil {
 		return "", "", err
 	}
 	// A legacy file that never mentions show_icons migrates to the

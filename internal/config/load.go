@@ -12,9 +12,10 @@ import (
 )
 
 type LoadOptions struct {
-	Path string
-	Env  map[string]string
-	Home string
+	Path         string
+	Env          map[string]string
+	Home         string
+	StrictLegacy bool
 	// Warn receives legacy-schema deprecation warnings; nil means os.Stderr.
 	Warn io.Writer
 }
@@ -71,15 +72,15 @@ func Load(opts LoadOptions) (Config, string, error) {
 		warn = os.Stderr
 	}
 	_, _ = fmt.Fprintf(warn, "warning: %s uses the deprecated Sesh-compatible schema; run 'herdr-sesh config migrate' to convert it (see docs/config.md)\n", path)
-	if err := decodeLegacy(&cfg, path); err != nil {
+	if err := decodeLegacy(&cfg, path, opts.StrictLegacy); err != nil {
 		return cfg, path, err
 	}
 	return cfg, path, nil
 }
 
-func decodeLegacy(cfg *Config, path string) error {
+func decodeLegacy(cfg *Config, path string, strict bool) error {
 	seen := map[string]bool{}
-	if err := loadInto(cfg, path, seen, false); err != nil {
+	if err := loadInto(cfg, path, seen, strict); err != nil {
 		return err
 	}
 	attachDefaults(cfg)
@@ -109,7 +110,7 @@ func resolve(opts LoadOptions) (string, fileKind, error) {
 		p := ExpandHome(opts.Path, home)
 		if err := statConfigFile(p); err != nil {
 			if os.IsNotExist(err) {
-				return "", kindExplicit, os.ErrNotExist
+				return "", kindExplicit, fmt.Errorf("config path %s: %w", p, os.ErrNotExist)
 			}
 			return "", kindExplicit, err
 		}
@@ -202,6 +203,10 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 	}
 	var next Config
 	if err := dec.Decode(&next); err != nil {
+		var missing *toml.StrictMissingError
+		if errors.As(err, &missing) {
+			return fmt.Errorf("load %s: unknown keys:\n%s", path, missing.String())
+		}
 		return fmt.Errorf("load %s: %w", path, err)
 	}
 	base := filepath.Dir(abs)

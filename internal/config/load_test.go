@@ -1,12 +1,24 @@
 package config
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestLoadMissingExplicitPathIncludesPath(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "missing.toml")
+	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("err = %v, want os.ErrNotExist", err)
+	}
+	if !strings.Contains(err.Error(), p) {
+		t.Fatalf("err = %v, want missing path %q", err, p)
+	}
+}
 
 func TestLoadExplicitSessionAndWindows(t *testing.T) {
 	d := t.TempDir()

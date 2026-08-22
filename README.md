@@ -122,6 +122,7 @@ The plugin binary also exposes its underlying operations directly:
 | `herdr-sesh window [PATH]` | List tabs or create one for a path. |
 | `herdr-sesh config path` | Print the resolved plugin config path. |
 | `herdr-sesh config init` | Create a starter config if one does not exist. |
+| `herdr-sesh config validate [PATH]` | Validate the active or specified config and print its resolved path. |
 | `herdr-sesh config migrate` | Convert a legacy Sesh-style config to the native format. |
 
 The binary lives inside Herdr's managed plugin checkout after installation; the
