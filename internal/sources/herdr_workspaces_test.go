@@ -93,6 +93,26 @@ func TestHerdrWorkspacesUsesParentIDWhenLabelIsEmpty(t *testing.T) {
 	}
 }
 
+func TestHerdrWorkspacesUsesLinkedWorktreeCheckoutPathAsFallback(t *testing.T) {
+	src := HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{{
+		ID:    "w-child",
+		Label: "feature",
+		Worktree: &herdr.Worktree{
+			CheckoutPath:     "/worktrees/feature",
+			IsLinkedWorktree: true,
+		},
+	}}}}
+
+	got, err := src.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := got.Ordered()
+	if len(sessions) != 1 || sessions[0].Path != "/worktrees/feature" {
+		t.Fatalf("sessions=%#v", sessions)
+	}
+}
+
 func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {
 	src := HerdrWorkspaces{Client: &herdr.FakeClient{
 		Workspaces: []herdr.Workspace{{ID: "w1", Label: "api", ActiveTabID: "w1:t2", AgentStatus: "working"}},

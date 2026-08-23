@@ -92,6 +92,9 @@ func workspacePath(w herdr.Workspace, panes []herdr.Pane) string {
 			first = path
 		}
 	}
+	if first == "" && w.Worktree != nil && w.Worktree.IsLinkedWorktree {
+		first = w.Worktree.CheckoutPath
+	}
 	return first
 }
 
