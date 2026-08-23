@@ -216,6 +216,16 @@ func TestMigrateEmitsShowIconsExplicitly(t *testing.T) {
 	})
 }
 
+func TestMigratePreservesDisabledHerdrThemeInheritance(t *testing.T) {
+	text, cfg := migrateAndRead(t, "[tui]\nherdr_theme_inherit = false\n")
+	if !strings.Contains(text, "herdr_theme_inherit = false") {
+		t.Fatalf("disabled Herdr theme inheritance dropped from output:\n%s", text)
+	}
+	if cfg.TUI.HerdrThemeInherit {
+		t.Fatal("migrated herdr_theme_inherit = true, want false")
+	}
+}
+
 func TestMigratePreservesLastWorkspacePickerSettings(t *testing.T) {
 	text, cfg := migrateAndRead(t, "[tui]\nshow_last_workspace = false\nshow_last_workspace_path = false\n")
 	if !strings.Contains(text, "show_last_workspace = false") || !strings.Contains(text, "show_last_workspace_path = false") {

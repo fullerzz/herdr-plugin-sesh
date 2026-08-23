@@ -364,7 +364,23 @@ func applyHerdrTheme(tokens map[string]string) {
 	rebuildPickerStyles()
 }
 
-func ApplyHerdrThemeFromConfig() {
+func resetPickerTheme() {
+	skyColor = lipgloss.Color(defaultSkyColor)
+	violetColor = lipgloss.Color(defaultVioletColor)
+	greenColor = lipgloss.Color(defaultGreenColor)
+	amberColor = lipgloss.Color(defaultAmberColor)
+	redColor = lipgloss.Color(defaultRedColor)
+	textColor = lipgloss.Color(defaultTextColor)
+	mutedColor = lipgloss.Color(defaultMutedColor)
+	ghostColor = lipgloss.Color(defaultGhostColor)
+	rebuildPickerStyles()
+}
+
+func configureHerdrTheme(inherit bool) {
+	resetPickerTheme()
+	if !inherit {
+		return
+	}
 	name, custom := loadHerdrThemeConfig(herdrConfigPath())
 	applyHerdrTheme(resolveHerdrThemeTokens(name, custom))
 }

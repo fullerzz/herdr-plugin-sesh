@@ -42,6 +42,7 @@ type nativePicker struct {
 	// No omitempty: migration must keep an explicitly configured false, and
 	// an always-present value keeps icon behavior self-documenting.
 	ShowIcons             bool   `toml:"show_icons"`
+	HerdrThemeInherit     *bool  `toml:"herdr_theme_inherit,omitempty"`
 	ShowLastWorkspace     *bool  `toml:"show_last_workspace,omitempty"`
 	ShowLastWorkspacePath *bool  `toml:"show_last_workspace_path,omitempty"`
 	Prompt                string `toml:"prompt,omitempty"`
@@ -195,6 +196,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	}
 	cfg.SeparatorAware = n.Picker.SeparatorAware
 	cfg.TUI.ShowIcons = n.Picker.ShowIcons
+	if n.Picker.HerdrThemeInherit != nil {
+		cfg.TUI.HerdrThemeInherit = *n.Picker.HerdrThemeInherit
+	}
 	if n.Picker.ShowLastWorkspace != nil {
 		cfg.TUI.ShowLastWorkspace = *n.Picker.ShowLastWorkspace
 	}

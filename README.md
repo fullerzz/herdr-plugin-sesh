@@ -14,6 +14,8 @@ tabs.
 
 - Search active Herdr workspaces, Sesh-style TOML sessions, and zoxide history
   from a native terminal picker.
+- Match the native picker to Herdr's active theme by default, with a
+  configuration toggle to retain the picker's built-in colors.
 - Focus an existing workspace or create one from a configured session or
   directory.
 - Apply startup commands, previews, and named Herdr tabs to new workspaces.

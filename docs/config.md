@@ -58,6 +58,7 @@ the state directory.
 | Field | Runtime effect |
 | --- | --- |
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
+| `herdr_theme_inherit` | Inherits colors from Herdr's active theme. The default is `true`; set it to `false` to keep the native picker's built-in colors. |
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 | `separator_aware` | Makes native and fzf picker searches treat `-`, `_`, `/`, and `.` as spaces. |
@@ -82,9 +83,17 @@ and teal `●` when done. Workspaces with an unknown state have no indicator.
 
 ## Picker colors
 
-The native picker inherits colors from Herdr's own theme so it matches the
-running Herdr UI. It reads the same config file Herdr uses
-(`HERDR_CONFIG_PATH`, then `$XDG_CONFIG_HOME/herdr/config.toml`, then
+By default, the native picker inherits colors from Herdr's own theme so it
+matches the running Herdr UI. Disable inheritance to keep the picker's built-in
+colors:
+
+```toml
+[picker]
+herdr_theme_inherit = false
+```
+
+When enabled, it reads the same config file Herdr uses (`HERDR_CONFIG_PATH`,
+then `$XDG_CONFIG_HOME/herdr/config.toml`, then
 `~/.config/herdr/config.toml`) and resolves `[theme] name` against Herdr's
 built-in themes:
 
@@ -171,6 +180,7 @@ path_components = 1
 
 [picker]
 show_icons = true
+herdr_theme_inherit = true
 prompt = "Sesh> "
 placeholder = "Search workspaces"
 separator_aware = true
@@ -244,6 +254,7 @@ meaning under the renamed table.
 | `dir_length` | `naming.path_components` |
 | `separator_aware` | `picker.separator_aware` |
 | `tui.show_icons` | `picker.show_icons` |
+| `tui.herdr_theme_inherit` | `picker.herdr_theme_inherit` |
 | `tui.show_last_workspace` | `picker.show_last_workspace` |
 | `tui.show_last_workspace_path` | `picker.show_last_workspace_path` |
 | `tui.prompt` | `picker.prompt` |
