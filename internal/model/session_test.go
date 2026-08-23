@@ -7,7 +7,16 @@ import (
 )
 
 func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
-	s := Session{Source: "config", Name: "api", Path: "/tmp/api", AgentStatus: "working", WindowConfigs: []WindowConfig{{Name: "dev"}}}
+	s := Session{
+		Source:      "config",
+		Name:        "api",
+		Path:        "/tmp/api",
+		AgentStatus: "working",
+		WindowConfigs: []WindowConfig{{
+			Name: "dev",
+		}},
+		Worktree: WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"},
+	}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +30,11 @@ func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
 	}
 	if strings.Contains(got, "AgentStatus") || strings.Contains(got, "agent_status") {
 		t.Fatalf("json leaked internal agent status: %s", got)
+	}
+	for _, internal := range []string{"Worktree", "worktree", "w-parent", "parent"} {
+		if strings.Contains(got, internal) {
+			t.Fatalf("json leaked internal worktree relation %q: %s", internal, got)
+		}
 	}
 }
 
@@ -37,5 +51,9 @@ func TestKeyIsStableAndSourceScoped(t *testing.T) {
 	b.AgentStatus = "working"
 	if Key(a) != Key(b) {
 		t.Fatalf("expected status-independent key, got %q and %q", Key(a), Key(b))
+	}
+	b.Worktree = WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}
+	if Key(a) != Key(b) {
+		t.Fatalf("expected worktree-independent key, got %q and %q", Key(a), Key(b))
 	}
 }

@@ -16,6 +16,9 @@ tabs.
   from a native terminal picker.
 - Match the native picker to Herdr's active theme by default, with a
   configuration toggle to retain the picker's built-in colors.
+- Group linked Git worktree workspaces beneath their open parent workspace,
+  replace the Herdr sheep icon with a configurable purple `↳ herdr` type, and
+  draw tree branches in the native picker.
 - Focus an existing workspace or create one from a configured session or
   directory.
 - Apply startup commands, previews, and named Herdr tabs to new workspaces.

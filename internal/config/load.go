@@ -166,6 +166,18 @@ func statConfigFile(path string) error {
 	return nil
 }
 
+type mergePresence struct {
+	previewCommand        bool
+	prompt                bool
+	placeholder           bool
+	showIcons             bool
+	herdrThemeInherit     bool
+	replaceWorktreeIcon   bool
+	showLastWorkspace     bool
+	showLastWorkspacePath bool
+	defaultSort           bool
+}
+
 func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -191,6 +203,7 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 			Placeholder           *string `toml:"placeholder"`
 			ShowIcons             *bool   `toml:"show_icons"`
 			HerdrThemeInherit     *bool   `toml:"herdr_theme_inherit"`
+			ReplaceWorktreeIcon   *bool   `toml:"replace_worktree_icon"`
 			ShowLastWorkspace     *bool   `toml:"show_last_workspace"`
 			ShowLastWorkspacePath *bool   `toml:"show_last_workspace_path"`
 			DefaultSort           *string `toml:"default_sort"`
@@ -220,20 +233,21 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 			return err
 		}
 	}
-	merge(dst, next,
-		probe.DefaultSessionConfig.PreviewCommand != nil,
-		probe.TUI.Prompt != nil,
-		probe.TUI.Placeholder != nil,
-		probe.TUI.ShowIcons != nil,
-		probe.TUI.HerdrThemeInherit != nil,
-		probe.TUI.ShowLastWorkspace != nil,
-		probe.TUI.ShowLastWorkspacePath != nil,
-		probe.TUI.DefaultSort != nil,
-	)
+	merge(dst, next, mergePresence{
+		previewCommand:        probe.DefaultSessionConfig.PreviewCommand != nil,
+		prompt:                probe.TUI.Prompt != nil,
+		placeholder:           probe.TUI.Placeholder != nil,
+		showIcons:             probe.TUI.ShowIcons != nil,
+		herdrThemeInherit:     probe.TUI.HerdrThemeInherit != nil,
+		replaceWorktreeIcon:   probe.TUI.ReplaceWorktreeIcon != nil,
+		showLastWorkspace:     probe.TUI.ShowLastWorkspace != nil,
+		showLastWorkspacePath: probe.TUI.ShowLastWorkspacePath != nil,
+		defaultSort:           probe.TUI.DefaultSort != nil,
+	})
 	return nil
 }
 
-func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet, herdrThemeInheritSet, showLastWorkspaceSet, showLastWorkspacePathSet, defaultSortSet bool) {
+func merge(dst *Config, src Config, presence mergePresence) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -252,31 +266,34 @@ func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet
 	if src.SeparatorAware {
 		dst.SeparatorAware = true
 	}
-	if showIconsSet {
+	if presence.showIcons {
 		dst.TUI.ShowIcons = src.TUI.ShowIcons
 	}
-	if herdrThemeInheritSet {
+	if presence.herdrThemeInherit {
 		dst.TUI.HerdrThemeInherit = src.TUI.HerdrThemeInherit
 	}
-	if showLastWorkspaceSet {
+	if presence.replaceWorktreeIcon {
+		dst.TUI.ReplaceWorktreeIcon = src.TUI.ReplaceWorktreeIcon
+	}
+	if presence.showLastWorkspace {
 		dst.TUI.ShowLastWorkspace = src.TUI.ShowLastWorkspace
 	}
-	if showLastWorkspacePathSet {
+	if presence.showLastWorkspacePath {
 		dst.TUI.ShowLastWorkspacePath = src.TUI.ShowLastWorkspacePath
 	}
-	if promptSet {
+	if presence.prompt {
 		dst.TUI.Prompt = src.TUI.Prompt
 	}
-	if placeholderSet {
+	if presence.placeholder {
 		dst.TUI.Placeholder = src.TUI.Placeholder
 	}
-	if defaultSortSet {
+	if presence.defaultSort {
 		dst.TUI.DefaultSort = src.TUI.DefaultSort
 	}
 	if src.DefaultSessionConfig.StartupCommand != "" {
 		dst.DefaultSessionConfig.StartupCommand = src.DefaultSessionConfig.StartupCommand
 	}
-	if previewCommandSet {
+	if presence.previewCommand {
 		dst.DefaultSessionConfig.PreviewCommand = src.DefaultSessionConfig.PreviewCommand
 	}
 	dst.SessionConfigs = append(dst.SessionConfigs, src.SessionConfigs...)

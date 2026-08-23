@@ -76,7 +76,7 @@ tabs = ["git"]
 		SeparatorAware: true,
 		SortOrder:      []string{"config", "herdr"},
 		Blacklist:      []string{"^scratch$"},
-		TUI:            TUIConfig{ShowIcons: true, HerdrThemeInherit: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
+		TUI:            TUIConfig{ShowIcons: true, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
 		DefaultSessionConfig: DefaultSessionConfig{
 			StartupCommand: "make dev",
 			PreviewCommand: "ls {}",
@@ -107,7 +107,7 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := Default()
-	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || !cfg.TUI.ReplaceWorktreeIcon || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
 		t.Fatalf("defaults lost: %#v", cfg)
 	}
 }
@@ -123,6 +123,20 @@ herdr_theme_inherit = false
 	}
 	if cfg.TUI.HerdrThemeInherit {
 		t.Fatal("herdr_theme_inherit = true, want false")
+	}
+}
+
+func TestNativePickerCanDisableWorktreeIconReplacement(t *testing.T) {
+	cfg, err := loadNative(t, `version = 1
+
+[picker]
+replace_worktree_icon = false
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.ReplaceWorktreeIcon {
+		t.Fatal("replace_worktree_icon=true, want false")
 	}
 }
 

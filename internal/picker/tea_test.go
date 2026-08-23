@@ -302,6 +302,41 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 	}
 }
 
+func TestTeaModelCtrlXClearsClosedParentWhenReloadFails(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{
+			Source:      "herdr",
+			Name:        "child",
+			WorkspaceID: "w-child",
+			Worktree: model.WorktreeRelation{
+				Linked:              true,
+				ParentWorkspaceID:   "w-parent",
+				ParentWorkspaceName: "parent",
+			},
+		},
+	}, Options{
+		CloseWorkspace: func(context.Context, string) error { return nil },
+		ReloadPicker: func(context.Context) (ReloadResult, error) {
+			return ReloadResult{LastWorkspaceUnknown: true}, errors.New("workspace list failed")
+		},
+	})
+
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	updated, _ = m.Update(closeCmd())
+	m = updated.(teaModel)
+
+	child, ok := m.list.Current()
+	if !ok || !child.Worktree.Linked || child.Worktree.ParentWorkspaceID != "" || child.Worktree.ParentWorkspaceName != "" {
+		t.Fatalf("child=%#v ok=%v", child, ok)
+	}
+	rowText := ansi.Strip(row(child, false, 80, false, ""))
+	if !strings.Contains(rowText, "[↳ herdr]") || strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "linked worktree") {
+		t.Fatalf("child row kept stale parent description or lost worktree badge: %q", rowText)
+	}
+}
+
 func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "closing", WorkspaceID: "w1"},
@@ -332,6 +367,27 @@ func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T)
 	m = updated.(teaModel)
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · new label") {
 		t.Fatalf("view kept stale Herdr metadata:\n%s", view)
+	}
+}
+
+func TestTeaModelCtrlXGroupsReloadedWorktreeFamily(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "closing", WorkspaceID: "w-closing"}}, Options{
+		CloseWorkspace: func(context.Context, string) error { return nil },
+		ReloadPicker: func(context.Context) (ReloadResult, error) {
+			return ReloadResult{Sessions: []model.Session{
+				{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+				{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+			}}, nil
+		},
+	})
+
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	updated, _ = m.Update(closeCmd())
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"parent", "child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reloaded order=%v want %v", got, want)
 	}
 }
 
@@ -840,6 +896,89 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	}
 }
 
+func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{
+			Source:      "herdr",
+			Name:        "feature",
+			Path:        "/tmp/project-feature",
+			WorkspaceID: "w-child-a",
+			Worktree: model.WorktreeRelation{
+				Linked:              true,
+				ParentWorkspaceID:   "w-parent",
+				ParentWorkspaceName: "project",
+			},
+		},
+		{Source: "herdr", Name: "project", Path: "/tmp/project", WorkspaceID: "w-parent"},
+		{
+			Source:      "herdr",
+			Name:        "docs",
+			Path:        "/tmp/project-docs",
+			WorkspaceID: "w-child-b",
+			Worktree: model.WorktreeRelation{
+				Linked:              true,
+				ParentWorkspaceID:   "w-parent",
+				ParentWorkspaceName: "project",
+			},
+		},
+	}, Options{})
+	m.list.Selected = 1
+	m.preview = "preview content"
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 28})
+	m = updated.(teaModel)
+
+	view := ansi.Strip(m.View().Content)
+	parentLine, firstChildLine, lastChildLine := -1, -1, -1
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "[herdr]") && strings.Contains(line, "project") && !strings.Contains(line, "↳") {
+			parentLine = i
+		}
+		if strings.Contains(line, "[↳ herdr]") && strings.Contains(line, "├─ feature") {
+			firstChildLine = i
+		}
+		if strings.Contains(line, "[↳ herdr]") && strings.Contains(line, "└─ docs") {
+			lastChildLine = i
+		}
+	}
+	if parentLine < 0 || firstChildLine != parentLine+1 || lastChildLine != firstChildLine+1 {
+		t.Fatalf("worktree family is not parent-first with tree branches:\n%s", view)
+	}
+	if !strings.Contains(view, "PREVIEW · feature · worktree of project") {
+		t.Fatalf("view missing worktree preview context:\n%s", view)
+	}
+	if got, want := maxLineWidth(view), 160; got != want {
+		t.Fatalf("view width=%d, want %d:\n%s", got, want, view)
+	}
+	if got, want := lipgloss.Height(view), 28; got != want {
+		t.Fatalf("view height=%d, want %d:\n%s", got, want, view)
+	}
+}
+
+func TestWorktreeTreePrefixRequiresContiguousVisibleFamily(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "zoxide", Name: "unrelated"},
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}
+
+	if got := worktreeTreePrefix(items, 2); got != "" {
+		t.Fatalf("tree prefix=%q for non-contiguous family, want none", got)
+	}
+}
+
+func TestListViewKeepsWorktreeBranchWhenParentIsOffScreen(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}, Options{})
+	m.list.Selected = 1
+
+	view := ansi.Strip(m.listView(80, 1))
+	if !strings.Contains(view, "└─ child") {
+		t.Fatalf("off-screen parent hid the child relationship: %q", view)
+	}
+}
+
 func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
 	m := newTeaModel([]model.Session{{Source: "herdr", Name: "current", WorkspaceID: "current"}}, Options{LastWorkspaceID: "unavailable-workspace"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
@@ -1012,6 +1151,45 @@ func TestRowUsesSourceCategoryColors(t *testing.T) {
 	}
 }
 
+func TestChildWorktreeUsesPurpleTypeBadge(t *testing.T) {
+	s := model.Session{Source: "herdr", Name: "feature", Worktree: model.WorktreeRelation{Linked: true}}
+
+	withoutIcons := row(s, false, 80, false, "")
+	if plain := ansi.Strip(withoutIcons); !strings.Contains(plain, "[↳ herdr]") || strings.Contains(plain, "↳ feature") {
+		t.Fatalf("child type badge without icons=%q", plain)
+	}
+	if !strings.Contains(withoutIcons, "38;2;187;154;247") || strings.Contains(withoutIcons, "38;2;125;207;255") {
+		t.Fatalf("child type badge is not exclusively purple:\n%q", withoutIcons)
+	}
+
+	withIcons := ansi.Strip(row(s, false, 80, true, ""))
+	if !strings.Contains(withIcons, "↳ herdr") || strings.Contains(withIcons, herdrSourceIcon) || strings.Contains(withIcons, "↳ feature") {
+		t.Fatalf("child type badge with icons=%q", withIcons)
+	}
+}
+
+func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "project", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}
+	m := newTeaModel(items, Options{ShowIcons: true, DisableWorktreeIconReplacement: true})
+	withIcons := m.listView(80, 2)
+	plain := ansi.Strip(withIcons)
+	if !strings.Contains(plain, herdrSourceIcon+" herdr") || !strings.Contains(plain, "└─ feature") || strings.Contains(plain, "↳") {
+		t.Fatalf("child row with replacement disabled=%q", plain)
+	}
+	if !strings.Contains(withIcons, "38;2;187;154;247") {
+		t.Fatalf("child type lost purple styling:\n%q", withIcons)
+	}
+
+	m = newTeaModel(items, Options{DisableWorktreeIconReplacement: true})
+	withoutIcons := ansi.Strip(m.listView(80, 2))
+	if !strings.Contains(withoutIcons, "[herdr]") || strings.Contains(withoutIcons, "↳") {
+		t.Fatalf("child row without source icons=%q", withoutIcons)
+	}
+}
+
 func TestRowUsesAgentStatusIndicators(t *testing.T) {
 	tests := []struct {
 		status string
@@ -1085,6 +1263,123 @@ func TestRowCompactsHomeAndNeverWraps(t *testing.T) {
 	}
 	if strings.Contains(narrow, "\n") || lipgloss.Width(narrow) != 48 {
 		t.Fatalf("narrow row width=%d or wrapped: %q", lipgloss.Width(narrow), narrow)
+	}
+}
+
+func TestRowShowsWorktreePathWithoutParentDescription(t *testing.T) {
+	s := model.Session{
+		Source:      "herdr",
+		Name:        "feature",
+		Path:        "/tmp/project-feature",
+		AgentStatus: "blocked",
+		Worktree: model.WorktreeRelation{
+			Linked:              true,
+			ParentWorkspaceID:   "w-parent",
+			ParentWorkspaceName: "project",
+		},
+	}
+
+	wide := row(s, true, 100, true, "")
+	widePlain := ansi.Strip(strings.TrimSuffix(wide, "\n"))
+	for _, want := range []string{"┃", "◉", "↳ herdr", "feature", "/tmp/project-feature"} {
+		if !strings.Contains(widePlain, want) {
+			t.Fatalf("wide worktree row missing %q:\n%q", want, wide)
+		}
+	}
+	if strings.Contains(widePlain, "worktree of") {
+		t.Fatalf("wide child row obscures its path with parent description:\n%q", widePlain)
+	}
+	if strings.Contains(widePlain, herdrSourceIcon) {
+		t.Fatalf("wide child row kept Herdr icon alongside worktree arrow:\n%q", widePlain)
+	}
+	if lipgloss.Width(widePlain) != 100 || strings.Contains(widePlain, "\n") {
+		t.Fatalf("wide row width=%d or wrapped:\n%q", lipgloss.Width(widePlain), widePlain)
+	}
+
+	narrow := row(s, false, 48, false, "")
+	narrowPlain := ansi.Strip(strings.TrimSuffix(narrow, "\n"))
+	if !strings.Contains(narrowPlain, "[↳ herdr]") || !strings.Contains(narrowPlain, "feature") || strings.Contains(narrowPlain, "↳ feature") {
+		t.Fatalf("narrow worktree row missing child type badge: %q", narrowPlain)
+	}
+	if strings.Contains(narrowPlain, "worktree of") || strings.Contains(narrowPlain, "/tmp/project-feature") {
+		t.Fatalf("narrow worktree row kept secondary context: %q", narrowPlain)
+	}
+	if lipgloss.Width(narrowPlain) != 48 || strings.Contains(narrowPlain, "\n") {
+		t.Fatalf("narrow row width=%d or wrapped: %q", lipgloss.Width(narrowPlain), narrowPlain)
+	}
+}
+
+func TestRowPreservesWorktreeMarkerAtCompactBoundary(t *testing.T) {
+	s := model.Session{
+		Source:      "herdr",
+		Name:        "feature",
+		AgentStatus: "working",
+		Worktree:    model.WorktreeRelation{Linked: true, ParentWorkspaceName: "project"},
+	}
+	for _, showIcons := range []bool{false, true} {
+		for _, width := range []int{1, 4, 5, 6, 10, 14, 15, 16} {
+			got := ansi.Strip(strings.TrimSuffix(row(s, true, width, showIcons, ""), "\n"))
+			if !strings.Contains(got, "↳") {
+				t.Fatalf("icons=%v width=%d missing marker: %q", showIcons, width, got)
+			}
+			if lipgloss.Width(got) != width || strings.Contains(got, "\n") {
+				t.Fatalf("icons=%v width=%d got width=%d or wrapped: %q", showIcons, width, lipgloss.Width(got), got)
+			}
+		}
+	}
+}
+
+func TestRowUsesBadgeWithoutDescriptionWhenWorktreeParentIsUnresolved(t *testing.T) {
+	got := ansi.Strip(row(model.Session{
+		Source:   "herdr",
+		Name:     "feature",
+		Worktree: model.WorktreeRelation{Linked: true},
+	}, false, 80, false, ""))
+	if !strings.Contains(got, "[↳ herdr]") || !strings.Contains(got, "feature") || strings.Contains(got, "linked worktree") || strings.Contains(got, "worktree of") || strings.Contains(got, "↳ feature") {
+		t.Fatalf("unresolved worktree row=%q", got)
+	}
+}
+
+func TestRowDoesNotMarkNormalWorkspace(t *testing.T) {
+	got := ansi.Strip(row(model.Session{Source: "herdr", Name: "project", Path: "/tmp/project"}, false, 80, false, ""))
+	if strings.Contains(got, "↳") || strings.Contains(got, "worktree") {
+		t.Fatalf("normal workspace row has worktree indicator: %q", got)
+	}
+}
+
+func TestPreviewTitleShowsUnresolvedLinkedWorktree(t *testing.T) {
+	m := newTeaModel([]model.Session{{
+		Source:   "herdr",
+		Name:     "feature",
+		Worktree: model.WorktreeRelation{Linked: true},
+	}}, Options{})
+
+	got := ansi.Strip(m.previewTitle())
+	if !strings.Contains(got, "PREVIEW · feature · linked worktree") || strings.Contains(got, "worktree of") {
+		t.Fatalf("preview title=%q", got)
+	}
+}
+
+func TestPreviewTitleShowsWorktreeParentBeforeAgentStatus(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{
+			Source:      "herdr",
+			Name:        "feature",
+			WorkspaceID: "w-child",
+			AgentStatus: "working",
+			Worktree: model.WorktreeRelation{
+				Linked:              true,
+				ParentWorkspaceID:   "w-parent",
+				ParentWorkspaceName: "parent",
+			},
+		},
+	}, Options{})
+	m.list.Selected = 1
+
+	got := ansi.Strip(m.previewTitle())
+	if !strings.Contains(got, "PREVIEW · feature · worktree of parent · working") {
+		t.Fatalf("preview title=%q", got)
 	}
 }
 
@@ -1208,7 +1503,11 @@ func TestSelectedRowUsesRailAndPreservesSourceColor(t *testing.T) {
 }
 
 func TestListViewHighlightsCaseInsensitiveQueryMatches(t *testing.T) {
-	m := newTeaModel([]model.Session{{Name: "workspace-API", Path: "/tmp/workspace-API"}}, Options{})
+	m := newTeaModel([]model.Session{{
+		Name:     "workspace-API",
+		Path:     "/tmp/workspace-API",
+		Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceName: "root"},
+	}}, Options{})
 	m.list.Filter("api")
 
 	got := m.listView(80, 1)
@@ -1303,6 +1602,107 @@ func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
 	}
 	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r recent") {
 		t.Fatalf("view missing recent sort mode:\n%s", view)
+	}
+}
+
+func TestSortHerdrWorkspacesGroupsChildrenBelowParent(t *testing.T) {
+	items := []model.Session{
+		{Source: "config", Name: "configured"},
+		{Source: "herdr", Name: "child-b", WorkspaceID: "w-child-b", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}},
+		{Source: "zoxide", Name: "directory"},
+		{Source: "herdr", Name: "unrelated", WorkspaceID: "w-unrelated"},
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "child-a", WorkspaceID: "w-child-a", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}},
+	}
+
+	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent", "w-child-a"})
+
+	if got, want := sessionNames(items), []string{"configured", "parent", "directory", "child-b", "child-a", "unrelated"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("grouped order=%v want %v", got, want)
+	}
+}
+
+func TestSortHerdrWorkspacesRanksFamilyByMostRecentMember(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "child-a", WorkspaceID: "w-child-a", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+		{Source: "herdr", Name: "child-b", WorkspaceID: "w-child-b", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+		{Source: "herdr", Name: "unrelated", WorkspaceID: "w-unrelated"},
+	}
+
+	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent"})
+
+	if got, want := sessionNames(items), []string{"parent", "child-b", "child-a", "unrelated"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent grouped order=%v want %v", got, want)
+	}
+}
+
+func TestSortHerdrWorkspacesLeavesUnresolvedChildIndependent(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "unresolved", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-missing"}},
+		{Source: "herdr", Name: "other", WorkspaceID: "w-other"},
+	}
+
+	sortHerdrWorkspaces(items, []string{"w-other", "w-child"})
+
+	if got, want := sessionNames(items), []string{"other", "unresolved"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unresolved order=%v want %v", got, want)
+	}
+}
+
+func TestTeaModelGroupsWorktreeFamilyWithoutMutatingInput(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+	}
+
+	m := newTeaModel(items, Options{})
+
+	if got, want := sessionNames(m.list.All), []string{"parent", "child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("model order=%v want %v", got, want)
+	}
+	if got, want := sessionNames(items), []string{"child", "parent"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("input mutated: got %v want %v", got, want)
+	}
+}
+
+func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "other", WorkspaceID: "w-other"},
+	}
+	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w-other", "w-child"}})
+	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("workspace order=%v want %v", got, want)
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if got, want := sessionNames(m.list.All), []string{"other", "parent", "child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent order=%v want %v", got, want)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored workspace order=%v want %v", got, want)
+	}
+}
+
+func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "feature", Path: "/tmp/feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}},
+	}, Options{})
+
+	m.list.Filter("feature")
+
+	if got, want := sessionNames(m.list.Filtered), []string{"feature"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered sessions=%v want %v", got, want)
+	}
+	if rowText := ansi.Strip(m.listView(80, 1)); !strings.Contains(rowText, "[↳ herdr]") || !strings.Contains(rowText, "feature") || !strings.Contains(rowText, "/tmp/feature") || strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "├─") || strings.Contains(rowText, "└─") {
+		t.Fatalf("filtered child lost standalone path or kept parent-only context: %q", rowText)
 	}
 }
 

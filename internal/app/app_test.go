@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -581,6 +582,17 @@ func TestListCacheDistinguishesRelativeConfigsAcrossWorkingDirectories(t *testin
 	t.Chdir(secondDir)
 	if got := runListJSON(t, "sesh.toml", ""); len(got) != 1 || got[0].Name != "web" {
 		t.Fatalf("second config sessions = %#v", got)
+	}
+}
+
+func TestPickerOptionsPropagateWorktreeIconReplacement(t *testing.T) {
+	cfg := config.Default()
+	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.DisableWorktreeIconReplacement {
+		t.Fatal("default config disabled worktree icon replacement")
+	}
+	cfg.TUI.ReplaceWorktreeIcon = false
+	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); !opts.DisableWorktreeIconReplacement {
+		t.Fatal("disabled worktree icon replacement was not propagated")
 	}
 }
 

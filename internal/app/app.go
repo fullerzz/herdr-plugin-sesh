@@ -198,6 +198,22 @@ func (a *App) list(ctx context.Context, args []string) error {
 	return a.printSessions(sessions, *jsonOut)
 }
 
+func pickerOptionsFromConfig(ctx context.Context, output io.Writer, cfg config.Config) pickerpkg.Options {
+	return pickerpkg.Options{
+		Context:                        ctx,
+		Output:                         output,
+		Prompt:                         cfg.TUI.Prompt,
+		Placeholder:                    cfg.TUI.Placeholder,
+		ShowIcons:                      cfg.TUI.ShowIcons,
+		HerdrThemeInherit:              cfg.TUI.HerdrThemeInherit,
+		DisableWorktreeIconReplacement: !cfg.TUI.ReplaceWorktreeIcon,
+		HideLastWorkspace:              !cfg.TUI.ShowLastWorkspace,
+		HideLastWorkspacePath:          !cfg.TUI.ShowLastWorkspacePath,
+		SeparatorAware:                 cfg.SeparatorAware,
+		DefaultPreviewCommand:          cfg.DefaultSessionConfig.PreviewCommand,
+	}
+}
+
 func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
 	if jsonOut {
 		enc := json.NewEncoder(a.Out)
@@ -249,18 +265,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if *jsonOut {
 		return a.printSessions(sessions, true)
 	}
-	pickOpts := pickerpkg.Options{
-		Context:               ctx,
-		Output:                a.Out,
-		Prompt:                cfg.TUI.Prompt,
-		Placeholder:           cfg.TUI.Placeholder,
-		ShowIcons:             cfg.TUI.ShowIcons,
-		HerdrThemeInherit:     cfg.TUI.HerdrThemeInherit,
-		HideLastWorkspace:     !cfg.TUI.ShowLastWorkspace,
-		HideLastWorkspacePath: !cfg.TUI.ShowLastWorkspacePath,
-		SeparatorAware:        cfg.SeparatorAware,
-		DefaultPreviewCommand: cfg.DefaultSessionConfig.PreviewCommand,
-	}
+	pickOpts := pickerOptionsFromConfig(ctx, a.Out, cfg)
 	var selected model.Session
 	var ok bool
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")

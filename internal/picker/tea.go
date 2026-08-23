@@ -103,6 +103,13 @@ var (
 	pathStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
 
+	worktreeMarkerStyle = lipgloss.NewStyle().
+				Foreground(violetColor).
+				Bold(true)
+
+	worktreeRelationStyle = lipgloss.NewStyle().
+				Foreground(ghostColor)
+
 	emptyStyle = lipgloss.NewStyle().
 			Foreground(amberColor)
 
@@ -116,19 +123,20 @@ var (
 var renderPreview = previewpkg.Render
 
 type Options struct {
-	Context               context.Context
-	Output                io.Writer
-	Prompt                string
-	Placeholder           string
-	ShowIcons             bool
-	HerdrThemeInherit     bool
-	HideLastWorkspace     bool
-	HideLastWorkspacePath bool
-	SeparatorAware        bool
-	DefaultPreviewCommand string
-	FZFCommand            string
-	RefreshAgentStatuses  func() (map[string]string, error)
-	CloseWorkspace        func(context.Context, string) error
+	Context                        context.Context
+	Output                         io.Writer
+	Prompt                         string
+	Placeholder                    string
+	ShowIcons                      bool
+	HerdrThemeInherit              bool
+	DisableWorktreeIconReplacement bool
+	HideLastWorkspace              bool
+	HideLastWorkspacePath          bool
+	SeparatorAware                 bool
+	DefaultPreviewCommand          string
+	FZFCommand                     string
+	RefreshAgentStatuses           func() (map[string]string, error)
+	CloseWorkspace                 func(context.Context, string) error
 	// ReloadPicker refreshes picker state after a workspace close. Its
 	// ReloadResult is consumed even when it returns an error: the
 	// last-workspace fields must always be valid (set LastWorkspaceUnknown
@@ -192,6 +200,7 @@ type teaModel struct {
 
 	defaultPreviewCommand   string
 	showIcons               bool
+	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
 	hideLastWorkspacePath   bool
 	refreshAgentStatuses    func() (map[string]string, error)
@@ -245,10 +254,12 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		closeContext = context.Background()
 	}
 	workspaceOrder := herdrWorkspaceIDs(items)
+	items = append([]sessionmodel.Session(nil), items...)
+	initialOrder := workspaceOrder
 	if opts.RecentWorkspaceSort {
-		items = append([]sessionmodel.Session(nil), items...)
-		sortHerdrWorkspaces(items, opts.RecentWorkspaceIDs)
+		initialOrder = opts.RecentWorkspaceIDs
 	}
+	sortHerdrWorkspaces(items, initialOrder)
 	list := New(items)
 	list.SeparatorAware = opts.SeparatorAware
 	prompt := opts.Prompt
@@ -276,6 +287,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
+		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
 		hideLastWorkspacePath: opts.HideLastWorkspacePath,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
@@ -454,18 +466,21 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if closed.reloadErr == nil && closed.result.Sessions != nil {
 			m.workspaceOrder = herdrWorkspaceIDs(closed.result.Sessions)
 			m.list.All = append(m.list.All[:0], closed.result.Sessions...)
-			if m.recentSort {
-				sortHerdrWorkspaces(m.list.All, m.recentWorkspaceIDs)
-			}
 		} else {
 			remaining := m.list.All[:0]
 			for _, item := range m.list.All {
-				if item.Source != "herdr" || item.WorkspaceID != closed.workspaceID {
-					remaining = append(remaining, item)
+				if item.Source == "herdr" && item.WorkspaceID == closed.workspaceID {
+					continue
 				}
+				if item.Worktree.ParentWorkspaceID == closed.workspaceID {
+					item.Worktree.ParentWorkspaceID = ""
+					item.Worktree.ParentWorkspaceName = ""
+				}
+				remaining = append(remaining, item)
 			}
 			m.list.All = remaining
 		}
+		m.resortWorkspaces()
 		m.list.Filter(m.list.Query)
 		for i, item := range m.list.Filtered {
 			if sessionmodel.Key(item) == selectedKey {
@@ -586,13 +601,17 @@ func closeWorkspaceCommand(
 	}
 }
 
-func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
-	m.recentSort = !m.recentSort
+func (m teaModel) resortWorkspaces() {
 	order := m.workspaceOrder
 	if m.recentSort {
 		order = m.recentWorkspaceIDs
 	}
 	sortHerdrWorkspaces(m.list.All, order)
+}
+
+func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
+	m.recentSort = !m.recentSort
+	m.resortWorkspaces()
 	m.list.Selected = 0
 	m.list.Filter(m.list.Query)
 	m.smearActive = false
@@ -693,30 +712,77 @@ func herdrWorkspaceIDs(items []sessionmodel.Session) []string {
 }
 
 func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
-	rank := make(map[string]int, len(order))
+	ranks := make(map[string]int, len(order))
 	for i, id := range order {
-		if _, exists := rank[id]; id != "" && !exists {
-			rank[id] = i
+		if _, exists := ranks[id]; id != "" && !exists {
+			ranks[id] = i
 		}
 	}
-	workspaces := make([]sessionmodel.Session, 0, len(items))
+
+	type rankedWorkspace struct {
+		session sessionmodel.Session
+		rank    int
+		family  int
+		parent  bool
+	}
+	workspaces := make([]rankedWorkspace, 0, len(items))
+	byID := make(map[string]struct{})
 	for _, item := range items {
-		if item.Source == "herdr" {
-			workspaces = append(workspaces, item)
+		if item.Source != "herdr" {
+			continue
+		}
+		// Unranked workspaces get unique ranks past the order list, preserving
+		// their input order and sorting them after every ranked workspace.
+		rank, ranked := ranks[item.WorkspaceID]
+		if !ranked {
+			rank = len(order) + len(workspaces)
+		}
+		workspaces = append(workspaces, rankedWorkspace{session: item, rank: rank})
+		if item.WorkspaceID != "" {
+			byID[item.WorkspaceID] = struct{}{}
 		}
 	}
-	sort.SliceStable(workspaces, func(i, j int) bool {
-		iRank, iFound := rank[workspaces[i].WorkspaceID]
-		jRank, jFound := rank[workspaces[j].WorkspaceID]
-		if iFound != jFound {
-			return iFound
+
+	// A family is a parent workspace plus its linked worktrees; a family's rank
+	// is its best member rank. Ranks are unique, so family ranks are too.
+	familyOrdinals := make(map[string]int, len(workspaces))
+	familyRanks := make([]int, 0, len(workspaces))
+	for i := range workspaces {
+		entry := &workspaces[i]
+		familyID := entry.session.WorkspaceID
+		parentID := entry.session.Worktree.ParentWorkspaceID
+		if _, parentPresent := byID[parentID]; parentID != "" && parentPresent {
+			familyID = parentID
 		}
-		return iFound && iRank < jRank
+		entry.parent = entry.session.WorkspaceID == familyID
+		ordinal, exists := familyOrdinals[familyID]
+		if familyID == "" || !exists {
+			ordinal = len(familyRanks)
+			familyRanks = append(familyRanks, entry.rank)
+			if familyID != "" {
+				familyOrdinals[familyID] = ordinal
+			}
+		} else if entry.rank < familyRanks[ordinal] {
+			familyRanks[ordinal] = entry.rank
+		}
+		entry.family = ordinal
+	}
+
+	sort.SliceStable(workspaces, func(i, j int) bool {
+		a, b := workspaces[i], workspaces[j]
+		if a.family != b.family {
+			return familyRanks[a.family] < familyRanks[b.family]
+		}
+		if a.parent != b.parent {
+			return a.parent
+		}
+		return a.rank < b.rank
 	})
+
 	workspace := 0
 	for i := range items {
 		if items[i].Source == "herdr" {
-			items[i] = workspaces[workspace]
+			items[i] = workspaces[workspace].session
 			workspace++
 		}
 	}
@@ -747,7 +813,8 @@ func (m teaModel) listView(width, visibleRows int) string {
 		for i := start; i < end; i++ {
 			selected := m.listFocused && !m.focusSmearActive && i == m.list.Selected
 			selectedRail := m.smear.headStyle().Render(m.smear.headGlyph + " ")
-			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.list.Query, selectedRail, m.agentSpinner.View()), "\n")
+			treePrefix := worktreeTreePrefix(m.list.Filtered, i)
+			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.replaceWorktreeIcon, m.list.Query, selectedRail, m.agentSpinner.View(), treePrefix), "\n")
 			if rail, age := m.smearRail(i); rail != "" {
 				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
 			}
@@ -892,6 +959,9 @@ func (m teaModel) previewTitle() string {
 	}
 	if label != "" {
 		title += countStyle.Render(" · " + label)
+	}
+	if relation := worktreeDescription(current); relation != "" {
+		title += worktreeRelationStyle.Render(" · " + relation)
 	}
 	if _, status := agentStatusIndicator(current.AgentStatus, m.agentSpinner.View()); status != "" {
 		title += agentStatusStyle(current.AgentStatus).Render(" · " + status)
@@ -1136,10 +1206,10 @@ func fixedVisualLines(text string, width, count int) string {
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
-	return rowWithRail(s, selected, width, showIcons, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0])
+	return rowWithRail(s, selected, width, showIcons, true, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0], "")
 }
 
-func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons bool, query, selectedRail, workingGlyph string) string {
+func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, replaceWorktreeIcon bool, query, selectedRail, workingGlyph, treePrefix string) string {
 	rail := "  "
 	if selected {
 		rail = selectedRail
@@ -1153,31 +1223,97 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	if statusGlyph != "" {
 		status = agentStatusStyle(s.AgentStatus).Render(statusGlyph + " ")
 	}
-	badge := sourceBadgeStyle(s.Source).Render(fitPlain(sourceBadge(s.Source, showIcons), rowSourceWidth))
-	remaining := maxInt(1, width-lipgloss.Width(rail)-2-rowSourceWidth)
+	// Status is always two cells: a glyph plus space, or two blanks.
+	fixedWidth := lipgloss.Width(rail) + 2
+	badgeText := sessionSourceBadge(s, showIcons, replaceWorktreeIcon)
+	badgeWidth := rowSourceWidth
+	if s.Worktree.Linked && replaceWorktreeIcon {
+		if width <= fixedWidth+2 {
+			return compactWorktreeRow(rail, status, width, fixedWidth)
+		}
+		badgeWidth = min(rowSourceWidth, maxInt(1, width-fixedWidth-1))
+		if badgeWidth < lipgloss.Width(badgeText) {
+			badgeText = "↳ herdr"
+		}
+	}
+	badge := sessionSourceBadgeStyle(s).Render(fitPlain(badgeText, badgeWidth))
+	remaining := maxInt(1, width-fixedWidth-badgeWidth)
 	path := compactHome(s.Path)
-	showPath := width >= rowPathMinWidth && path != "" && path != label
+	if path == label {
+		path = ""
+	}
+	showSecondary := width >= rowPathMinWidth && path != ""
 	nameWidth := remaining
-	pathWidth := 0
-	if showPath {
+	secondaryWidth := 0
+	if showSecondary {
 		available := maxInt(1, remaining-2)
 		nameWidth = min(rowNameMaxWidth, maxInt(rowNameMinWidth, available*2/5))
 		if nameWidth >= available {
-			showPath = false
+			showSecondary = false
 			nameWidth = remaining
 		} else {
-			pathWidth = available - nameWidth
+			secondaryWidth = available - nameWidth
 		}
 	}
 	labelStyle := rowLabelStyle
 	if selected {
 		labelStyle = selectedLabelStyle
 	}
-	line := rail + status + badge + highlightMatches(label, query, nameWidth, labelStyle)
-	if showPath {
-		line += "  " + highlightMatches(path, query, pathWidth, pathStyle)
+	tree := worktreeMarkerStyle.Render(treePrefix)
+	labelWidth := maxInt(1, nameWidth-lipgloss.Width(tree))
+	line := rail + status + badge + tree + highlightMatches(label, query, labelWidth, labelStyle)
+	if showSecondary {
+		line += "  " + highlightMatches(path, query, secondaryWidth, pathStyle)
 	}
 	return fitLine(line, width) + "\n"
+}
+
+func worktreeTreePrefix(items []sessionmodel.Session, index int) string {
+	if index < 0 || index >= len(items) {
+		return ""
+	}
+	child := items[index]
+	parentID := child.Worktree.ParentWorkspaceID
+	if !child.Worktree.Linked || parentID == "" {
+		return ""
+	}
+	parentIndex := -1
+	for i, item := range items {
+		if item.Source == "herdr" && item.WorkspaceID == parentID {
+			parentIndex = i
+			break
+		}
+	}
+	if parentIndex < 0 || parentIndex >= index {
+		return ""
+	}
+	for i := parentIndex + 1; i < index; i++ {
+		if !items[i].Worktree.Linked || items[i].Worktree.ParentWorkspaceID != parentID {
+			return ""
+		}
+	}
+	if index+1 < len(items) && items[index+1].Worktree.Linked && items[index+1].Worktree.ParentWorkspaceID == parentID {
+		return "├─ "
+	}
+	return "└─ "
+}
+
+func compactWorktreeRow(rail, status string, width, fixedWidth int) string {
+	marker := worktreeMarkerStyle.Render("↳")
+	if width <= fixedWidth {
+		return fitLine(marker, width) + "\n"
+	}
+	return fitLine(rail+status, width-1) + marker + "\n"
+}
+
+func worktreeDescription(s sessionmodel.Session) string {
+	if !s.Worktree.Linked {
+		return ""
+	}
+	if s.Worktree.ParentWorkspaceName != "" {
+		return "worktree of " + s.Worktree.ParentWorkspaceName
+	}
+	return "linked worktree"
 }
 
 func highlightMatches(text, query string, width int, baseStyle lipgloss.Style) string {
@@ -1224,6 +1360,23 @@ func sourceBadge(source string, showIcons bool) string {
 	default:
 		return "[" + source + "]"
 	}
+}
+
+func sessionSourceBadge(s sessionmodel.Session, showIcons, replaceWorktreeIcon bool) string {
+	if s.Source == "herdr" && s.Worktree.Linked && replaceWorktreeIcon {
+		if showIcons {
+			return "↳ herdr"
+		}
+		return "[↳ herdr]"
+	}
+	return sourceBadge(s.Source, showIcons)
+}
+
+func sessionSourceBadgeStyle(s sessionmodel.Session) lipgloss.Style {
+	if s.Source == "herdr" && s.Worktree.Linked {
+		return lipgloss.NewStyle().Foreground(violetColor).Bold(true)
+	}
+	return sourceBadgeStyle(s.Source)
 }
 
 func sourceBadgeStyle(source string) lipgloss.Style {

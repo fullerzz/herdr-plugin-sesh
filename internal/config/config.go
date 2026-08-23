@@ -41,6 +41,7 @@ type SessionConfig struct {
 type TUIConfig struct {
 	ShowIcons             bool   `toml:"show_icons"`
 	HerdrThemeInherit     bool   `toml:"herdr_theme_inherit"`
+	ReplaceWorktreeIcon   bool   `toml:"replace_worktree_icon"`
 	ShowLastWorkspace     bool   `toml:"show_last_workspace"`
 	ShowLastWorkspacePath bool   `toml:"show_last_workspace_path"`
 	Prompt                string `toml:"prompt"`
@@ -64,6 +65,7 @@ func Default() Config {
 		TUI: TUIConfig{
 			DefaultSort:           DefaultWorkspaceSort,
 			HerdrThemeInherit:     true,
+			ReplaceWorktreeIcon:   true,
 			ShowLastWorkspace:     true,
 			ShowLastWorkspacePath: true,
 		},

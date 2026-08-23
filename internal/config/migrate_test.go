@@ -226,6 +226,21 @@ func TestMigratePreservesDisabledHerdrThemeInheritance(t *testing.T) {
 	}
 }
 
+func TestMigratePreservesWorktreeIconReplacement(t *testing.T) {
+	t.Run("default enabled", func(t *testing.T) {
+		text, cfg := migrateAndRead(t, "cache = true\n")
+		if !strings.Contains(text, "replace_worktree_icon = true") || !cfg.TUI.ReplaceWorktreeIcon {
+			t.Fatalf("default worktree icon replacement lost:\n%s", text)
+		}
+	})
+	t.Run("explicit false", func(t *testing.T) {
+		text, cfg := migrateAndRead(t, "[tui]\nreplace_worktree_icon = false\n")
+		if !strings.Contains(text, "replace_worktree_icon = false") || cfg.TUI.ReplaceWorktreeIcon {
+			t.Fatalf("disabled worktree icon replacement lost:\n%s", text)
+		}
+	})
+}
+
 func TestMigratePreservesLastWorkspacePickerSettings(t *testing.T) {
 	text, cfg := migrateAndRead(t, "[tui]\nshow_last_workspace = false\nshow_last_workspace_path = false\n")
 	if !strings.Contains(text, "show_last_workspace = false") || !strings.Contains(text, "show_last_workspace_path = false") {

@@ -191,6 +191,7 @@ func marshalNative(cfg Config) ([]byte, error) {
 	defaults := Default()
 	dirLength := cfg.DirLength
 	herdrThemeInherit := cfg.TUI.HerdrThemeInherit
+	replaceWorktreeIcon := cfg.TUI.ReplaceWorktreeIcon
 	showLastWorkspace := cfg.TUI.ShowLastWorkspace
 	showLastWorkspacePath := cfg.TUI.ShowLastWorkspacePath
 	n := nativeConfig{
@@ -204,6 +205,7 @@ func marshalNative(cfg Config) ([]byte, error) {
 		Picker: nativePicker{
 			ShowIcons:             cfg.TUI.ShowIcons,
 			HerdrThemeInherit:     &herdrThemeInherit,
+			ReplaceWorktreeIcon:   &replaceWorktreeIcon,
 			ShowLastWorkspace:     &showLastWorkspace,
 			ShowLastWorkspacePath: &showLastWorkspacePath,
 			Prompt:                cfg.TUI.Prompt,
