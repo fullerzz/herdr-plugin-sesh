@@ -2,3 +2,8 @@ bin/
 *.test
 .DS_Store
 coverage.out
+plans/
+.pi/
+scratch/
+mise.local.toml
+.envrc
