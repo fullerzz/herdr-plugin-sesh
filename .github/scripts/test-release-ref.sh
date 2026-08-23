@@ -56,6 +56,10 @@ if ! grep -Fq 'if [ "$manifest_version" != "$version" ]; then' "$changelog_workf
   echo 'changelog workflow must reject tags that do not match the manifest version' >&2
   exit 1
 fi
+if ! grep -Fq '  pull-requests: read' "$changelog_workflow"; then
+  echo 'changelog workflow must allow git-cliff to read pull request metadata' >&2
+  exit 1
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
