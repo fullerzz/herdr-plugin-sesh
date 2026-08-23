@@ -82,10 +82,18 @@ and teal `●` when done. Workspaces with an unknown state have no indicator.
 
 ## Picker colors
 
-The native picker inherits colors from Herdr's own `[theme.custom]` tokens so it
-matches the running Herdr theme. The picker reads the same config file Herdr
-uses (`HERDR_CONFIG_PATH`, then `$XDG_CONFIG_HOME/herdr/config.toml`, then
-`~/.config/herdr/config.toml`).
+The native picker inherits colors from Herdr's own theme so it matches the
+running Herdr UI. It reads the same config file Herdr uses
+(`HERDR_CONFIG_PATH`, then `$XDG_CONFIG_HOME/herdr/config.toml`, then
+`~/.config/herdr/config.toml`) and resolves `[theme] name` against Herdr's
+built-in themes:
+
+`catppuccin` (default), `catppuccin-latte`, `tokyo-night`, `tokyo-night-day`,
+`dracula`, `nord`, `gruvbox`, `gruvbox-light`, `one-dark`, `one-light`,
+`solarized`, `solarized-light`, `kanagawa`, `kanagawa-lotus`, `rose-pine`,
+`rose-pine-dawn`, and `vesper`. Common aliases (`catppuccin-mocha`,
+`tokyonight`, `onedark`, …) are accepted, as are `[theme.custom]` overrides on
+top of any base theme.
 
 | Herdr token | Picker role |
 | --- | --- |
@@ -98,10 +106,11 @@ uses (`HERDR_CONFIG_PATH`, then `$XDG_CONFIG_HOME/herdr/config.toml`, then
 | `red` | Blocked agents (`◉`) |
 | `overlay1` | Ghost cursor trail |
 
-Tokens that are absent, unknown, or not a `#RGB`/`#RRGGBB` hex value leave that
+Custom tokens that are unknown or not a `#RGB`/`#RRGGBB` hex value leave that
 role's built-in color in place, so partial `[theme.custom]` tables only affect
-the roles they define. Named themes without custom tokens are not resolved;
-add explicit `[theme.custom]` entries to tint the picker.
+the roles they define. The ANSI-based `terminal` theme has no fixed palette to
+inherit; the picker keeps its built-in colors there unless you add explicit
+overrides.
 
 ## `[workspace_defaults]`
 

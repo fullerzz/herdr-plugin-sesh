@@ -68,8 +68,8 @@ func TestHerdrConfigPath(t *testing.T) {
 	})
 }
 
-func TestLoadHerdrThemeCustom(t *testing.T) {
-	t.Run("reads custom tokens and ignores unrelated tables", func(t *testing.T) {
+func TestLoadHerdrThemeConfig(t *testing.T) {
+	t.Run("reads name and custom tokens, ignores unrelated tables", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.toml")
 		content := `
 [theme]
@@ -87,26 +87,31 @@ command = "fullerzz.sesh.open-picker"
 			t.Fatalf("write config: %v", err)
 		}
 
-		custom := loadHerdrThemeCustom(path)
+		name, custom := loadHerdrThemeConfig(path)
+		if name != "catppuccin" {
+			t.Errorf("loadHerdrThemeConfig() name = %q, want %q", name, "catppuccin")
+		}
 		want := map[string]string{"text": "#cdcdcd"}
 		if !reflect.DeepEqual(custom, want) {
-			t.Errorf("loadHerdrThemeCustom() = %v, want %v", custom, want)
+			t.Errorf("loadHerdrThemeConfig() custom = %v, want %v", custom, want)
 		}
 	})
 
-	t.Run("missing file yields nil", func(t *testing.T) {
-		if got := loadHerdrThemeCustom(filepath.Join(t.TempDir(), "absent.toml")); got != nil {
-			t.Errorf("loadHerdrThemeCustom() = %v, want nil", got)
+	t.Run("missing file yields empty results", func(t *testing.T) {
+		name, custom := loadHerdrThemeConfig(filepath.Join(t.TempDir(), "absent.toml"))
+		if name != "" || custom != nil {
+			t.Errorf("loadHerdrThemeConfig() = (%q, %v), want empty results", name, custom)
 		}
 	})
 
-	t.Run("invalid TOML yields nil", func(t *testing.T) {
+	t.Run("invalid TOML yields empty results", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.toml")
 		if err := os.WriteFile(path, []byte("[theme"), 0o600); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
-		if got := loadHerdrThemeCustom(path); got != nil {
-			t.Errorf("loadHerdrThemeCustom() = %v, want nil", got)
+		name, custom := loadHerdrThemeConfig(path)
+		if name != "" || custom != nil {
+			t.Errorf("loadHerdrThemeConfig() = (%q, %v), want empty results", name, custom)
 		}
 	})
 }
@@ -171,6 +176,115 @@ func TestApplyHerdrTheme(t *testing.T) {
 			t.Errorf("textColor = %v, want unchanged %v", textColor, before)
 		}
 	})
+}
+
+func TestResolveHerdrThemeTokens(t *testing.T) {
+	tests := []struct {
+		name        string
+		rawName     string
+		custom      map[string]string
+		contains    map[string]string
+		notContains []string
+	}{
+		{
+			name:    "named theme resolves its palette",
+			rawName: "dracula",
+			contains: map[string]string{
+				"accent": "#bd93f9",
+				"red":    "#ff5555",
+				"text":   "#f8f8f2",
+			},
+		},
+		{
+			name:    "aliases, casing, and spacing normalize like Herdr",
+			rawName: "Tokyo Night",
+			contains: map[string]string{
+				"accent": "#7aa2f7",
+				"mauve":  "#bb9af7",
+			},
+		},
+		{
+			name:    "unknown names fall back to the default theme",
+			rawName: "not-a-theme",
+			contains: map[string]string{
+				"accent": "#89b4fa",
+			},
+		},
+		{
+			name:     "unset name resolves to the default theme",
+			contains: map[string]string{"text": "#cdd6f4"},
+		},
+		{
+			name:    "custom tokens override the base palette",
+			rawName: "nord",
+			custom:  map[string]string{"accent": "#112233", "bogus-token": "#abcdef"},
+			contains: map[string]string{
+				"accent":      "#112233",
+				"text":        "#eceff4",
+				"bogus-token": "#abcdef",
+			},
+		},
+		{
+			name:        "terminal theme has no hex base",
+			rawName:     "terminal",
+			custom:      map[string]string{"green": "#446688"},
+			contains:    map[string]string{"green": "#446688"},
+			notContains: []string{"accent", "text"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveHerdrThemeTokens(tt.rawName, tt.custom)
+			for token, want := range tt.contains {
+				if got[token] != want {
+					t.Errorf("token %q = %q, want %q", token, got[token], want)
+				}
+			}
+			for _, token := range tt.notContains {
+				if value, ok := got[token]; ok {
+					t.Errorf("token %q = %q, want absent", token, value)
+				}
+			}
+		})
+	}
+}
+
+func TestHerdrThemePalettesAreComplete(t *testing.T) {
+	for name, palette := range herdrThemePalettes {
+		if len(palette) != len(herdrTokenRoles) {
+			t.Errorf("palette %q has %d tokens, want %d", name, len(palette), len(herdrTokenRoles))
+		}
+		for token, value := range palette {
+			if !validHexColor(value) {
+				t.Errorf("palette %q token %q = %q, want #RRGGBB hex", name, token, value)
+			}
+		}
+	}
+}
+
+func TestApplyHerdrThemeFromConfigResolvesNamedTheme(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	content := "[theme]\nname = \"dracula\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HERDR_CONFIG_PATH", path)
+
+	savedSky, savedText := skyColor, textColor
+	t.Cleanup(func() {
+		skyColor, textColor = savedSky, savedText
+		rebuildPickerStyles()
+	})
+
+	ApplyHerdrThemeFromConfig()
+
+	if !reflect.DeepEqual(skyColor, lipgloss.Color("#bd93f9")) {
+		t.Errorf("skyColor = %v, want #bd93f9", skyColor)
+	}
+	if !reflect.DeepEqual(textColor, lipgloss.Color("#f8f8f2")) {
+		t.Errorf("textColor = %v, want #f8f8f2", textColor)
+	}
 }
 
 func TestRebuildPickerStylesTracksColorVars(t *testing.T) {
