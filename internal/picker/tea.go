@@ -47,19 +47,28 @@ const (
 	herdrSourceIcon    = "\U000f0cc6"
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
+
+	defaultSkyColor    = "#7DCFFF"
+	defaultVioletColor = "#BB9AF7"
+	defaultGreenColor  = "#9ECE6A"
+	defaultAmberColor  = "#E0AF68"
+	defaultRedColor    = "#F7768E"
+	defaultTextColor   = "#C0CAF5"
+	defaultMutedColor  = "#565F89"
+	defaultGhostColor  = "#737AA2"
 )
 
 var (
 	agentStatusSpinner = spinner.Jump
 
-	skyColor    = lipgloss.Color("#7DCFFF")
-	violetColor = lipgloss.Color("#BB9AF7")
-	greenColor  = lipgloss.Color("#9ECE6A")
-	amberColor  = lipgloss.Color("#E0AF68")
-	redColor    = lipgloss.Color("#F7768E")
-	textColor   = lipgloss.Color("#C0CAF5")
-	mutedColor  = lipgloss.Color("#565F89")
-	ghostColor  = lipgloss.Color("#737AA2")
+	skyColor    = lipgloss.Color(defaultSkyColor)
+	violetColor = lipgloss.Color(defaultVioletColor)
+	greenColor  = lipgloss.Color(defaultGreenColor)
+	amberColor  = lipgloss.Color(defaultAmberColor)
+	redColor    = lipgloss.Color(defaultRedColor)
+	textColor   = lipgloss.Color(defaultTextColor)
+	mutedColor  = lipgloss.Color(defaultMutedColor)
+	ghostColor  = lipgloss.Color(defaultGhostColor)
 
 	titleStyle = lipgloss.NewStyle().
 			Foreground(violetColor).

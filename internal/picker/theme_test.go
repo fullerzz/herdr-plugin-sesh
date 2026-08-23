@@ -283,7 +283,7 @@ func TestHerdrThemePalettesAreComplete(t *testing.T) {
 	}
 }
 
-func TestConfigureHerdrThemeRespectsInheritanceSetting(t *testing.T) {
+func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	content := "[theme]\nname = \"dracula\"\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -291,36 +291,69 @@ func TestConfigureHerdrThemeRespectsInheritanceSetting(t *testing.T) {
 	}
 	t.Setenv("HERDR_CONFIG_PATH", path)
 
-	t.Run("disabled keeps picker colors", func(t *testing.T) {
-		savedSky, savedText := skyColor, textColor
-		t.Cleanup(func() {
-			skyColor, textColor = savedSky, savedText
-			rebuildPickerStyles()
-		})
-
-		configureHerdrTheme(false)
-
-		if !reflect.DeepEqual(skyColor, savedSky) || !reflect.DeepEqual(textColor, savedText) {
-			t.Fatalf("colors changed while inheritance was disabled: sky=%v text=%v", skyColor, textColor)
+	saved := []struct {
+		target *color.Color
+		value  color.Color
+	}{
+		{&textColor, textColor},
+		{&mutedColor, mutedColor},
+		{&greenColor, greenColor},
+		{&amberColor, amberColor},
+		{&redColor, redColor},
+		{&skyColor, skyColor},
+		{&violetColor, violetColor},
+		{&ghostColor, ghostColor},
+	}
+	t.Cleanup(func() {
+		for _, s := range saved {
+			*s.target = s.value
 		}
+		rebuildPickerStyles()
 	})
 
-	t.Run("enabled resolves named theme", func(t *testing.T) {
-		savedSky, savedText := skyColor, textColor
-		t.Cleanup(func() {
-			skyColor, textColor = savedSky, savedText
-			rebuildPickerStyles()
-		})
+	configureHerdrTheme(true)
+	if !reflect.DeepEqual(skyColor, lipgloss.Color("#bd93f9")) {
+		t.Fatalf("enabled run did not apply Dracula accent: %v", skyColor)
+	}
 
-		configureHerdrTheme(true)
+	configureHerdrTheme(false)
 
-		if !reflect.DeepEqual(skyColor, lipgloss.Color("#bd93f9")) {
-			t.Errorf("skyColor = %v, want #bd93f9", skyColor)
+	colors := []struct {
+		name string
+		got  color.Color
+		want color.Color
+	}{
+		{name: "text", got: textColor, want: lipgloss.Color("#C0CAF5")},
+		{name: "muted", got: mutedColor, want: lipgloss.Color("#565F89")},
+		{name: "green", got: greenColor, want: lipgloss.Color("#9ECE6A")},
+		{name: "amber", got: amberColor, want: lipgloss.Color("#E0AF68")},
+		{name: "red", got: redColor, want: lipgloss.Color("#F7768E")},
+		{name: "sky", got: skyColor, want: lipgloss.Color("#7DCFFF")},
+		{name: "violet", got: violetColor, want: lipgloss.Color("#BB9AF7")},
+		{name: "ghost", got: ghostColor, want: lipgloss.Color("#737AA2")},
+	}
+	for _, c := range colors {
+		if !reflect.DeepEqual(c.got, c.want) {
+			t.Errorf("%s color after disabled run = %v, want %v", c.name, c.got, c.want)
 		}
-		if !reflect.DeepEqual(textColor, lipgloss.Color("#f8f8f2")) {
-			t.Errorf("textColor = %v, want #f8f8f2", textColor)
+	}
+
+	styles := []struct {
+		name string
+		got  color.Color
+		want color.Color
+	}{
+		{name: "title", got: titleStyle.GetForeground(), want: lipgloss.Color("#BB9AF7")},
+		{name: "count", got: countStyle.GetForeground(), want: lipgloss.Color("#565F89")},
+		{name: "row label", got: rowLabelStyle.GetForeground(), want: lipgloss.Color("#C0CAF5")},
+		{name: "selection rail", got: selectionRailStyle.GetForeground(), want: lipgloss.Color("#7DCFFF")},
+		{name: "empty", got: emptyStyle.GetForeground(), want: lipgloss.Color("#E0AF68")},
+	}
+	for _, s := range styles {
+		if !reflect.DeepEqual(s.got, s.want) {
+			t.Errorf("%s style after disabled run = %v, want %v", s.name, s.got, s.want)
 		}
-	})
+	}
 }
 
 func TestRebuildPickerStylesTracksColorVars(t *testing.T) {
