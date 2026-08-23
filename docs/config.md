@@ -59,6 +59,7 @@ the state directory.
 | --- | --- |
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
 | `herdr_theme_inherit` | Inherits colors from Herdr's active theme. The default is `true`; set it to `false` to keep the native picker's built-in colors. |
+| `replace_worktree_icon` | Replaces the Herdr sheep icon with `↳` for linked worktree rows. The default is `true`. Set it to `false` to keep the sheep icon (or plain `[herdr]` when icons are hidden); the purple type color and tree branches remain. |
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 | `separator_aware` | Makes native and fzf picker searches treat `-`, `_`, `/`, and `.` as spaces. |
@@ -121,12 +122,17 @@ the roles they define. The ANSI-based `terminal` theme has no fixed palette to
 inherit; the picker keeps its built-in colors there unless you add explicit
 overrides.
 
-The native picker marks a linked Git worktree workspace with `↳` and groups it
+The native picker marks a linked Git worktree workspace with a purple
+`↳ herdr` type label, replacing the normal Herdr sheep icon, and groups it
 immediately beneath its open parent workspace in both workspace and recent sort
-modes, matching Herdr's sidebar. Wide layouts add `worktree of <parent>` and the
-worktree path when space permits; narrow layouts retain the `↳` marker. This is
-automatic and does not depend on `show_icons`. If Herdr reports a linked
-worktree but no single open parent can be resolved, the picker shows
+modes, matching Herdr's sidebar. With icons disabled, the label is `[↳ herdr]`.
+When the parent is visible, `├─` and `└─` branches reinforce the family in the
+workspace-name column. Wide layouts add `worktree of <parent>` and the worktree
+path when space permits; narrow layouts retain the purple type label. This is
+automatic and does not depend on `show_icons`. Set
+`picker.replace_worktree_icon = false` to retain the normal sheep icon or plain
+`[herdr]` label while keeping the other child-worktree cues. If Herdr reports a
+linked worktree but no single open parent can be resolved, the picker shows
 `linked worktree` without inventing or grouping under a parent.
 
 ## `[workspace_defaults]`
@@ -189,6 +195,7 @@ path_components = 1
 [picker]
 show_icons = true
 herdr_theme_inherit = true
+replace_worktree_icon = true
 prompt = "Sesh> "
 placeholder = "Search workspaces"
 separator_aware = true
@@ -263,6 +270,7 @@ meaning under the renamed table.
 | `separator_aware` | `picker.separator_aware` |
 | `tui.show_icons` | `picker.show_icons` |
 | `tui.herdr_theme_inherit` | `picker.herdr_theme_inherit` |
+| `tui.replace_worktree_icon` | `picker.replace_worktree_icon` |
 | `tui.show_last_workspace` | `picker.show_last_workspace` |
 | `tui.show_last_workspace_path` | `picker.show_last_workspace_path` |
 | `tui.prompt` | `picker.prompt` |

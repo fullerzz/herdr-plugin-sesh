@@ -902,7 +902,7 @@ func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
 			Source:      "herdr",
 			Name:        "feature",
 			Path:        "/tmp/project-feature",
-			WorkspaceID: "w-child",
+			WorkspaceID: "w-child-a",
 			Worktree: model.WorktreeRelation{
 				Linked:              true,
 				ParentWorkspaceID:   "w-parent",
@@ -910,6 +910,17 @@ func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
 			},
 		},
 		{Source: "herdr", Name: "project", Path: "/tmp/project", WorkspaceID: "w-parent"},
+		{
+			Source:      "herdr",
+			Name:        "docs",
+			Path:        "/tmp/project-docs",
+			WorkspaceID: "w-child-b",
+			Worktree: model.WorktreeRelation{
+				Linked:              true,
+				ParentWorkspaceID:   "w-parent",
+				ParentWorkspaceName: "project",
+			},
+		},
 	}, Options{})
 	m.list.Selected = 1
 	m.preview = "preview content"
@@ -917,17 +928,20 @@ func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	parentLine, childLine := -1, -1
+	parentLine, firstChildLine, lastChildLine := -1, -1, -1
 	for i, line := range strings.Split(view, "\n") {
 		if strings.Contains(line, "[herdr]") && strings.Contains(line, "project") && !strings.Contains(line, "↳") {
 			parentLine = i
 		}
-		if strings.Contains(line, "↳ feature") {
-			childLine = i
+		if strings.Contains(line, "[↳ herdr]") && strings.Contains(line, "├─ feature") {
+			firstChildLine = i
+		}
+		if strings.Contains(line, "[↳ herdr]") && strings.Contains(line, "└─ docs") {
+			lastChildLine = i
 		}
 	}
-	if parentLine < 0 || childLine != parentLine+1 {
-		t.Fatalf("worktree family is not contiguous and parent-first:\n%s", view)
+	if parentLine < 0 || firstChildLine != parentLine+1 || lastChildLine != firstChildLine+1 {
+		t.Fatalf("worktree family is not parent-first with tree branches:\n%s", view)
 	}
 	if !strings.Contains(view, "PREVIEW · feature · worktree of project") {
 		t.Fatalf("view missing worktree preview context:\n%s", view)
@@ -937,6 +951,18 @@ func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
 	}
 	if got, want := lipgloss.Height(view), 28; got != want {
 		t.Fatalf("view height=%d, want %d:\n%s", got, want, view)
+	}
+}
+
+func TestWorktreeTreePrefixRequiresContiguousVisibleFamily(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "zoxide", Name: "unrelated"},
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}
+
+	if got := worktreeTreePrefix(items, 2); got != "" {
+		t.Fatalf("tree prefix=%q for non-contiguous family, want none", got)
 	}
 }
 
@@ -1112,6 +1138,45 @@ func TestRowUsesSourceCategoryColors(t *testing.T) {
 	}
 }
 
+func TestChildWorktreeUsesPurpleTypeBadge(t *testing.T) {
+	s := model.Session{Source: "herdr", Name: "feature", Worktree: model.WorktreeRelation{Linked: true}}
+
+	withoutIcons := row(s, false, 80, false, "")
+	if plain := ansi.Strip(withoutIcons); !strings.Contains(plain, "[↳ herdr]") || strings.Contains(plain, "↳ feature") {
+		t.Fatalf("child type badge without icons=%q", plain)
+	}
+	if !strings.Contains(withoutIcons, "38;2;187;154;247") || strings.Contains(withoutIcons, "38;2;125;207;255") {
+		t.Fatalf("child type badge is not exclusively purple:\n%q", withoutIcons)
+	}
+
+	withIcons := ansi.Strip(row(s, false, 80, true, ""))
+	if !strings.Contains(withIcons, "↳ herdr") || strings.Contains(withIcons, herdrSourceIcon) || strings.Contains(withIcons, "↳ feature") {
+		t.Fatalf("child type badge with icons=%q", withIcons)
+	}
+}
+
+func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "project", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}
+	m := newTeaModel(items, Options{ShowIcons: true, DisableWorktreeIconReplacement: true})
+	withIcons := m.listView(80, 2)
+	plain := ansi.Strip(withIcons)
+	if !strings.Contains(plain, herdrSourceIcon+" herdr") || !strings.Contains(plain, "└─ feature") || strings.Contains(plain, "↳") {
+		t.Fatalf("child row with replacement disabled=%q", plain)
+	}
+	if !strings.Contains(withIcons, "38;2;187;154;247") {
+		t.Fatalf("child type lost purple styling:\n%q", withIcons)
+	}
+
+	m = newTeaModel(items, Options{DisableWorktreeIconReplacement: true})
+	withoutIcons := ansi.Strip(m.listView(80, 2))
+	if !strings.Contains(withoutIcons, "[herdr]") || strings.Contains(withoutIcons, "↳") {
+		t.Fatalf("child row without source icons=%q", withoutIcons)
+	}
+}
+
 func TestRowUsesAgentStatusIndicators(t *testing.T) {
 	tests := []struct {
 		status string
@@ -1203,10 +1268,13 @@ func TestRowShowsWorktreeParentResponsively(t *testing.T) {
 
 	wide := row(s, true, 100, true, "")
 	widePlain := ansi.Strip(strings.TrimSuffix(wide, "\n"))
-	for _, want := range []string{"┃", "◉", herdrSourceIcon + " herdr", "↳ feature", "worktree of project", "/tmp/project-feature"} {
+	for _, want := range []string{"┃", "◉", "↳ herdr", "feature", "worktree of project", "/tmp/project-feature"} {
 		if !strings.Contains(widePlain, want) {
 			t.Fatalf("wide worktree row missing %q:\n%q", want, wide)
 		}
+	}
+	if strings.Contains(widePlain, herdrSourceIcon) {
+		t.Fatalf("wide child row kept Herdr icon alongside worktree arrow:\n%q", widePlain)
 	}
 	if lipgloss.Width(widePlain) != 100 || strings.Contains(widePlain, "\n") {
 		t.Fatalf("wide row width=%d or wrapped:\n%q", lipgloss.Width(widePlain), widePlain)
@@ -1214,8 +1282,8 @@ func TestRowShowsWorktreeParentResponsively(t *testing.T) {
 
 	narrow := row(s, false, 48, false, "")
 	narrowPlain := ansi.Strip(strings.TrimSuffix(narrow, "\n"))
-	if !strings.Contains(narrowPlain, "[herdr]") || !strings.Contains(narrowPlain, "↳ feature") {
-		t.Fatalf("narrow worktree row missing source or marker: %q", narrowPlain)
+	if !strings.Contains(narrowPlain, "[↳ herdr]") || !strings.Contains(narrowPlain, "feature") || strings.Contains(narrowPlain, "↳ feature") {
+		t.Fatalf("narrow worktree row missing child type badge: %q", narrowPlain)
 	}
 	if strings.Contains(narrowPlain, "worktree of") || strings.Contains(narrowPlain, "/tmp/project-feature") {
 		t.Fatalf("narrow worktree row kept secondary context: %q", narrowPlain)
@@ -1233,7 +1301,7 @@ func TestRowPreservesWorktreeMarkerAtCompactBoundary(t *testing.T) {
 		Worktree:    model.WorktreeRelation{Linked: true, ParentWorkspaceName: "project"},
 	}
 	for _, showIcons := range []bool{false, true} {
-		for _, width := range []int{1, 4, 5, 10, 14, 15, 16} {
+		for _, width := range []int{1, 4, 5, 6, 10, 14, 15, 16} {
 			got := ansi.Strip(strings.TrimSuffix(row(s, true, width, showIcons, ""), "\n"))
 			if !strings.Contains(got, "↳") {
 				t.Fatalf("icons=%v width=%d missing marker: %q", showIcons, width, got)
@@ -1251,7 +1319,7 @@ func TestRowShowsGenericLinkedWorktreeWhenParentIsUnresolved(t *testing.T) {
 		Name:     "feature",
 		Worktree: model.WorktreeRelation{Linked: true},
 	}, false, 80, false, ""))
-	if !strings.Contains(got, "↳ feature") || !strings.Contains(got, "linked worktree") || strings.Contains(got, "worktree of") {
+	if !strings.Contains(got, "[↳ herdr]") || !strings.Contains(got, "feature") || !strings.Contains(got, "linked worktree") || strings.Contains(got, "worktree of") || strings.Contains(got, "↳ feature") {
 		t.Fatalf("unresolved worktree row=%q", got)
 	}
 }
@@ -1617,8 +1685,8 @@ func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
 	if got, want := sessionNames(m.list.Filtered), []string{"feature"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered sessions=%v want %v", got, want)
 	}
-	if rowText := ansi.Strip(m.listView(80, 1)); !strings.Contains(rowText, "↳ feature") || !strings.Contains(rowText, "worktree of parent") {
-		t.Fatalf("filtered child lost standalone context: %q", rowText)
+	if rowText := ansi.Strip(m.listView(80, 1)); !strings.Contains(rowText, "[↳ herdr]") || !strings.Contains(rowText, "feature") || !strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "├─") || strings.Contains(rowText, "└─") {
+		t.Fatalf("filtered child lost standalone context or kept an orphan branch: %q", rowText)
 	}
 }
 

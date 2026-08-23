@@ -123,19 +123,20 @@ var (
 var renderPreview = previewpkg.Render
 
 type Options struct {
-	Context               context.Context
-	Output                io.Writer
-	Prompt                string
-	Placeholder           string
-	ShowIcons             bool
-	HerdrThemeInherit     bool
-	HideLastWorkspace     bool
-	HideLastWorkspacePath bool
-	SeparatorAware        bool
-	DefaultPreviewCommand string
-	FZFCommand            string
-	RefreshAgentStatuses  func() (map[string]string, error)
-	CloseWorkspace        func(context.Context, string) error
+	Context                        context.Context
+	Output                         io.Writer
+	Prompt                         string
+	Placeholder                    string
+	ShowIcons                      bool
+	HerdrThemeInherit              bool
+	DisableWorktreeIconReplacement bool
+	HideLastWorkspace              bool
+	HideLastWorkspacePath          bool
+	SeparatorAware                 bool
+	DefaultPreviewCommand          string
+	FZFCommand                     string
+	RefreshAgentStatuses           func() (map[string]string, error)
+	CloseWorkspace                 func(context.Context, string) error
 	// ReloadPicker refreshes picker state after a workspace close. Its
 	// ReloadResult is consumed even when it returns an error: the
 	// last-workspace fields must always be valid (set LastWorkspaceUnknown
@@ -199,6 +200,7 @@ type teaModel struct {
 
 	defaultPreviewCommand   string
 	showIcons               bool
+	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
 	hideLastWorkspacePath   bool
 	refreshAgentStatuses    func() (map[string]string, error)
@@ -285,6 +287,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		showIcons:             opts.ShowIcons,
+		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
 		hideLastWorkspacePath: opts.HideLastWorkspacePath,
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
@@ -810,7 +813,8 @@ func (m teaModel) listView(width, visibleRows int) string {
 		for i := start; i < end; i++ {
 			selected := m.listFocused && !m.focusSmearActive && i == m.list.Selected
 			selectedRail := m.smear.headStyle().Render(m.smear.headGlyph + " ")
-			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.list.Query, selectedRail, m.agentSpinner.View()), "\n")
+			treePrefix := worktreeTreePrefix(m.list.Filtered, i)
+			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.replaceWorktreeIcon, m.list.Query, selectedRail, m.agentSpinner.View(), treePrefix), "\n")
 			if rail, age := m.smearRail(i); rail != "" {
 				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
 			}
@@ -1202,10 +1206,10 @@ func fixedVisualLines(text string, width, count int) string {
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
-	return rowWithRail(s, selected, width, showIcons, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0])
+	return rowWithRail(s, selected, width, showIcons, true, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0], "")
 }
 
-func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons bool, query, selectedRail, workingGlyph string) string {
+func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, replaceWorktreeIcon bool, query, selectedRail, workingGlyph, treePrefix string) string {
 	rail := "  "
 	if selected {
 		rail = selectedRail
@@ -1219,19 +1223,20 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	if statusGlyph != "" {
 		status = agentStatusStyle(s.AgentStatus).Render(statusGlyph + " ")
 	}
-	// status is always two cells (glyph plus space, or blanks), as is the
-	// worktree marker "↳ ".
+	// Status is always two cells: a glyph plus space, or two blanks.
 	fixedWidth := lipgloss.Width(rail) + 2
-	marker := ""
+	badgeText := sessionSourceBadge(s, showIcons, replaceWorktreeIcon)
 	badgeWidth := rowSourceWidth
-	if s.Worktree.Linked {
-		marker = worktreeMarkerStyle.Render("↳ ")
+	if s.Worktree.Linked && replaceWorktreeIcon {
 		if width <= fixedWidth+2 {
 			return compactWorktreeRow(rail, status, width, fixedWidth)
 		}
-		badgeWidth = min(rowSourceWidth, maxInt(0, width-fixedWidth-2-1))
+		badgeWidth = min(rowSourceWidth, maxInt(1, width-fixedWidth-1))
+		if badgeWidth < lipgloss.Width(badgeText) {
+			badgeText = "↳ herdr"
+		}
 	}
-	badge := sourceBadgeStyle(s.Source).Render(fitPlain(sourceBadge(s.Source, showIcons), badgeWidth))
+	badge := sessionSourceBadgeStyle(s).Render(fitPlain(badgeText, badgeWidth))
 	remaining := maxInt(1, width-fixedWidth-badgeWidth)
 	path := compactHome(s.Path)
 	if path == label {
@@ -1255,15 +1260,43 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons boo
 	if selected {
 		labelStyle = selectedLabelStyle
 	}
-	labelWidth := nameWidth
-	if marker != "" {
-		labelWidth = maxInt(1, labelWidth-2)
-	}
-	line := rail + status + badge + marker + highlightMatches(label, query, labelWidth, labelStyle)
+	tree := worktreeMarkerStyle.Render(treePrefix)
+	labelWidth := maxInt(1, nameWidth-lipgloss.Width(tree))
+	line := rail + status + badge + tree + highlightMatches(label, query, labelWidth, labelStyle)
 	if showSecondary {
 		line += "  " + renderSecondary(relation, path, query, secondaryWidth)
 	}
 	return fitLine(line, width) + "\n"
+}
+
+func worktreeTreePrefix(items []sessionmodel.Session, index int) string {
+	if index < 0 || index >= len(items) {
+		return ""
+	}
+	child := items[index]
+	parentID := child.Worktree.ParentWorkspaceID
+	if !child.Worktree.Linked || parentID == "" {
+		return ""
+	}
+	parentIndex := -1
+	for i, item := range items {
+		if item.Source == "herdr" && item.WorkspaceID == parentID {
+			parentIndex = i
+			break
+		}
+	}
+	if parentIndex < 0 || parentIndex >= index {
+		return ""
+	}
+	for i := parentIndex + 1; i < index; i++ {
+		if !items[i].Worktree.Linked || items[i].Worktree.ParentWorkspaceID != parentID {
+			return ""
+		}
+	}
+	if index+1 < len(items) && items[index+1].Worktree.Linked && items[index+1].Worktree.ParentWorkspaceID == parentID {
+		return "├─ "
+	}
+	return "└─ "
 }
 
 func compactWorktreeRow(rail, status string, width, fixedWidth int) string {
@@ -1340,6 +1373,23 @@ func sourceBadge(source string, showIcons bool) string {
 	default:
 		return "[" + source + "]"
 	}
+}
+
+func sessionSourceBadge(s sessionmodel.Session, showIcons, replaceWorktreeIcon bool) string {
+	if s.Source == "herdr" && s.Worktree.Linked && replaceWorktreeIcon {
+		if showIcons {
+			return "↳ herdr"
+		}
+		return "[↳ herdr]"
+	}
+	return sourceBadge(s.Source, showIcons)
+}
+
+func sessionSourceBadgeStyle(s sessionmodel.Session) lipgloss.Style {
+	if s.Source == "herdr" && s.Worktree.Linked {
+		return lipgloss.NewStyle().Foreground(violetColor).Bold(true)
+	}
+	return sourceBadgeStyle(s.Source)
 }
 
 func sourceBadgeStyle(source string) lipgloss.Style {
