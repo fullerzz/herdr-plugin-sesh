@@ -49,6 +49,11 @@ preview-changelog $version='':
     #!/usr/bin/env bash
     set -euo pipefail
 
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        echo "GITHUB_TOKEN is required for GitHub changelog metadata" >&2
+        exit 1
+    fi
+
     if [[ -n "$version" ]]; then
         mise exec -- git-cliff --tag "$version"
     else
@@ -77,6 +82,10 @@ release $tag:
     fi
     if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
         echo "Tag already exists: $tag" >&2
+        exit 1
+    fi
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        echo "GITHUB_TOKEN is required for GitHub changelog metadata" >&2
         exit 1
     fi
 

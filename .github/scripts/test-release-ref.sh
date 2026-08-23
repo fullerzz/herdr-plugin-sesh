@@ -141,6 +141,21 @@ done
 
 just_bin=$(mise which just)
 git_cliff_bin=$(mise which git-cliff)
+
+"$git_cliff_bin" --context --offline >"$tmp/changelog-context.json"
+sed 's/"github":{"contributors":\[\]}/"github":{"contributors":[{"username":"first-timer","pr_title":"First contribution","pr_number":79,"pr_labels":[],"is_first_time":true},{"username":"direct-contributor","pr_title":null,"pr_number":null,"pr_labels":[],"is_first_time":true}]}/g' \
+  "$tmp/changelog-context.json" >"$tmp/changelog-context-with-contributors.json"
+"$git_cliff_bin" --from-context "$tmp/changelog-context-with-contributors.json" \
+  --output "$tmp/rendered-changelog.md"
+if grep -Eq '.## v[0-9]' "$tmp/rendered-changelog.md"; then
+  echo 'first-time contributor entries must preserve the next release heading newline' >&2
+  exit 1
+fi
+if ! grep -Fxq '* @direct-contributor made their first contribution' "$tmp/rendered-changelog.md"; then
+  echo 'first-time contributor entries without a pull request must omit the PR suffix' >&2
+  exit 1
+fi
+
 release_tools="$tmp/release-tools"
 mkdir -p "$release_tools"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$release_tools/just"
@@ -156,6 +171,22 @@ printf '%s\n' \
   'exec "$RELEASE_TEST_GIT_CLIFF" "$@"' \
   >"$release_tools/mise"
 chmod +x "$release_tools/just" "$release_tools/mise"
+
+if preview_error=$(
+  cd "$repo_root"
+  env -u GITHUB_TOKEN \
+    GIT_CLIFF_OFFLINE=true \
+    PATH="$release_tools:$PATH" \
+    RELEASE_TEST_GIT_CLIFF="$git_cliff_bin" \
+    "$just_bin" preview-changelog 2>&1
+); then
+  echo 'changelog preview must require an authenticated GitHub metadata request' >&2
+  exit 1
+fi
+case "$preview_error" in
+  *'GITHUB_TOKEN is required for GitHub changelog metadata'*) ;;
+  *) echo "missing changelog preview token failed unclearly: $preview_error" >&2; exit 1 ;;
+esac
 
 setup_release_repo() {
   release_repo=$1
@@ -180,11 +211,32 @@ run_release_recipe() {
   release_repo=$1
   (
     cd "$release_repo"
-    PATH="$release_tools:$PATH" \
+    GITHUB_TOKEN=test-token \
+      GIT_CLIFF_OFFLINE=true \
+      PATH="$release_tools:$PATH" \
       RELEASE_TEST_GIT_CLIFF="$git_cliff_bin" \
       "$just_bin" --yes release v1.2.3
   )
 }
+
+missing_token_repo="$tmp/release-missing-token"
+missing_token_remote="$tmp/release-missing-token.git"
+setup_release_repo "$missing_token_repo" "$missing_token_remote"
+if missing_token_error=$(
+  cd "$missing_token_repo"
+  env -u GITHUB_TOKEN \
+    GIT_CLIFF_OFFLINE=true \
+    PATH="$release_tools:$PATH" \
+    RELEASE_TEST_GIT_CLIFF="$git_cliff_bin" \
+    "$just_bin" --yes release v1.2.3 2>&1
+); then
+  echo 'release must require an authenticated GitHub metadata request' >&2
+  exit 1
+fi
+case "$missing_token_error" in
+  *'GITHUB_TOKEN is required for GitHub changelog metadata'*) ;;
+  *) echo "missing release token failed unclearly: $missing_token_error" >&2; exit 1 ;;
+esac
 
 success_repo="$tmp/release-success"
 success_remote="$tmp/release-success.git"
