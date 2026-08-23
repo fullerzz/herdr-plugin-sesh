@@ -127,13 +127,13 @@ The native picker marks a linked Git worktree workspace with a purple
 immediately beneath its open parent workspace in both workspace and recent sort
 modes, matching Herdr's sidebar. With icons disabled, the label is `[↳ herdr]`.
 When the parent is visible, `├─` and `└─` branches reinforce the family in the
-workspace-name column. Wide layouts add `worktree of <parent>` and the worktree
-path when space permits; narrow layouts retain the purple type label. This is
+workspace-name column. Wide layouts show the worktree path in the secondary
+column when space permits; narrow layouts retain the purple type label. This is
 automatic and does not depend on `show_icons`. Set
 `picker.replace_worktree_icon = false` to retain the normal sheep icon or plain
 `[herdr]` label while keeping the other child-worktree cues. If Herdr reports a
-linked worktree but no single open parent can be resolved, the picker shows
-`linked worktree` without inventing or grouping under a parent.
+linked worktree but no single open parent can be resolved, the row remains
+ungrouped rather than inventing a parent.
 
 ## `[workspace_defaults]`
 

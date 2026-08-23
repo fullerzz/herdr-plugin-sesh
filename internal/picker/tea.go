@@ -1242,8 +1242,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 	if path == label {
 		path = ""
 	}
-	relation := worktreeDescription(s)
-	showSecondary := width >= rowPathMinWidth && (relation != "" || path != "")
+	showSecondary := width >= rowPathMinWidth && path != ""
 	nameWidth := remaining
 	secondaryWidth := 0
 	if showSecondary {
@@ -1264,7 +1263,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 	labelWidth := maxInt(1, nameWidth-lipgloss.Width(tree))
 	line := rail + status + badge + tree + highlightMatches(label, query, labelWidth, labelStyle)
 	if showSecondary {
-		line += "  " + renderSecondary(relation, path, query, secondaryWidth)
+		line += "  " + highlightMatches(path, query, secondaryWidth, pathStyle)
 	}
 	return fitLine(line, width) + "\n"
 }
@@ -1315,18 +1314,6 @@ func worktreeDescription(s sessionmodel.Session) string {
 		return "worktree of " + s.Worktree.ParentWorkspaceName
 	}
 	return "linked worktree"
-}
-
-func renderSecondary(relation, path, query string, width int) string {
-	if relation == "" {
-		return highlightMatches(path, query, width, pathStyle)
-	}
-	const separator = " · " // three cells
-	pathWidth := width - lipgloss.Width(relation) - 3
-	if path == "" || pathWidth < 8 {
-		return worktreeRelationStyle.Render(fitPlain(relation, width))
-	}
-	return worktreeRelationStyle.Render(relation+separator) + highlightMatches(path, query, pathWidth, pathStyle)
 }
 
 func highlightMatches(text, query string, width int, baseStyle lipgloss.Style) string {

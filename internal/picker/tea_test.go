@@ -332,8 +332,8 @@ func TestTeaModelCtrlXClearsClosedParentWhenReloadFails(t *testing.T) {
 		t.Fatalf("child=%#v ok=%v", child, ok)
 	}
 	rowText := ansi.Strip(row(child, false, 80, false, ""))
-	if !strings.Contains(rowText, "linked worktree") || strings.Contains(rowText, "worktree of parent") {
-		t.Fatalf("child row kept stale parent: %q", rowText)
+	if !strings.Contains(rowText, "[↳ herdr]") || strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "linked worktree") {
+		t.Fatalf("child row kept stale parent description or lost worktree badge: %q", rowText)
 	}
 }
 
@@ -1253,7 +1253,7 @@ func TestRowCompactsHomeAndNeverWraps(t *testing.T) {
 	}
 }
 
-func TestRowShowsWorktreeParentResponsively(t *testing.T) {
+func TestRowShowsWorktreePathWithoutParentDescription(t *testing.T) {
 	s := model.Session{
 		Source:      "herdr",
 		Name:        "feature",
@@ -1268,10 +1268,13 @@ func TestRowShowsWorktreeParentResponsively(t *testing.T) {
 
 	wide := row(s, true, 100, true, "")
 	widePlain := ansi.Strip(strings.TrimSuffix(wide, "\n"))
-	for _, want := range []string{"┃", "◉", "↳ herdr", "feature", "worktree of project", "/tmp/project-feature"} {
+	for _, want := range []string{"┃", "◉", "↳ herdr", "feature", "/tmp/project-feature"} {
 		if !strings.Contains(widePlain, want) {
 			t.Fatalf("wide worktree row missing %q:\n%q", want, wide)
 		}
+	}
+	if strings.Contains(widePlain, "worktree of") {
+		t.Fatalf("wide child row obscures its path with parent description:\n%q", widePlain)
 	}
 	if strings.Contains(widePlain, herdrSourceIcon) {
 		t.Fatalf("wide child row kept Herdr icon alongside worktree arrow:\n%q", widePlain)
@@ -1313,13 +1316,13 @@ func TestRowPreservesWorktreeMarkerAtCompactBoundary(t *testing.T) {
 	}
 }
 
-func TestRowShowsGenericLinkedWorktreeWhenParentIsUnresolved(t *testing.T) {
+func TestRowUsesBadgeWithoutDescriptionWhenWorktreeParentIsUnresolved(t *testing.T) {
 	got := ansi.Strip(row(model.Session{
 		Source:   "herdr",
 		Name:     "feature",
 		Worktree: model.WorktreeRelation{Linked: true},
 	}, false, 80, false, ""))
-	if !strings.Contains(got, "[↳ herdr]") || !strings.Contains(got, "feature") || !strings.Contains(got, "linked worktree") || strings.Contains(got, "worktree of") || strings.Contains(got, "↳ feature") {
+	if !strings.Contains(got, "[↳ herdr]") || !strings.Contains(got, "feature") || strings.Contains(got, "linked worktree") || strings.Contains(got, "worktree of") || strings.Contains(got, "↳ feature") {
 		t.Fatalf("unresolved worktree row=%q", got)
 	}
 }
@@ -1677,7 +1680,7 @@ func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
 func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
-		{Source: "herdr", Name: "feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}},
+		{Source: "herdr", Name: "feature", Path: "/tmp/feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}},
 	}, Options{})
 
 	m.list.Filter("feature")
@@ -1685,8 +1688,8 @@ func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
 	if got, want := sessionNames(m.list.Filtered), []string{"feature"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered sessions=%v want %v", got, want)
 	}
-	if rowText := ansi.Strip(m.listView(80, 1)); !strings.Contains(rowText, "[↳ herdr]") || !strings.Contains(rowText, "feature") || !strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "├─") || strings.Contains(rowText, "└─") {
-		t.Fatalf("filtered child lost standalone context or kept an orphan branch: %q", rowText)
+	if rowText := ansi.Strip(m.listView(80, 1)); !strings.Contains(rowText, "[↳ herdr]") || !strings.Contains(rowText, "feature") || !strings.Contains(rowText, "/tmp/feature") || strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "├─") || strings.Contains(rowText, "└─") {
+		t.Fatalf("filtered child lost standalone path or kept parent-only context: %q", rowText)
 	}
 }
 
