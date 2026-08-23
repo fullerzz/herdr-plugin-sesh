@@ -7,3 +7,5 @@ plans/
 scratch/
 mise.local.toml
 .envrc
+.venv/
+site/
