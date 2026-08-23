@@ -364,7 +364,10 @@ func applyHerdrTheme(tokens map[string]string) {
 	rebuildPickerStyles()
 }
 
-func ApplyHerdrThemeFromConfig() {
+func configureHerdrTheme(inherit bool) {
+	if !inherit {
+		return
+	}
 	name, custom := loadHerdrThemeConfig(herdrConfigPath())
 	applyHerdrTheme(resolveHerdrThemeTokens(name, custom))
 }

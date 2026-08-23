@@ -190,6 +190,7 @@ func writePrivateFileAtomic(path string, data []byte) error {
 func marshalNative(cfg Config) ([]byte, error) {
 	defaults := Default()
 	dirLength := cfg.DirLength
+	herdrThemeInherit := cfg.TUI.HerdrThemeInherit
 	showLastWorkspace := cfg.TUI.ShowLastWorkspace
 	showLastWorkspacePath := cfg.TUI.ShowLastWorkspacePath
 	n := nativeConfig{
@@ -202,6 +203,7 @@ func marshalNative(cfg Config) ([]byte, error) {
 		Naming: nativeNaming{PathComponents: &dirLength},
 		Picker: nativePicker{
 			ShowIcons:             cfg.TUI.ShowIcons,
+			HerdrThemeInherit:     &herdrThemeInherit,
 			ShowLastWorkspace:     &showLastWorkspace,
 			ShowLastWorkspacePath: &showLastWorkspacePath,
 			Prompt:                cfg.TUI.Prompt,

@@ -10,6 +10,7 @@ path_components = 1
 
 [picker]
 show_icons = true
+herdr_theme_inherit = true
 prompt = "Sesh> "
 placeholder = "Search workspaces"
 separator_aware = true

@@ -40,6 +40,7 @@ type SessionConfig struct {
 
 type TUIConfig struct {
 	ShowIcons             bool   `toml:"show_icons"`
+	HerdrThemeInherit     bool   `toml:"herdr_theme_inherit"`
 	ShowLastWorkspace     bool   `toml:"show_last_workspace"`
 	ShowLastWorkspacePath bool   `toml:"show_last_workspace_path"`
 	Prompt                string `toml:"prompt"`
@@ -62,6 +63,7 @@ func Default() Config {
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
 		TUI: TUIConfig{
 			DefaultSort:           DefaultWorkspaceSort,
+			HerdrThemeInherit:     true,
 			ShowLastWorkspace:     true,
 			ShowLastWorkspacePath: true,
 		},

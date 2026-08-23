@@ -200,6 +200,20 @@ func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
 	}
 }
 
+func TestLoadExplicitFalseHerdrThemeInheritOverridesImportedValue(t *testing.T) {
+	d := t.TempDir()
+	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nherdr_theme_inherit = true\n")
+	p := filepath.Join(d, "sesh.toml")
+	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nherdr_theme_inherit = false\n")
+	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.HerdrThemeInherit {
+		t.Fatal("herdr_theme_inherit = true, want false")
+	}
+}
+
 func TestLoadExplicitFalseShowLastWorkspacePathOverridesImportedValue(t *testing.T) {
 	d := t.TempDir()
 	mustWrite(t, filepath.Join(d, "extra.toml"), "[tui]\nshow_last_workspace_path = true\n")
@@ -225,6 +239,12 @@ func TestLoadExplicitFalseShowLastWorkspaceOverridesImportedValue(t *testing.T) 
 	}
 	if cfg.TUI.ShowLastWorkspace {
 		t.Fatal("show_last_workspace = true, want false")
+	}
+}
+
+func TestDefaultInheritsHerdrTheme(t *testing.T) {
+	if !Default().TUI.HerdrThemeInherit {
+		t.Fatal("herdr_theme_inherit default = false, want true")
 	}
 }
 

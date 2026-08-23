@@ -283,7 +283,7 @@ func TestHerdrThemePalettesAreComplete(t *testing.T) {
 	}
 }
 
-func TestApplyHerdrThemeFromConfigResolvesNamedTheme(t *testing.T) {
+func TestConfigureHerdrThemeRespectsInheritanceSetting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	content := "[theme]\nname = \"dracula\"\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -291,20 +291,36 @@ func TestApplyHerdrThemeFromConfigResolvesNamedTheme(t *testing.T) {
 	}
 	t.Setenv("HERDR_CONFIG_PATH", path)
 
-	savedSky, savedText := skyColor, textColor
-	t.Cleanup(func() {
-		skyColor, textColor = savedSky, savedText
-		rebuildPickerStyles()
+	t.Run("disabled keeps picker colors", func(t *testing.T) {
+		savedSky, savedText := skyColor, textColor
+		t.Cleanup(func() {
+			skyColor, textColor = savedSky, savedText
+			rebuildPickerStyles()
+		})
+
+		configureHerdrTheme(false)
+
+		if !reflect.DeepEqual(skyColor, savedSky) || !reflect.DeepEqual(textColor, savedText) {
+			t.Fatalf("colors changed while inheritance was disabled: sky=%v text=%v", skyColor, textColor)
+		}
 	})
 
-	ApplyHerdrThemeFromConfig()
+	t.Run("enabled resolves named theme", func(t *testing.T) {
+		savedSky, savedText := skyColor, textColor
+		t.Cleanup(func() {
+			skyColor, textColor = savedSky, savedText
+			rebuildPickerStyles()
+		})
 
-	if !reflect.DeepEqual(skyColor, lipgloss.Color("#bd93f9")) {
-		t.Errorf("skyColor = %v, want #bd93f9", skyColor)
-	}
-	if !reflect.DeepEqual(textColor, lipgloss.Color("#f8f8f2")) {
-		t.Errorf("textColor = %v, want #f8f8f2", textColor)
-	}
+		configureHerdrTheme(true)
+
+		if !reflect.DeepEqual(skyColor, lipgloss.Color("#bd93f9")) {
+			t.Errorf("skyColor = %v, want #bd93f9", skyColor)
+		}
+		if !reflect.DeepEqual(textColor, lipgloss.Color("#f8f8f2")) {
+			t.Errorf("textColor = %v, want #f8f8f2", textColor)
+		}
+	})
 }
 
 func TestRebuildPickerStylesTracksColorVars(t *testing.T) {

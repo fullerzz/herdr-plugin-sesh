@@ -112,6 +112,7 @@ type Options struct {
 	Prompt                string
 	Placeholder           string
 	ShowIcons             bool
+	HerdrThemeInherit     bool
 	HideLastWorkspace     bool
 	HideLastWorkspacePath bool
 	SeparatorAware        bool
@@ -140,6 +141,7 @@ type ReloadResult struct {
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
+	configureHerdrTheme(opts.HerdrThemeInherit)
 	var popts []tea.ProgramOption
 	if opts.Output != nil {
 		popts = append(popts, tea.WithOutput(opts.Output))

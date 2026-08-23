@@ -34,6 +34,7 @@ path_components = 2
 
 [picker]
 show_icons = true
+herdr_theme_inherit = true
 show_last_workspace = true
 show_last_workspace_path = true
 prompt = "P> "
@@ -75,7 +76,7 @@ tabs = ["git"]
 		SeparatorAware: true,
 		SortOrder:      []string{"config", "herdr"},
 		Blacklist:      []string{"^scratch$"},
-		TUI:            TUIConfig{ShowIcons: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
+		TUI:            TUIConfig{ShowIcons: true, HerdrThemeInherit: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
 		DefaultSessionConfig: DefaultSessionConfig{
 			StartupCommand: "make dev",
 			PreviewCommand: "ls {}",
@@ -106,8 +107,22 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := Default()
-	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
 		t.Fatalf("defaults lost: %#v", cfg)
+	}
+}
+
+func TestNativePickerCanDisableHerdrThemeInheritance(t *testing.T) {
+	cfg, err := loadNative(t, `version = 1
+
+[picker]
+herdr_theme_inherit = false
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.HerdrThemeInherit {
+		t.Fatal("herdr_theme_inherit = true, want false")
 	}
 }
 

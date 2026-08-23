@@ -232,8 +232,6 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return err
 	}
 	useFZF := *fzfPicker || strings.EqualFold(os.Getenv("HERDR_SESH_PICKER"), "fzf")
-	// Inherit Herdr's theme so both pickers render with its colors.
-	pickerpkg.ApplyHerdrThemeFromConfig()
 	var sessions, herdrWorkspaces []model.Session
 	if useFZF || *jsonOut {
 		sessions, err = a.collectAllowUnavailableHerdr(ctx, cfg, "")
@@ -257,6 +255,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		Prompt:                cfg.TUI.Prompt,
 		Placeholder:           cfg.TUI.Placeholder,
 		ShowIcons:             cfg.TUI.ShowIcons,
+		HerdrThemeInherit:     cfg.TUI.HerdrThemeInherit,
 		HideLastWorkspace:     !cfg.TUI.ShowLastWorkspace,
 		HideLastWorkspacePath: !cfg.TUI.ShowLastWorkspacePath,
 		SeparatorAware:        cfg.SeparatorAware,

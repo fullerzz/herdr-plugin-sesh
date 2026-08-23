@@ -190,6 +190,7 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 			Prompt                *string `toml:"prompt"`
 			Placeholder           *string `toml:"placeholder"`
 			ShowIcons             *bool   `toml:"show_icons"`
+			HerdrThemeInherit     *bool   `toml:"herdr_theme_inherit"`
 			ShowLastWorkspace     *bool   `toml:"show_last_workspace"`
 			ShowLastWorkspacePath *bool   `toml:"show_last_workspace_path"`
 			DefaultSort           *string `toml:"default_sort"`
@@ -224,6 +225,7 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 		probe.TUI.Prompt != nil,
 		probe.TUI.Placeholder != nil,
 		probe.TUI.ShowIcons != nil,
+		probe.TUI.HerdrThemeInherit != nil,
 		probe.TUI.ShowLastWorkspace != nil,
 		probe.TUI.ShowLastWorkspacePath != nil,
 		probe.TUI.DefaultSort != nil,
@@ -231,7 +233,7 @@ func loadInto(dst *Config, path string, seen map[string]bool, strict bool) error
 	return nil
 }
 
-func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet, showLastWorkspaceSet, showLastWorkspacePathSet, defaultSortSet bool) {
+func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet, showIconsSet, herdrThemeInheritSet, showLastWorkspaceSet, showLastWorkspacePathSet, defaultSortSet bool) {
 	if src.Cache {
 		dst.Cache = true
 	}
@@ -252,6 +254,9 @@ func merge(dst *Config, src Config, previewCommandSet, promptSet, placeholderSet
 	}
 	if showIconsSet {
 		dst.TUI.ShowIcons = src.TUI.ShowIcons
+	}
+	if herdrThemeInheritSet {
+		dst.TUI.HerdrThemeInherit = src.TUI.HerdrThemeInherit
 	}
 	if showLastWorkspaceSet {
 		dst.TUI.ShowLastWorkspace = src.TUI.ShowLastWorkspace
