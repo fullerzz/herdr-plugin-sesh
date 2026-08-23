@@ -1,0 +1,148 @@
+[
+  {
+    "version": "v2.0.0",
+    "message": null,
+    "commits": [
+      {
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "message": "add merge_commit flag to the context",
+        "body": null,
+        "footers": [],
+        "group": "<!-- 0 -->🚀 Features",
+        "breaking_description": null,
+        "breaking": false,
+        "scope": "commit",
+        "links": [],
+        "author": {
+          "name": "Test Author",
+          "email": "author@example.com",
+          "timestamp": 1767225600
+        },
+        "committer": {
+          "name": "Test Committer",
+          "email": "committer@example.com",
+          "timestamp": 1767225600
+        },
+        "conventional": true,
+        "merge_commit": false,
+        "statistics": {
+          "files_changed": 1,
+          "additions": 1,
+          "deletions": 0
+        },
+        "extra": null,
+        "github": {
+          "username": null,
+          "pr_title": null,
+          "pr_number": null,
+          "pr_labels": [],
+          "is_first_time": false
+        },
+        "gitlab": {
+          "username": null,
+          "pr_title": null,
+          "pr_number": null,
+          "pr_labels": [],
+          "is_first_time": false
+        },
+        "gitea": {
+          "username": null,
+          "pr_title": null,
+          "pr_number": null,
+          "pr_labels": [],
+          "is_first_time": false
+        },
+        "bitbucket": {
+          "username": null,
+          "pr_title": null,
+          "pr_number": null,
+          "pr_labels": [],
+          "is_first_time": false
+        },
+        "azure_devops": {
+          "username": null,
+          "pr_title": null,
+          "pr_number": null,
+          "pr_labels": [],
+          "is_first_time": false
+        },
+        "raw_message": "feat(commit): add merge_commit flag to the context",
+        "remote": {
+          "username": "orhun",
+          "pr_title": "feat(commit): add merge_commit flag to the context",
+          "pr_number": 389,
+          "pr_labels": [],
+          "is_first_time": false
+        }
+      }
+    ],
+    "commit_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "timestamp": 1767225600,
+    "previous": null,
+    "repository": null,
+    "commit_range": null,
+    "submodule_commits": {},
+    "statistics": null,
+    "extra": null,
+    "bump_type": null,
+    "github": {
+      "contributors": [
+        {
+          "username": "first-timer",
+          "pr_title": "First contribution",
+          "pr_number": 79,
+          "pr_labels": [],
+          "is_first_time": true
+        },
+        {
+          "username": "direct-contributor",
+          "pr_title": null,
+          "pr_number": null,
+          "pr_labels": [],
+          "is_first_time": true
+        }
+      ]
+    },
+    "gitlab": {
+      "contributors": []
+    },
+    "gitea": {
+      "contributors": []
+    },
+    "bitbucket": {
+      "contributors": []
+    },
+    "azure_devops": {
+      "contributors": []
+    }
+  },
+  {
+    "version": "v1.0.0",
+    "message": null,
+    "commits": [],
+    "commit_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "timestamp": 1767225600,
+    "previous": null,
+    "repository": null,
+    "commit_range": null,
+    "submodule_commits": {},
+    "statistics": null,
+    "extra": null,
+    "bump_type": null,
+    "github": {
+      "contributors": []
+    },
+    "gitlab": {
+      "contributors": []
+    },
+    "gitea": {
+      "contributors": []
+    },
+    "bitbucket": {
+      "contributors": []
+    },
+    "azure_devops": {
+      "contributors": []
+    }
+  }
+]
