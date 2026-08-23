@@ -146,10 +146,7 @@ done
 just_bin=$(mise which just)
 git_cliff_bin=$(mise which git-cliff)
 
-"$git_cliff_bin" --context --offline >"$tmp/changelog-context.json"
-sed 's/"github":{"contributors":\[\]}/"github":{"contributors":[{"username":"first-timer","pr_title":"First contribution","pr_number":79,"pr_labels":[],"is_first_time":true},{"username":"direct-contributor","pr_title":null,"pr_number":null,"pr_labels":[],"is_first_time":true}]}/g' \
-  "$tmp/changelog-context.json" >"$tmp/changelog-context-with-contributors.json"
-"$git_cliff_bin" --from-context "$tmp/changelog-context-with-contributors.json" \
+"$git_cliff_bin" --from-context "$repo_root/.github/scripts/testdata/changelog-context.json" \
   --output "$tmp/rendered-changelog.md"
 if grep -Eq '.## v[0-9]' "$tmp/rendered-changelog.md"; then
   echo 'first-time contributor entries must preserve the next release heading newline' >&2
@@ -157,6 +154,16 @@ if grep -Eq '.## v[0-9]' "$tmp/rendered-changelog.md"; then
 fi
 if ! grep -Fxq '* @direct-contributor made their first contribution' "$tmp/rendered-changelog.md"; then
   echo 'first-time contributor entries without a pull request must omit the PR suffix' >&2
+  exit 1
+fi
+if ! grep -Fq 'by @orhun in [#389](https://github.com/fullerzz/herdr-plugin-sesh/pull/389)' \
+  "$tmp/rendered-changelog.md"; then
+  echo 'commit pull request metadata must link to the pull request' >&2
+  exit 1
+fi
+if ! grep -Fq '@first-timer made their first contribution in [#79](https://github.com/fullerzz/herdr-plugin-sesh/pull/79)' \
+  "$tmp/rendered-changelog.md"; then
+  echo 'first-time contributor metadata must link to the pull request' >&2
   exit 1
 fi
 
