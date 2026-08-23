@@ -966,6 +966,19 @@ func TestWorktreeTreePrefixRequiresContiguousVisibleFamily(t *testing.T) {
 	}
 }
 
+func TestListViewKeepsWorktreeBranchWhenParentIsOffScreen(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}, Options{})
+	m.list.Selected = 1
+
+	view := ansi.Strip(m.listView(80, 1))
+	if !strings.Contains(view, "└─ child") {
+		t.Fatalf("off-screen parent hid the child relationship: %q", view)
+	}
+}
+
 func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
 	m := newTeaModel([]model.Session{{Source: "herdr", Name: "current", WorkspaceID: "current"}}, Options{LastWorkspaceID: "unavailable-workspace"})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
