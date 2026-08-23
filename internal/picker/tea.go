@@ -133,6 +133,7 @@ type Options struct {
 	HideLastWorkspace              bool
 	HideLastWorkspacePath          bool
 	SeparatorAware                 bool
+	HidePreview                    bool
 	DefaultPreviewCommand          string
 	FZFCommand                     string
 	RefreshAgentStatuses           func() (map[string]string, error)
@@ -199,6 +200,7 @@ type teaModel struct {
 	previewKey string
 
 	defaultPreviewCommand   string
+	hidePreview             bool
 	showIcons               bool
 	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
@@ -286,6 +288,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		input:                 input,
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
+		hidePreview:           opts.HidePreview,
 		showIcons:             opts.ShowIcons,
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
@@ -303,7 +306,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
-	if current, ok := list.Current(); ok {
+	if current, ok := list.Current(); ok && !m.hidePreview {
 		m.previewKey = sessionmodel.Key(current)
 		m.preview = "Loading preview..."
 	}
@@ -659,7 +662,10 @@ func (m teaModel) View() tea.View {
 	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
 	lines = append(lines, fitLine(input.View(), width), horizontalRule(width))
 
-	if previewWidth > 0 {
+	if m.hidePreview {
+		lines = append(lines, sectionStyle.Render("WORKSPACES"))
+		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(width, m.listOnlyBodyLines()), "\n"), "\n")...)
+	} else if previewWidth > 0 {
 		previewLines := m.previewBodyLines()
 		list := sectionStyle.Render("WORKSPACES") + "\n" + m.listView(listWidth, previewLines)
 		preview := m.previewView(previewWidth, previewLines)
@@ -677,6 +683,12 @@ func (m teaModel) View() tea.View {
 	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", sortMode))
 	if m.closeError != "" {
 		footer = emptyStyle.Render(m.closeError)
+	} else if m.hidePreview && m.closingWorkspaceID != "" {
+		status := "Closing workspace..."
+		if m.quitAfterWorkspaceClose {
+			status = "Cancelling workspace close..."
+		}
+		footer = emptyStyle.Render(status)
 	}
 	lines = append(lines,
 		horizontalRule(width),
@@ -847,6 +859,13 @@ func (m teaModel) previewBodyLines() int {
 	return lines
 }
 
+func (m teaModel) listOnlyBodyLines() int {
+	if m.height == 0 {
+		return defaultVisibleRows
+	}
+	return maxInt(1, m.height-pickerChromeRows-previewTitleRows)
+}
+
 func (m teaModel) stackedBodyLines() (int, int) {
 	if m.height == 0 {
 		return defaultVisibleRows, compactPreviewBody
@@ -970,6 +989,11 @@ func (m teaModel) previewTitle() string {
 }
 
 func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
+	if m.hidePreview {
+		m.previewKey = ""
+		m.preview = ""
+		return m, nil
+	}
 	current, ok := m.list.Current()
 	if !ok {
 		m.previewKey = ""
@@ -1021,7 +1045,9 @@ func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
 
 func (m teaModel) focusSmearDistance() int {
 	visibleRows := m.previewBodyLines()
-	if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
+	if m.hidePreview {
+		visibleRows = m.listOnlyBodyLines()
+	} else if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
 		visibleRows, _ = m.stackedBodyLines()
 	}
 	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)

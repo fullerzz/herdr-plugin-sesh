@@ -596,6 +596,17 @@ func TestPickerOptionsPropagateWorktreeIconReplacement(t *testing.T) {
 	}
 }
 
+func TestPickerOptionsPropagatePreviewVisibility(t *testing.T) {
+	cfg := config.Default()
+	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.HidePreview {
+		t.Fatal("default config hid native picker preview")
+	}
+	cfg.TUI.ShowPreview = false
+	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); !opts.HidePreview {
+		t.Fatal("show_preview=false was not propagated")
+	}
+}
+
 func TestPickerJSONCommand(t *testing.T) {
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}

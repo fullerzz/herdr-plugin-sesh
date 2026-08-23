@@ -39,7 +39,9 @@ type SessionConfig struct {
 }
 
 type TUIConfig struct {
-	ShowIcons             bool   `toml:"show_icons"`
+	ShowIcons bool `toml:"show_icons"`
+	// ShowPreview is native-only; the legacy Sesh schema has no equivalent setting.
+	ShowPreview           bool   `toml:"-"`
 	HerdrThemeInherit     bool   `toml:"herdr_theme_inherit"`
 	ReplaceWorktreeIcon   bool   `toml:"replace_worktree_icon"`
 	ShowLastWorkspace     bool   `toml:"show_last_workspace"`
@@ -64,6 +66,7 @@ func Default() Config {
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
 		TUI: TUIConfig{
 			DefaultSort:           DefaultWorkspaceSort,
+			ShowPreview:           true,
 			HerdrThemeInherit:     true,
 			ReplaceWorktreeIcon:   true,
 			ShowLastWorkspace:     true,
