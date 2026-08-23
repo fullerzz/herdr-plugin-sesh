@@ -34,6 +34,7 @@ path_components = 2
 
 [picker]
 show_icons = true
+show_preview = false
 herdr_theme_inherit = true
 show_last_workspace = true
 show_last_workspace_path = true
@@ -137,6 +138,28 @@ replace_worktree_icon = false
 	}
 	if cfg.TUI.ReplaceWorktreeIcon {
 		t.Fatal("replace_worktree_icon=true, want false")
+	}
+}
+
+func TestNativePickerCanDisablePreview(t *testing.T) {
+	cfg, err := loadNative(t, `version = 1
+
+[picker]
+show_preview = false
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.ShowPreview {
+		t.Fatal("show_preview=true, want false")
+	}
+
+	defaults, err := loadNative(t, "version = 1\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !defaults.TUI.ShowPreview {
+		t.Fatal("show_preview=false by default, want true")
 	}
 }
 

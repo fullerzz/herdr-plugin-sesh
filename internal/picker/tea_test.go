@@ -3,7 +3,9 @@ package picker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1392,6 +1394,52 @@ func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 	}
 }
 
+func TestTeaModelHidePreviewDoesNotRunInitialPreview(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "preview-ran")
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{
+		HidePreview:           true,
+		DefaultPreviewCommand: fmt.Sprintf("touch %q", marker),
+	})
+
+	executeTeaCommand(m.Init())
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("preview command ran while hidden: %v", err)
+	}
+}
+
+func TestTeaModelHidePreviewDoesNotRefreshAfterSelection(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
+	marker := filepath.Join(t.TempDir(), "preview-ran")
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{
+		HidePreview:           true,
+		DefaultPreviewCommand: fmt.Sprintf("touch %q", marker),
+	})
+	m.listFocused = true
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	executeTeaCommand(cmd)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("preview command refreshed while hidden: %v", err)
+	}
+}
+
+func executeTeaCommand(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return
+	}
+	for _, child := range batch {
+		if child != nil {
+			_ = child()
+		}
+	}
+}
+
 func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{})
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -1546,6 +1594,81 @@ func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
 	if strings.Contains(view, "│") {
 		t.Fatalf("narrow view should not contain a vertical pane divider:\n%s", view)
 	}
+}
+
+func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
+	items := make([]model.Session, 18)
+	for i := range items {
+		items[i] = model.Session{
+			Name: fmt.Sprintf("workspace-%02d", i),
+			Path: "/tmp/path-that-only-fits-after-preview-space-is-reclaimed",
+		}
+	}
+
+	for _, width := range []int{70, 120} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			m := newTeaModel(items, Options{HidePreview: true})
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 28})
+			m = updated.(teaModel)
+			view := ansi.Strip(m.View().Content)
+
+			if strings.Contains(view, "PREVIEW") || strings.Contains(view, "│") {
+				t.Fatalf("hidden preview still rendered at width %d:\n%s", width, view)
+			}
+			if got := lipgloss.Height(view); got != 28 {
+				t.Fatalf("view height=%d, want 28:\n%s", got, view)
+			}
+			if got := maxLineWidth(view); got != width {
+				t.Fatalf("view width=%d, want %d:\n%s", got, width, view)
+			}
+			if width == 70 && !strings.Contains(view, "workspace-17") {
+				t.Fatalf("narrow list did not reclaim preview rows:\n%s", view)
+			}
+			if width == 120 && !strings.Contains(view, items[0].Path) {
+				t.Fatalf("wide list did not give reclaimed width to the path column:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestTeaModelHidePreviewFitsShortNarrowTerminal(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{HidePreview: true})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 14})
+	m = updated.(teaModel)
+	view := ansi.Strip(m.View().Content)
+
+	if got := lipgloss.Height(view); got != 14 {
+		t.Fatalf("view height=%d, want 14:\n%s", got, view)
+	}
+}
+
+func TestTeaModelHidePreviewShowsWorkspaceCloseProgressInFooter(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{
+		HidePreview:    true,
+		CloseWorkspace: func(context.Context, string) error { return nil },
+	})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
+	m = updated.(teaModel)
+	m, _ = m.closeSelectedWorkspace()
+	t.Cleanup(func() {
+		if m.cancelWorkspaceClose != nil {
+			m.cancelWorkspaceClose()
+		}
+	})
+
+	if footer := renderedFooter(m); !strings.Contains(footer, "Closing workspace...") {
+		t.Fatalf("closing footer=%q", footer)
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = updated.(teaModel)
+	if footer := renderedFooter(m); !strings.Contains(footer, "Cancelling workspace close...") {
+		t.Fatalf("cancelling footer=%q", footer)
+	}
+}
+
+func renderedFooter(m teaModel) string {
+	lines := strings.Split(strings.TrimSuffix(ansi.Strip(m.View().Content), "\n"), "\n")
+	return lines[len(lines)-1]
 }
 
 func TestTeaModelSplitsPreviewAtTerminalThreshold(t *testing.T) {
