@@ -225,6 +225,23 @@ func TestResolveHerdrThemeTokens(t *testing.T) {
 			},
 		},
 		{
+			name:    "canonical light name resolves its own palette",
+			rawName: "catppuccin-latte",
+			contains: map[string]string{
+				"accent": "#1e66f5",
+				"text":   "#4c4f69",
+			},
+		},
+		{
+			name:    "invalid custom tokens fall back to the base palette",
+			rawName: "nord",
+			custom:  map[string]string{"accent": "#112233", "yellow": "bogus"},
+			contains: map[string]string{
+				"accent": "#112233",
+				"yellow": "#ebcb8b",
+			},
+		},
+		{
 			name:        "terminal theme has no hex base",
 			rawName:     "terminal",
 			custom:      map[string]string{"green": "#446688"},
@@ -258,6 +275,9 @@ func TestHerdrThemePalettesAreComplete(t *testing.T) {
 		for token, value := range palette {
 			if !validHexColor(value) {
 				t.Errorf("palette %q token %q = %q, want #RRGGBB hex", name, token, value)
+			}
+			if _, ok := herdrTokenRoles[token]; !ok {
+				t.Errorf("palette %q token %q is not a picker role", name, token)
 			}
 		}
 	}

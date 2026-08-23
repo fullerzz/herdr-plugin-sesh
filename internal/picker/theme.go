@@ -202,6 +202,7 @@ const defaultHerdrTheme = "catppuccin"
 var herdrThemeAliases = map[string]string{
 	"catppuccin":       "catppuccin",
 	"catppuccin-mocha": "catppuccin",
+	"catppuccin-latte": "catppuccin-latte",
 	"latte":            "catppuccin-latte",
 	"light":            "catppuccin-latte",
 	"terminal":         "terminal",
@@ -291,7 +292,7 @@ func resolveHerdrThemeTokens(name string, custom map[string]string) map[string]s
 		}
 	}
 	for token, value := range custom {
-		if value == "" {
+		if !validHexColor(value) {
 			continue
 		}
 		tokens[token] = value
