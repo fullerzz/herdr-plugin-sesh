@@ -50,7 +50,7 @@ test:
 
 # Run the application benchmark suite
 bench:
-    go test -bench=. ./internal/sources ./internal/picker
+    go test -run '^$' -bench=. -benchmem ./internal/sources ./internal/picker
 
 # Exercise release tag resolution against a same-named branch/tag collision
 test-release-ref:
