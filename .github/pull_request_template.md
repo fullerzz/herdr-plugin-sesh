@@ -14,6 +14,7 @@
 
 - [ ] `just check`
 - [ ] `just build`
+- [ ] `just build-docs` (documentation changes)
 
 ## User-facing changes
 

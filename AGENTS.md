@@ -7,15 +7,17 @@ This repository is a Go CLI plugin for Herdr named `herdr-sesh`.
 - `cmd/herdr-sesh/` contains the executable entry point.
 - `internal/app/` owns CLI routing and command behavior.
 - `internal/config/`, `internal/model/`, `internal/sources/`, `internal/state/`, and related packages hold domain logic.
-- `docs/` contains user-facing configuration and keybinding notes.
+- `docs/` contains the Markdown and assets for the Zensical documentation site.
+- `zensical.toml` defines the documentation navigation and theme; `pyproject.toml` and `uv.lock` pin its Python toolchain.
 - `testdata/` stores fixture TOML used by tests and smoke checks.
 - `herdr-plugin.toml` is the plugin manifest and release version source.
-- `bin/` is build output; do not treat generated binaries as source.
+- `bin/` and `site/` are generated build output; do not treat them as source.
 
 ## Build, Test, and Development Commands
 
-- `mise install` installs pinned tools from `mise.toml`: Go, `cargo-binstall`, `golangci-lint`, `gotestsum`, `just`, `fzf`, `bat`, `eza`, `git-cliff`, and `prek`.
+- `mise install` installs pinned tools from `mise.toml`: Go, `cargo-binstall`, `golangci-lint`, `gotestsum`, `just`, `fzf`, `bat`, `eza`, `git-cliff`, `prek`, and `uv`.
 - `just` lists available development recipes from the `justfile`.
+- `just build-docs` runs the same strict Zensical build used for GitHub Pages; `just serve-docs` previews the site locally.
 - `just fmt-check` checks formatting; `just fmt` applies it.
 - `just lint` runs `golangci-lint run ./...`.
 - `just test` runs the race-enabled test suite through `gotestsum`.
@@ -24,7 +26,7 @@ This repository is a Go CLI plugin for Herdr named `herdr-sesh`.
 - `./bin/herdr-sesh --version` smoke-tests the built CLI.
 - `./bin/herdr-sesh list --json --config testdata/sesh.toml` checks fixture-backed session listing.
 
-CI should run formatting, vet, tests, build, and CLI smoke checks; mirror those checks before opening a pull request. Prefer `just` recipes so local checks use pinned tools.
+CI should run formatting, vet, tests, build, and CLI smoke checks; mirror those checks before opening a pull request. Documentation changes should also pass `just build-docs`. Prefer `just` recipes so local checks use pinned tools.
 
 ## Coding Style & Naming Conventions
 
