@@ -31,6 +31,14 @@
     },
     {
       "matchManagers": [
+        "pep621"
+      ],
+      "groupName": "python dependencies",
+      "semanticCommitScope": "python-deps",
+      "semanticCommitType": "chore"
+    },
+    {
+      "matchManagers": [
         "mise"
       ],
       "groupName": "mise tools"

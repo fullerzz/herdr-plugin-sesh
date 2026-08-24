@@ -3,5 +3,5 @@ name = "herdr-sesh-docs"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    "zensical>=0.0.57",
+    "zensical==0.0.57",
 ]
