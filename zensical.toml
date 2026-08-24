@@ -20,6 +20,7 @@ link = "https://github.com/fullerzz/herdr-plugin-sesh"
 
 [project.theme]
 variant = "modern"
+favicon = "assets/favicon.svg"
 language = "en"
 features = [
   "content.code.copy",
