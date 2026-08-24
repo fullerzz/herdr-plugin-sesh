@@ -1,0 +1,71 @@
+[project]
+site_name = "herdr-sesh"
+site_description = "A Sesh-inspired workspace picker and session manager for Herdr."
+site_author = "Zach Fuller"
+site_url = "https://fullerzz.github.io/herdr-plugin-sesh/"
+repo_url = "https://github.com/fullerzz/herdr-plugin-sesh"
+repo_name = "fullerzz/herdr-plugin-sesh"
+edit_uri = "edit/main/docs/"
+copyright = "Copyright &copy; 2026 Zach Fuller"
+
+nav = [
+  { "Overview" = "index.md" },
+  { "Configuration" = "config.md" },
+  { "Keybindings" = "keybindings.md" },
+]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/fullerzz/herdr-plugin-sesh"
+
+[project.theme]
+variant = "modern"
+favicon = "assets/favicon.svg"
+language = "en"
+features = [
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.instant",
+  "navigation.path",
+  "navigation.top",
+  "search.highlight",
+  "toc.follow",
+]
+
+[project.theme.icon]
+logo = "material/sheep"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "deep purple"
+accent = "blue"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "deep purple"
+accent = "blue"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.superfences = {}
+pymdownx.tabbed.alternate_style = true
+pymdownx.keys = {}
+pymdownx.smartsymbols = {}

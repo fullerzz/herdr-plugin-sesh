@@ -29,11 +29,33 @@ just install-plugin
 
 Run `just` to see the other available development commands.
 
+## Documentation
+
+The published Zensical site is built from the Markdown and assets in `docs/`.
+Navigation and theme settings live in `zensical.toml`, while `pyproject.toml` and
+`uv.lock` pin the documentation toolchain.
+
+Preview documentation changes locally with:
+
+```bash
+just serve-docs
+```
+
+Before submitting documentation changes, run the same strict build used by the
+GitHub Pages workflow:
+
+```bash
+just build-docs
+```
+
+The generated `site/` directory is build output and should not be committed.
+
 ## Pull requests
 
 Before opening a pull request:
 
-1. Run `just check` and `just build`.
+1. Run `just check` and `just build`; also run `just build-docs` when changing
+   documentation, Zensical configuration, or the documentation toolchain.
 2. Keep commits and the pull request limited to one logical change.
 3. Use an imperative, Conventional Commit-style title such as `fix: handle an
    empty session path`.

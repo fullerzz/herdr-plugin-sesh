@@ -1,9 +1,12 @@
 # Keybindings
 
-Prerequisite: build and link this checkout, or install a published release with
-`herdr plugin install fullerzz/herdr-plugin-sesh --ref <release-tag>` using a
-tag from the [GitHub releases](https://github.com/fullerzz/herdr-plugin-sesh/releases)
-page.
+!!! note "Prerequisite"
+
+    Build and link this checkout, or install a published release with
+    `herdr plugin install fullerzz/herdr-plugin-sesh --ref <release-tag>` using
+    a tag from the
+    [GitHub releases](https://github.com/fullerzz/herdr-plugin-sesh/releases)
+    page.
 
 Example Herdr keybinding once the plugin is linked:
 
