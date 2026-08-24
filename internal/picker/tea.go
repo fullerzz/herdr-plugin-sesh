@@ -454,6 +454,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelWorkspaceClose = nil
 		if m.quitAfterWorkspaceClose {
 			m.quitAfterWorkspaceClose = false
+			m = m.cancelActivePreview()
 			return m, tea.Quit
 		}
 		if closed.closeErr != nil {

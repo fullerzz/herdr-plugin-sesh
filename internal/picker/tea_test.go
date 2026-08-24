@@ -1589,6 +1589,70 @@ func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
 	}
 }
 
+func TestTeaModelCancelsRestartedPreviewWhenQuittingPendingClose(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
+	closeStarted := make(chan struct{})
+	previewStarted := make(chan struct{})
+	previewCanceled := make(chan struct{})
+	oldPreview := renderPreview
+	renderPreview = func(ctx context.Context, _ model.Session, _ string) (string, error) {
+		close(previewStarted)
+		<-ctx.Done()
+		close(previewCanceled)
+		return "", ctx.Err()
+	}
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}, Options{
+		Context: context.Background(),
+		CloseWorkspace: func(ctx context.Context, _ string) error {
+			close(closeStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	m.listFocused = true
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	closeResult := make(chan tea.Msg, 1)
+	go func() { closeResult <- closeCmd() }()
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace close did not start")
+	}
+
+	updated, moveCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	go executeTeaCommand(moveCmd)
+	select {
+	case <-previewStarted:
+	case <-time.After(time.Second):
+		t.Fatal("navigation did not restart preview during close")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = updated.(teaModel)
+	updated, quitCmd := m.Update(<-closeResult)
+	m = updated.(teaModel)
+	if quitCmd == nil {
+		t.Fatal("pending close did not quit after cancellation")
+	}
+	if quitMsg := quitCmd(); quitMsg == nil {
+		t.Fatal("quit command returned nil")
+	} else if _, ok := quitMsg.(tea.QuitMsg); !ok {
+		t.Fatalf("quit command returned %T", quitMsg)
+	}
+	select {
+	case <-previewCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("restarted preview did not observe cancellation before quit")
+	}
+}
+
 func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1", AgentStatus: "working"},
