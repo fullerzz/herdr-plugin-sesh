@@ -88,19 +88,26 @@ tabs = ["git"]
 ## Legacy migration
 
 Legacy Sesh-compatible files keep loading for at least one released version.
-Run `herdr-sesh config migrate` to convert the active legacy file
-automatically. Conversion intentionally modernizes two defaults: when
+Run `config migrate` to convert the active legacy file automatically:
+
+=== "Local checkout"
+
+    ```bash
+    ./bin/herdr-sesh config migrate
+    ```
+
+=== "Installed plugin"
+
+    ```bash
+    "$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')/bin/herdr-sesh" config migrate
+    ```
+
+Conversion intentionally modernizes two defaults: when
 `tui.show_icons` was never set, the native config enables icons; and the former
 colorless default preview (`eza --icons=always -la {}`) is replaced by the
 color-forced runtime default. Explicit icon settings and custom preview commands
 are preserved. The command flattens any `import` files into a native
 `config.toml`, leaves the legacy file untouched, and prints the new path.
-
-For an installed plugin, invoke its managed binary directly:
-
-```bash
-"$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')/bin/herdr-sesh" config migrate
-```
 
 Pass `--config PATH` to convert a specific file. The command refuses to
 overwrite an existing native file unless `--force` is passed; even with
@@ -117,46 +124,50 @@ before deleting the legacy file. A legacy file already named `config.toml`
 cannot be migrated in place, even with `--force`; rename it first so migration
 can leave the source untouched.
 
-For manual migration, rename keys as follows; unlisted fields keep their
-meaning under the renamed table.
+??? info "Manual migration: legacy → native key reference"
 
-| Legacy key | Native key |
-| --- | --- |
-| `cache` | `list.cache` |
-| `strict_mode` | Removed; native decoding is always strict |
-| `import` | Unsupported in native version 1 |
-| `blacklist` | `list.blacklist` |
-| `sort_order` | `list.source_order` |
-| `dir_length` | `naming.path_components` |
-| `separator_aware` | `picker.separator_aware` |
-| `tui.show_icons` | `picker.show_icons` |
-| `tui.herdr_theme_inherit` | `picker.herdr_theme_inherit` |
-| `tui.replace_worktree_icon` | `picker.replace_worktree_icon` |
-| `tui.show_last_workspace` | `picker.show_last_workspace` |
-| `tui.show_last_workspace_path` | `picker.show_last_workspace_path` |
-| `tui.prompt` | `picker.prompt` |
-| `tui.placeholder` | `picker.placeholder` |
-| `tui.default_sort` | `picker.workspace_sort` |
-| `default_session.startup_command` | `workspace_defaults.startup` |
-| `default_session.preview_command` | `workspace_defaults.preview` |
-| `session[]` | `workspace[]` |
-| `session[].startup_command` | `workspace[].startup` |
-| `session[].preview_command` | `workspace[].preview` |
-| `session[].disable_startup_command` | `workspace[].disable_startup` |
-| `session[].windows` | `workspace[].tabs` |
-| `window[]` | `tab[]` |
-| `window[].startup_script` | `tab[].startup` |
-| `window[].path` | `tab[].path` |
-| `wildcard[]` | `rule[]` |
-| `wildcard[].pattern` | `rule[].path_glob` |
-| `wildcard[].startup_command` | `rule[].startup` |
-| `wildcard[].preview_command` | `rule[].preview` |
-| `wildcard[].disable_startup_command` | `rule[].disable_startup` |
-| `wildcard[].windows` | `rule[].tabs` |
+    Rename keys as follows; unlisted fields keep their meaning under the
+    renamed table.
 
-Note: a legacy file containing a stray top-level `version` key was silently
-ignored before and now selects strict native decoding, which fails hard on the
-remaining legacy keys. Remove the key or migrate the file.
+    | Legacy key | Native key |
+    | --- | --- |
+    | `cache` | `list.cache` |
+    | `strict_mode` | Removed; native decoding is always strict |
+    | `import` | Unsupported in native version 1 |
+    | `blacklist` | `list.blacklist` |
+    | `sort_order` | `list.source_order` |
+    | `dir_length` | `naming.path_components` |
+    | `separator_aware` | `picker.separator_aware` |
+    | `tui.show_icons` | `picker.show_icons` |
+    | `tui.herdr_theme_inherit` | `picker.herdr_theme_inherit` |
+    | `tui.replace_worktree_icon` | `picker.replace_worktree_icon` |
+    | `tui.show_last_workspace` | `picker.show_last_workspace` |
+    | `tui.show_last_workspace_path` | `picker.show_last_workspace_path` |
+    | `tui.prompt` | `picker.prompt` |
+    | `tui.placeholder` | `picker.placeholder` |
+    | `tui.default_sort` | `picker.workspace_sort` |
+    | `default_session.startup_command` | `workspace_defaults.startup` |
+    | `default_session.preview_command` | `workspace_defaults.preview` |
+    | `session[]` | `workspace[]` |
+    | `session[].startup_command` | `workspace[].startup` |
+    | `session[].preview_command` | `workspace[].preview` |
+    | `session[].disable_startup_command` | `workspace[].disable_startup` |
+    | `session[].windows` | `workspace[].tabs` |
+    | `window[]` | `tab[]` |
+    | `window[].startup_script` | `tab[].startup` |
+    | `window[].path` | `tab[].path` |
+    | `wildcard[]` | `rule[]` |
+    | `wildcard[].pattern` | `rule[].path_glob` |
+    | `wildcard[].startup_command` | `rule[].startup` |
+    | `wildcard[].preview_command` | `rule[].preview` |
+    | `wildcard[].disable_startup_command` | `rule[].disable_startup` |
+    | `wildcard[].windows` | `rule[].tabs` |
+
+!!! warning "Stray `version` keys in legacy files"
+
+    A legacy file containing a stray top-level `version` key was silently
+    ignored before and now selects strict native decoding, which fails hard on
+    the remaining legacy keys. Remove the key or migrate the file.
 
 Legacy `tmux_command`, `tmuxp`, and `tmuxinator` fields have no Herdr
 equivalent; native decoding rejects them like any other unknown key.
@@ -189,7 +200,7 @@ equivalent; native decoding rejects them like any other unknown key.
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 | `separator_aware` | Makes native and fzf picker searches treat `-`, `_`, `/`, and `.` as spaces. |
-| `workspace_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default) or `recent` (most recently visited first). Press `ctrl+r` to switch modes while the picker is open. |
+| `workspace_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default) or `recent` (most recently visited first). Press ++ctrl+r++ to switch modes while the picker is open. |
 | `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to disable the feature. |
 | `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
 

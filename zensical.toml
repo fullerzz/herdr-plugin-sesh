@@ -65,5 +65,6 @@ pymdownx.details = {}
 pymdownx.highlight.anchor_linenums = true
 pymdownx.highlight.pygments_lang_class = true
 pymdownx.superfences = {}
+pymdownx.tabbed.alternate_style = true
 pymdownx.keys = {}
 pymdownx.smartsymbols = {}

@@ -4,7 +4,7 @@ icon: lucide/panels-top-left
 
 # herdr-sesh
 
-A Sesh-inspired workspace picker and session manager for
+A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and session manager for
 [Herdr](https://herdr.dev/).
 
 ![Herdr Sesh picker demo](assets/picker-demo-42.gif){ loading=lazy width=700 }
@@ -26,8 +26,10 @@ Open the picker through the installed plugin action:
 herdr plugin action invoke fullerzz.sesh.open-picker
 ```
 
-Configuration is optional. Without a config file, the picker still includes
-running Herdr workspaces and zoxide results when zoxide is available.
+!!! note "Configuration is optional"
+
+    Without a config file, the picker still includes running Herdr workspaces
+    and zoxide results when zoxide is available.
 
 ## Documentation
 
