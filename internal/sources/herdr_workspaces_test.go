@@ -7,6 +7,36 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 )
 
+type countingHerdrClient struct {
+	*herdr.FakeClient
+
+	paneListCalls int
+}
+
+func (c *countingHerdrClient) PaneList(ctx context.Context, workspaceID string) ([]herdr.Pane, error) {
+	c.paneListCalls++
+	return c.FakeClient.PaneList(ctx, workspaceID)
+}
+
+func TestHerdrWorkspacesSkipsPaneListWhenWorkspaceHasPath(t *testing.T) {
+	client := &countingHerdrClient{FakeClient: &herdr.FakeClient{Workspaces: []herdr.Workspace{
+		{ID: "w-foreground", Label: "foreground", ForegroundCWD: "/tmp/foreground"},
+		{ID: "w-cwd", Label: "cwd", CWD: "/tmp/cwd"},
+	}}}
+
+	got, err := (HerdrWorkspaces{Client: client}).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.paneListCalls != 0 {
+		t.Fatalf("PaneList calls=%d, want 0", client.paneListCalls)
+	}
+	paths := got.Ordered()
+	if len(paths) != 2 || paths[0].Path != "/tmp/foreground" || paths[1].Path != "/tmp/cwd" {
+		t.Fatalf("sessions=%#v", paths)
+	}
+}
+
 func TestHerdrWorkspacesRelatesLinkedWorktreeToUniqueParent(t *testing.T) {
 	repo := "/repos/project/.git"
 	src := HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{
