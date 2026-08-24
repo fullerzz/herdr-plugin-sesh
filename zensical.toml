@@ -9,9 +9,9 @@ edit_uri = "edit/main/docs/"
 copyright = "Copyright &copy; 2026 Zach Fuller"
 
 nav = [
-    { "Overview" = "index.md" },
-    { "Configuration" = "config.md" },
-    { "Keybindings" = "keybindings.md" },
+  { "Overview" = "index.md" },
+  { "Configuration" = "config.md" },
+  { "Keybindings" = "keybindings.md" },
 ]
 
 [[project.extra.social]]
@@ -22,13 +22,13 @@ link = "https://github.com/fullerzz/herdr-plugin-sesh"
 variant = "modern"
 language = "en"
 features = [
-    "content.code.copy",
-    "navigation.footer",
-    "navigation.instant",
-    "navigation.path",
-    "navigation.top",
-    "search.highlight",
-    "toc.follow",
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.instant",
+  "navigation.path",
+  "navigation.top",
+  "search.highlight",
+  "toc.follow",
 ]
 
 [project.theme.icon]
@@ -65,3 +65,5 @@ pymdownx.details = {}
 pymdownx.highlight.anchor_linenums = true
 pymdownx.highlight.pygments_lang_class = true
 pymdownx.superfences = {}
+pymdownx.keys = {}
+pymdownx.smartsymbols = {}

@@ -7,6 +7,8 @@ icon: lucide/panels-top-left
 A Sesh-inspired workspace picker and session manager for
 [Herdr](https://herdr.dev/).
 
+![Herdr Sesh picker demo](assets/picker-demo-42.gif){ loading=lazy width=700 }
+
 `herdr-sesh` combines running Herdr workspaces, configured sessions, and
 zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command
