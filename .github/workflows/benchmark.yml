@@ -1,0 +1,135 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - mise.toml
+      - justfile
+      - .github/workflows/benchmark.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Compare benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout pull request merge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up mise
+        uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          cache: true
+          install: true
+
+      - name: Check out base revision
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git worktree add --detach "$RUNNER_TEMP/benchmark-base" "$BASE_SHA"
+
+      - name: Run base benchmarks
+        working-directory: ${{ runner.temp }}/benchmark-base
+        run: just bench 10 | tee "$RUNNER_TEMP/benchmark-base.txt"
+
+      - name: Run pull request benchmarks
+        run: just bench 10 | tee "$RUNNER_TEMP/benchmark-candidate.txt"
+
+      - name: Compare benchmark results
+        run: |
+          just bench-compare \
+            "$RUNNER_TEMP/benchmark-base.txt" \
+            "$RUNNER_TEMP/benchmark-candidate.txt" \
+            | tee "$RUNNER_TEMP/benchmark-comparison.txt"
+
+      - name: Prepare benchmark comment
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          awk -F '│' '
+            /^pkg: / {
+              pkg = $0
+              sub(/^pkg: github.com\/fullerzz\/herdr-plugin-sesh\/internal\//, "", pkg)
+            }
+            /│.*vs base/ {
+              metric = $2
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", metric)
+              next
+            }
+            /[+-][0-9]+(\.[0-9]+)?% \(p=/ {
+              printf "%s [%s]\n  %s\n", pkg, metric, $0
+            }
+          ' "$RUNNER_TEMP/benchmark-comparison.txt" \
+            > "$RUNNER_TEMP/benchmark-highlights.txt"
+
+          {
+            echo '<!-- benchmark-results -->'
+            echo '## 📊 Benchmark results'
+            echo
+            echo '| Revision | Commit |'
+            echo '| --- | --- |'
+            printf '| Base (<code>main</code>) | [<code>%s</code>](%s/commit/%s) |\n' \
+              "${BASE_SHA:0:7}" "$REPOSITORY_URL" "$BASE_SHA"
+            printf '| Pull request merge | [<code>%s</code>](%s/commit/%s) |\n' \
+              "${CANDIDATE_SHA:0:7}" "$REPOSITORY_URL" "$CANDIDATE_SHA"
+            echo
+            echo '### Statistically significant changes'
+            echo
+            if [[ -s "$RUNNER_TEMP/benchmark-highlights.txt" ]]; then
+              echo '```text'
+              cat "$RUNNER_TEMP/benchmark-highlights.txt"
+              echo '```'
+            else
+              echo 'No statistically significant changes detected.'
+            fi
+            echo
+            echo '<details>'
+            echo '<summary><strong>Full benchstat comparison</strong></summary>'
+            echo
+            echo '```text'
+            cat "$RUNNER_TEMP/benchmark-comparison.txt"
+            echo '```'
+            echo '</details>'
+            echo
+            echo '<sub>Lower is better for time and allocation metrics. Custom metric direction is defined by the benchmark suite.</sub>'
+          } > benchmark-comment.md
+          cat benchmark-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Find existing benchmark comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-includes: "<!-- benchmark-results -->"
+
+      - name: Create or update benchmark comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: benchmark-comment.md
+          edit-mode: replace
