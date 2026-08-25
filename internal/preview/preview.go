@@ -3,12 +3,14 @@ package preview
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -41,10 +43,26 @@ func runShell(ctx context.Context, command string) (string, error) {
 	defer cancel()
 	//nolint:gosec // preview commands are user-configured shell snippets by design.
 	c := exec.CommandContext(ctx, "sh", "-lc", command)
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	killProcessGroup := func() error {
+		if c.Process == nil {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	c.Cancel = killProcessGroup
+	c.WaitDelay = 250 * time.Millisecond
 	var out, errb bytes.Buffer
 	c.Stdout = &out
 	c.Stderr = &errb
 	err := c.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		_ = killProcessGroup()
+	}
 	if err != nil {
 		return out.String() + errb.String(), err
 	}

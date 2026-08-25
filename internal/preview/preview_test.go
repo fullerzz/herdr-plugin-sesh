@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
@@ -17,6 +18,110 @@ func TestRenderUsesPreviewCommand(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != "/tmp/has space" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRunShellCleansUpDescendantAfterShellExit(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	release := filepath.Join(dir, "release")
+	survived := filepath.Join(dir, "survived")
+	t.Setenv("READY_FILE", ready)
+	t.Setenv("RELEASE_FILE", release)
+	t.Setenv("SURVIVED_FILE", survived)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_, _ = runShell(ctx, `sh -c 'printf ready > "$READY_FILE"; while [ ! -e "$RELEASE_FILE" ]; do sleep 0.01; done; printf survived > "$SURVIVED_FILE"' &`)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("descendant process did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	returned := false
+	select {
+	case <-done:
+		returned = true
+	case <-time.After(time.Second):
+		t.Error("runShell remained blocked after its shell exited")
+	}
+	cancel()
+	if err := os.WriteFile(release, []byte("release"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !returned {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("runShell did not return after descendant cleanup")
+		}
+	}
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(survived); err == nil {
+			t.Fatal("descendant process survived shell exit and cancellation")
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRunShellCancellationKillsDescendantProcess(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	release := filepath.Join(dir, "release")
+	survived := filepath.Join(dir, "survived")
+	t.Setenv("READY_FILE", ready)
+	t.Setenv("RELEASE_FILE", release)
+	t.Setenv("SURVIVED_FILE", survived)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_, _ = runShell(ctx, `sh -c 'printf ready > "$READY_FILE"; while [ ! -e "$RELEASE_FILE" ]; do sleep 0.01; done; printf survived > "$SURVIVED_FILE"' & wait`)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("descendant process did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runShell remained blocked after cancellation")
+	}
+	if err := os.WriteFile(release, []byte("release"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(survived); err == nil {
+			t.Fatal("descendant process survived cancellation")
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
