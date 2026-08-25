@@ -4,6 +4,13 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - mise.toml
+      - justfile
+      - .github/workflows/benchmark.yml
 
 permissions:
   contents: read
