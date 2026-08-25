@@ -19,9 +19,15 @@ func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
 	if err != nil {
 		return out, err
 	}
-	panes, err := s.Client.PaneList(ctx, "")
-	if err != nil {
-		panes = nil
+	var panes []herdr.Pane
+	for _, workspace := range ws {
+		if workspace.ForegroundCWD == "" && workspace.CWD == "" {
+			panes, err = s.Client.PaneList(ctx, "")
+			if err != nil {
+				panes = nil
+			}
+			break
+		}
 	}
 	parentsByRepo := worktreeParentsByRepo(ws)
 	for _, w := range ws {
