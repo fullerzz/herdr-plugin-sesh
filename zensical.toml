@@ -12,6 +12,9 @@ nav = [
   { "Overview" = "index.md" },
   { "Configuration" = "config.md" },
   { "Keybindings" = "keybindings.md" },
+  { "Development" = [
+    { "Benchmarks" = "development/benchmarks.md" },
+  ] },
 ]
 
 [[project.extra.social]]

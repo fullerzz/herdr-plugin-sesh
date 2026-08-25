@@ -51,8 +51,8 @@ test:
 # Run the application benchmark suite
 bench count='1':
     @echo 'Unit commands/op better=lower assume=exact'
-    @echo 'Unit canceled/op better=higher assume=exact'
-    @echo 'Unit completed/op better=lower assume=exact'
+    @echo 'Unit canceled/op assume=exact'
+    @echo 'Unit completed/op assume=exact'
     go test -run '^$' -bench=. -benchmem -count={{count}} ./internal/sources ./internal/picker
 
 # Compare two saved benchmark runs
