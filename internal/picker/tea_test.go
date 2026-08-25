@@ -1461,6 +1461,7 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	firstCanceled := make(chan struct{})
 	secondStarted := make(chan struct{})
 	releaseSecond := make(chan struct{})
+	previewErr := make(chan error, 1)
 	oldPreview := renderPreview
 	renderPreview = func(ctx context.Context, s model.Session, _ string) (string, error) {
 		switch s.Name {
@@ -1474,8 +1475,9 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 			<-releaseSecond
 			return "web preview", nil
 		default:
-			t.Fatalf("unexpected preview for %q", s.Name)
-			return "", nil
+			err := fmt.Errorf("unexpected preview for %q", s.Name)
+			previewErr <- err
+			return "", err
 		}
 	}
 	t.Cleanup(func() { renderPreview = oldPreview })
@@ -1487,6 +1489,8 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	go func() { firstResult <- firstCmd() }()
 	select {
 	case <-firstStarted:
+	case err := <-previewErr:
+		t.Fatal(err)
 	case <-time.After(time.Second):
 		t.Fatal("first preview did not start")
 	}
@@ -1497,6 +1501,8 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	go func() { secondResult <- secondCmd() }()
 	select {
 	case <-secondStarted:
+	case err := <-previewErr:
+		t.Fatal(err)
 	case <-time.After(time.Second):
 		t.Fatal("replacement preview did not start")
 	}
