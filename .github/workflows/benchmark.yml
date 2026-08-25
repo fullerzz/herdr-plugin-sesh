@@ -23,6 +23,9 @@ jobs:
       contents: read
       pull-requests: write
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout pull request merge
