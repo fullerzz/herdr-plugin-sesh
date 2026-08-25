@@ -59,16 +59,54 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CANDIDATE_SHA: ${{ github.sha }}
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
+          awk -F '│' '
+            /^pkg: / {
+              pkg = $0
+              sub(/^pkg: github.com\/fullerzz\/herdr-plugin-sesh\/internal\//, "", pkg)
+            }
+            /│.*vs base/ {
+              metric = $2
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", metric)
+              next
+            }
+            /[+-][0-9]+(\.[0-9]+)?% \(p=/ {
+              printf "%s [%s]\n  %s\n", pkg, metric, $0
+            }
+          ' "$RUNNER_TEMP/benchmark-comparison.txt" \
+            > "$RUNNER_TEMP/benchmark-highlights.txt"
+
           {
             echo '<!-- benchmark-results -->'
-            echo '## Benchmark comparison'
+            echo '## 📊 Benchmark results'
             echo
-            printf 'Base: <code>%s</code> · Pull request: <code>%s</code>\n\n' \
-              "${BASE_SHA:0:7}" "${CANDIDATE_SHA:0:7}"
+            echo '| Revision | Commit |'
+            echo '| --- | --- |'
+            printf '| Base (<code>main</code>) | [<code>%s</code>](%s/commit/%s) |\n' \
+              "${BASE_SHA:0:7}" "$REPOSITORY_URL" "$BASE_SHA"
+            printf '| Pull request merge | [<code>%s</code>](%s/commit/%s) |\n' \
+              "${CANDIDATE_SHA:0:7}" "$REPOSITORY_URL" "$CANDIDATE_SHA"
+            echo
+            echo '### Statistically significant changes'
+            echo
+            if [[ -s "$RUNNER_TEMP/benchmark-highlights.txt" ]]; then
+              echo '```text'
+              cat "$RUNNER_TEMP/benchmark-highlights.txt"
+              echo '```'
+            else
+              echo 'No statistically significant changes detected.'
+            fi
+            echo
+            echo '<details>'
+            echo '<summary><strong>Full benchstat comparison</strong></summary>'
+            echo
             echo '```text'
             cat "$RUNNER_TEMP/benchmark-comparison.txt"
             echo '```'
+            echo '</details>'
+            echo
+            echo '<sub>Lower is better for time and allocation metrics. Custom metric direction is defined by the benchmark suite.</sub>'
           } > benchmark-comment.md
           cat benchmark-comment.md >> "$GITHUB_STEP_SUMMARY"
 
