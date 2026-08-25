@@ -49,8 +49,15 @@ test:
     gotestsum --format-icons=octicons --format=pkgname -- -race ./...
 
 # Run the application benchmark suite
-bench:
-    go test -run '^$' -bench=. -benchmem ./internal/sources ./internal/picker
+bench count='1':
+    @echo 'Unit commands/op better=lower assume=exact'
+    @echo 'Unit canceled/op better=higher assume=exact'
+    @echo 'Unit completed/op better=lower assume=exact'
+    go test -run '^$' -bench=. -benchmem -count={{count}} ./internal/sources ./internal/picker
+
+# Compare two saved benchmark runs
+bench-compare base candidate:
+    go tool benchstat "base={{base}}" "candidate={{candidate}}"
 
 # Exercise release tag resolution against a same-named branch/tag collision
 test-release-ref:
