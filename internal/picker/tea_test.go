@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
@@ -882,7 +883,7 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	m = updated.(teaModel)
-	updated, _ = m.Update(previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)())
+	updated, _ = m.Update(previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)())
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
 	for _, want := range []string{"herdr / sesh", "3 workspaces", "Find> ", "Search sessions", "LAST WORKSPACE · workspace-api  /tmp/workspace-api", "WORKSPACES", "PREVIEW · workspace-api · working", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview content", "enter select"} {
@@ -1387,7 +1388,7 @@ func TestPreviewTitleShowsWorktreeParentBeforeAgentStatus(t *testing.T) {
 
 func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
-	msg := previewCommand(m.previewKey, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)()
+	msg := previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)()
 	preview := msg.(previewMsg)
 	if got := strings.TrimSpace(preview.text); got != "preview:/tmp/api" {
 		t.Fatalf("preview=%q", preview.text)
@@ -1452,6 +1453,209 @@ func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	current, ok := m.list.Current()
 	if !ok || current.Name != "web" || m.previewKey != model.Key(current) {
 		t.Fatalf("current=%#v ok=%v previewKey=%q", current, ok, m.previewKey)
+	}
+}
+
+func TestTeaModelCancelsSupersededPreview(t *testing.T) {
+	firstStarted := make(chan struct{})
+	firstCanceled := make(chan struct{})
+	secondStarted := make(chan struct{})
+	releaseSecond := make(chan struct{})
+	previewErr := make(chan error, 1)
+	oldPreview := renderPreview
+	renderPreview = func(ctx context.Context, s model.Session, _ string) (string, error) {
+		switch s.Name {
+		case "api":
+			close(firstStarted)
+			<-ctx.Done()
+			close(firstCanceled)
+			return "", ctx.Err()
+		case "web":
+			close(secondStarted)
+			<-releaseSecond
+			return "web preview", nil
+		default:
+			err := fmt.Errorf("unexpected preview for %q", s.Name)
+			previewErr <- err
+			return "", err
+		}
+	}
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{Context: context.Background()})
+	m.previewKey = ""
+	m, firstCmd := m.refreshPreview()
+	firstResult := make(chan tea.Msg, 1)
+	go func() { firstResult <- firstCmd() }()
+	select {
+	case <-firstStarted:
+	case err := <-previewErr:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("first preview did not start")
+	}
+
+	m.list.Move(1)
+	m, secondCmd := m.refreshPreview()
+	secondResult := make(chan tea.Msg, 1)
+	go func() { secondResult <- secondCmd() }()
+	select {
+	case <-secondStarted:
+	case err := <-previewErr:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("replacement preview did not start")
+	}
+	select {
+	case <-firstCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("superseded preview did not observe cancellation")
+	}
+
+	close(releaseSecond)
+	updated, _ := m.Update(<-secondResult)
+	m = updated.(teaModel)
+	if m.preview != "web preview" {
+		t.Fatalf("preview=%q, want replacement result", m.preview)
+	}
+	<-firstResult
+}
+
+func TestTeaModelRejectsObsoleteSameKeyPreview(t *testing.T) {
+	oldPreview := renderPreview
+	renderPreview = func(_ context.Context, s model.Session, _ string) (string, error) {
+		return s.Name + " preview", nil
+	}
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	m.previewKey = ""
+	m, firstCmd := m.refreshPreview()
+	m.list.Move(1)
+	m, _ = m.refreshPreview()
+	m.list.Move(-1)
+	m, _ = m.refreshPreview()
+
+	updated, _ := m.Update(firstCmd())
+	m = updated.(teaModel)
+	if m.preview != "Loading preview..." {
+		t.Fatalf("preview=%q, want active request loading text", m.preview)
+	}
+}
+
+func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		advance func(teaModel) (teaModel, tea.Cmd)
+	}{
+		{
+			name: "quit",
+			advance: func(m teaModel) (teaModel, tea.Cmd) {
+				updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+				return updated.(teaModel), cmd
+			},
+		},
+		{
+			name: "no preview",
+			advance: func(m teaModel) (teaModel, tea.Cmd) {
+				m = m.filter("missing")
+				return m.refreshPreview()
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			started := make(chan struct{})
+			canceled := make(chan struct{})
+			oldPreview := renderPreview
+			renderPreview = func(ctx context.Context, _ model.Session, _ string) (string, error) {
+				close(started)
+				<-ctx.Done()
+				close(canceled)
+				return "", ctx.Err()
+			}
+			t.Cleanup(func() { renderPreview = oldPreview })
+
+			m := newTeaModel([]model.Session{{Name: "api"}}, Options{Context: context.Background()})
+			m.previewKey = ""
+			m, previewCmd := m.refreshPreview()
+			go previewCmd()
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("preview did not start")
+			}
+
+			_, _ = tt.advance(m)
+			select {
+			case <-canceled:
+			case <-time.After(time.Second):
+				t.Fatal("preview did not observe cancellation")
+			}
+		})
+	}
+}
+
+func TestTeaModelCancelsRestartedPreviewWhenQuittingPendingClose(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
+	closeStarted := make(chan struct{})
+	previewStarted := make(chan struct{})
+	previewCanceled := make(chan struct{})
+	oldPreview := renderPreview
+	renderPreview = func(ctx context.Context, _ model.Session, _ string) (string, error) {
+		close(previewStarted)
+		<-ctx.Done()
+		close(previewCanceled)
+		return "", ctx.Err()
+	}
+	t.Cleanup(func() { renderPreview = oldPreview })
+
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}, Options{
+		Context: context.Background(),
+		CloseWorkspace: func(ctx context.Context, _ string) error {
+			close(closeStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	m.listFocused = true
+	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	closeResult := make(chan tea.Msg, 1)
+	go func() { closeResult <- closeCmd() }()
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace close did not start")
+	}
+
+	updated, moveCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	go executeTeaCommand(moveCmd)
+	select {
+	case <-previewStarted:
+	case <-time.After(time.Second):
+		t.Fatal("navigation did not restart preview during close")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = updated.(teaModel)
+	updated, quitCmd := m.Update(<-closeResult)
+	m = updated.(teaModel)
+	if quitCmd == nil {
+		t.Fatal("pending close did not quit after cancellation")
+	}
+	if quitMsg := quitCmd(); quitMsg == nil {
+		t.Fatal("quit command returned nil")
+	} else if _, ok := quitMsg.(tea.QuitMsg); !ok {
+		t.Fatalf("quit command returned %T", quitMsg)
+	}
+	select {
+	case <-previewCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("restarted preview did not observe cancellation before quit")
 	}
 }
 

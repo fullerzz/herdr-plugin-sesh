@@ -196,8 +196,12 @@ type teaModel struct {
 	reduceMotion        bool
 	smear               smearPreset
 
-	preview    string
-	previewKey string
+	preview              string
+	previewKey           string
+	previewParentContext context.Context
+	previewContext       context.Context
+	cancelPreview        context.CancelFunc
+	previewRequestID     uint64
 
 	defaultPreviewCommand   string
 	hidePreview             bool
@@ -222,8 +226,9 @@ type teaModel struct {
 }
 
 type previewMsg struct {
-	key  string
-	text string
+	key       string
+	requestID uint64
+	text      string
 }
 
 type statusRefreshTickMsg struct{}
@@ -303,12 +308,12 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		closeWorkspace:        opts.CloseWorkspace,
 		reloadPicker:          opts.ReloadPicker,
 		workspaceCloseContext: closeContext,
+		previewParentContext:  closeContext,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
 	if current, ok := list.Current(); ok && !m.hidePreview {
-		m.previewKey = sessionmodel.Key(current)
-		m.preview = "Loading preview..."
+		m, _ = m.startPreview(current)
 	}
 	return m
 }
@@ -316,7 +321,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 func (m teaModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
-		cmds = append(cmds, previewCommand(m.previewKey, current, m.defaultPreviewCommand))
+		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand))
 	}
 	if m.refreshAgentStatuses != nil {
 		cmds = append(cmds, scheduleStatusRefresh(), m.agentSpinner.Tick)
@@ -436,7 +441,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.smearTick()
 	}
 	if preview, ok := msg.(previewMsg); ok {
-		if preview.key == m.previewKey {
+		if preview.requestID == m.previewRequestID && preview.key == m.previewKey {
 			m.preview = preview.text
 		}
 		return m, nil
@@ -449,6 +454,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelWorkspaceClose = nil
 		if m.quitAfterWorkspaceClose {
 			m.quitAfterWorkspaceClose = false
+			m = m.cancelActivePreview()
 			return m, tea.Quit
 		}
 		if closed.closeErr != nil {
@@ -521,6 +527,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.preview = "Cancelling workspace close..."
 			return m, nil
 		}
+		m = m.cancelActivePreview()
 		return m, tea.Quit
 	case "enter":
 		if m.closingWorkspaceID != "" {
@@ -530,6 +537,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.choice = choice
 			m.chosen = true
 		}
+		m = m.cancelActivePreview()
 		return m, tea.Quit
 	case "up", "ctrl+p", "ctrl+k":
 		if !m.listFocused {
@@ -579,6 +587,7 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	}
 	m.closingWorkspaceID = current.WorkspaceID
 	m.closeError = ""
+	m = m.cancelActivePreview()
 	m.previewKey = ""
 	m.preview = "Closing workspace..."
 	closeCtx, cancel := context.WithCancel(m.workspaceCloseContext)
@@ -990,12 +999,14 @@ func (m teaModel) previewTitle() string {
 
 func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 	if m.hidePreview {
+		m = m.cancelActivePreview()
 		m.previewKey = ""
 		m.preview = ""
 		return m, nil
 	}
 	current, ok := m.list.Current()
 	if !ok {
+		m = m.cancelActivePreview()
 		m.previewKey = ""
 		m.preview = "No preview available"
 		return m, nil
@@ -1004,9 +1015,27 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 	if key == m.previewKey {
 		return m, nil
 	}
-	m.previewKey = key
+	return m.startPreview(current)
+}
+
+func (m teaModel) cancelActivePreview() teaModel {
+	if m.cancelPreview != nil {
+		m.cancelPreview()
+		m.cancelPreview = nil
+	}
+	m.previewRequestID++
+	return m
+}
+
+//nolint:contextcheck // Bubble Tea persists the caller context on the model between messages.
+func (m teaModel) startPreview(s sessionmodel.Session) (teaModel, tea.Cmd) {
+	m = m.cancelActivePreview()
+	ctx, cancel := context.WithCancel(m.previewParentContext)
+	m.previewContext = ctx
+	m.cancelPreview = cancel
+	m.previewKey = sessionmodel.Key(s)
 	m.preview = "Loading preview..."
-	return m, previewCommand(key, current, m.defaultPreviewCommand)
+	return m, previewCommand(ctx, m.previewKey, m.previewRequestID, s, m.defaultPreviewCommand)
 }
 
 func (m teaModel) focusList() (teaModel, tea.Cmd) {
@@ -1185,9 +1214,9 @@ func overlayCell(line string, column int, cell string, width int) string {
 	return fitLine(ansi.Cut(line, 0, column)+cell+ansi.Cut(line, column+1, width), width)
 }
 
-func previewCommand(key string, s sessionmodel.Session, defaultPreviewCommand string) tea.Cmd {
+func previewCommand(ctx context.Context, key string, requestID uint64, s sessionmodel.Session, defaultPreviewCommand string) tea.Cmd {
 	return func() tea.Msg {
-		text, err := renderPreview(context.Background(), s, defaultPreviewCommand)
+		text, err := renderPreview(ctx, s, defaultPreviewCommand)
 		if err != nil {
 			text = err.Error()
 		}
@@ -1195,7 +1224,7 @@ func previewCommand(key string, s sessionmodel.Session, defaultPreviewCommand st
 		if text == "" {
 			text = "No preview available"
 		}
-		return previewMsg{key: key, text: text}
+		return previewMsg{key: key, requestID: requestID, text: text}
 	}
 }
 
