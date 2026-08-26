@@ -22,7 +22,8 @@ tabs.
 - Focus an existing workspace or create one from a configured session or
   directory.
 - Apply startup commands, previews, and named Herdr tabs to new workspaces.
-- Filter, sort, deduplicate, and optionally cache session results.
+- Filter, deduplicate, and optionally cache session results, with native
+  [workspace, recent, and agent-priority sorting](docs/config.md#picker).
 - Jump directly to the previously focused workspace.
 - Clone a Git repository and connect to it in one command.
 - Use the built-in picker by default or opt into the experimental fzf picker.

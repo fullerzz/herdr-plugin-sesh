@@ -60,7 +60,7 @@ replace_worktree_icon = true
 prompt = "Sesh> "
 placeholder = "Search workspaces"
 separator_aware = true
-workspace_sort = "recent"
+workspace_sort = "agent"
 show_last_workspace = true
 show_last_workspace_path = false
 
@@ -145,7 +145,7 @@ can leave the source untouched.
     | `tui.show_last_workspace_path` | `picker.show_last_workspace_path` |
     | `tui.prompt` | `picker.prompt` |
     | `tui.placeholder` | `picker.placeholder` |
-    | `tui.default_sort` | `picker.workspace_sort` |
+    | `tui.default_sort` | `picker.workspace_sort` (`workspace`, `recent`, or `agent`) |
     | `default_session.startup_command` | `workspace_defaults.startup` |
     | `default_session.preview_command` | `workspace_defaults.preview` |
     | `session[]` | `workspace[]` |
@@ -200,7 +200,7 @@ equivalent; native decoding rejects them like any other unknown key.
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
 | `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
 | `separator_aware` | Makes native and fzf picker searches treat `-`, `_`, `/`, and `.` as spaces. |
-| `workspace_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default) or `recent` (most recently visited first). Press ++ctrl+r++ to switch modes while the picker is open. |
+| `workspace_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default), `recent` (most recently visited first), or `agent` (agent-status priority). Press ++ctrl+r++ to cycle `workspace` → `recent` → `agent` while the picker is open. This setting does not affect fzf or JSON output. |
 | `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to disable the feature. |
 | `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
 
@@ -218,6 +218,15 @@ instantaneous without drawing any preset's trail.
 Open Herdr workspaces show the agent state reported by Herdr: an animated amber
 Jump spinner (`⢄⢂⢁⡁⡈⡐⡠`) while working, red `◉` when blocked, green `✓` when idle,
 and teal `●` when done. Workspaces with an unknown state have no indicator.
+Herdr calls an actively running agent `working`.
+
+The native picker's `agent` sort mode orders recognized states as blocked →
+done → working → idle, followed by workspaces with no agent or an unknown
+state. Ties retain Herdr's original workspace order, including unrecognized
+future states. Live status refreshes update this order without changing the
+selected workspace. Sorting only rearranges Herdr rows within their configured
+source-order slots; it does not move them ahead of `config`, `zoxide`, or `dir`
+rows when `list.source_order` puts those sources first.
 
 ### Picker colors
 
@@ -261,8 +270,10 @@ overrides.
 
 The native picker marks a linked Git worktree workspace with a purple
 `↳ herdr` type label, replacing the normal Herdr sheep icon, and groups it
-immediately beneath its open parent workspace in both workspace and recent sort
-modes, matching Herdr's sidebar. With icons disabled, the label is `[↳ herdr]`.
+immediately beneath its open parent workspace in workspace, recent, and agent
+sort modes, matching Herdr's sidebar. In agent mode, the highest-priority status
+on any family member ranks the whole family; the parent remains first and its
+children follow in agent-priority order. With icons disabled, the label is `[↳ herdr]`.
 When the parent is visible, `├─` and `└─` branches reinforce the family in the
 workspace-name column. Wide layouts show the worktree path in the secondary
 column when space permits; narrow layouts retain the purple type label. This is
