@@ -149,7 +149,6 @@ type Options struct {
 	// metadata" while an empty slice means "no workspaces".
 	ReloadPicker         func(context.Context) (ReloadResult, error)
 	RecentWorkspaceIDs   []string
-	RecentWorkspaceSort  bool
 	WorkspaceSort        string
 	LastWorkspaceID      string
 	LastWorkspaceUnknown bool
@@ -268,9 +267,6 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	workspaceOrder := herdrWorkspaceIDs(items)
 	items = append([]sessionmodel.Session(nil), items...)
 	workspaceSort := normalizeWorkspaceSort(opts.WorkspaceSort)
-	if opts.WorkspaceSort == "" && opts.RecentWorkspaceSort {
-		workspaceSort = workspaceSortRecent
-	}
 	initialOrder := workspaceOrder
 	switch workspaceSort {
 	case workspaceSortRecent:

@@ -113,6 +113,16 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 	}
 }
 
+func TestNativePickerAcceptsAgentWorkspaceSort(t *testing.T) {
+	cfg, err := loadNative(t, "version = 1\n[picker]\nworkspace_sort = \"agent\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.DefaultSort != "agent" {
+		t.Fatalf("workspace sort = %q, want agent", cfg.TUI.DefaultSort)
+	}
+}
+
 func TestNativePickerCanDisableHerdrThemeInheritance(t *testing.T) {
 	cfg, err := loadNative(t, `version = 1
 
@@ -199,7 +209,7 @@ func TestNativeFailures(t *testing.T) {
 		"unknown nested field": {"version = 1\n[picker]\ntheme = \"dark\"\n", "theme"},
 		"legacy key rejected":  {"version = 1\nstrict_mode = true\n", "strict_mode"},
 		"import rejected":      {"version = 1\nimport = [\"x.toml\"]\n", "import"},
-		"bad sort":             {"version = 1\n[picker]\nworkspace_sort = \"newest\"\n", "workspace_sort"},
+		"bad sort":             {"version = 1\n[picker]\nworkspace_sort = \"newest\"\n", "picker.workspace_sort: must be \"workspace\" or \"recent\" or \"agent\""},
 		"bad path components":  {"version = 1\n[naming]\npath_components = 0\n", "path_components"},
 		"unknown source":       {"version = 1\n[list]\nsource_order = [\"tmux\"]\n", "source_order"},
 		"duplicate source":     {"version = 1\n[list]\nsource_order = [\"dir\", \"dir\"]\n", "source_order"},

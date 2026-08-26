@@ -84,8 +84,8 @@ func decodeLegacy(cfg *Config, path string, strict bool) error {
 		return err
 	}
 	attachDefaults(cfg)
-	if cfg.TUI.DefaultSort != "workspace" && cfg.TUI.DefaultSort != "recent" {
-		return fmt.Errorf("load %s: tui.default_sort must be \"workspace\" or \"recent\"", path)
+	if cfg.TUI.DefaultSort != "workspace" && cfg.TUI.DefaultSort != "recent" && cfg.TUI.DefaultSort != "agent" {
+		return fmt.Errorf("load %s: tui.default_sort must be \"workspace\", \"recent\", or \"agent\"", path)
 	}
 	return nil
 }

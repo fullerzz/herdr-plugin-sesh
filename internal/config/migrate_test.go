@@ -178,6 +178,16 @@ func migrateAndRead(t *testing.T, legacyBody string) (string, Config) {
 	return string(data), cfg
 }
 
+func TestMigratePreservesAgentWorkspaceSort(t *testing.T) {
+	text, cfg := migrateAndRead(t, "[tui]\ndefault_sort = \"agent\"\n")
+	if !strings.Contains(text, "workspace_sort") {
+		t.Fatalf("agent workspace sort missing from migrated config:\n%s", text)
+	}
+	if cfg.TUI.DefaultSort != "agent" {
+		t.Fatalf("workspace sort = %q, want agent", cfg.TUI.DefaultSort)
+	}
+}
+
 func TestMigrateEmitsShowIconsExplicitly(t *testing.T) {
 	t.Run("explicit true survives", func(t *testing.T) {
 		text, cfg := migrateAndRead(t, "[tui]\nshow_icons = true\n")

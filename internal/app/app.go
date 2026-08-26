@@ -212,6 +212,7 @@ func pickerOptionsFromConfig(ctx context.Context, output io.Writer, cfg config.C
 		SeparatorAware:                 cfg.SeparatorAware,
 		HidePreview:                    !cfg.TUI.ShowPreview,
 		DefaultPreviewCommand:          cfg.DefaultSessionConfig.PreviewCommand,
+		WorkspaceSort:                  cfg.TUI.DefaultSort,
 	}
 }
 
@@ -280,7 +281,6 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			a.warnf("ignoring workspace history: %v", historyErr)
 		}
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
-		pickOpts.RecentWorkspaceSort = cfg.TUI.DefaultSort == "recent"
 		if cfg.TUI.ShowLastWorkspace {
 			pickOpts.HerdrWorkspaces = herdrWorkspaces
 			lastWorkspaceID, _, lastWorkspaceErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), currentWorkspaceID)
