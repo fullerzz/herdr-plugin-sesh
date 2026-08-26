@@ -1,3 +1,69 @@
+## v0.10.0 (2026-08-26)
+
+### 🚀 Features
+
+- feat: improve linked worktree rows in native picker by @fullerzz in [#82](https://github.com/fullerzz/herdr-plugin-sesh/pull/82) ([b4f6a1e](https://github.com/fullerzz/herdr-plugin-sesh/commit/b4f6a1e2e931eeea6bd986e121d3be61f5ec216b))
+
+- feat(picker): allow disabling native preview by @fullerzz in [#86](https://github.com/fullerzz/herdr-plugin-sesh/pull/86) ([41928d1](https://github.com/fullerzz/herdr-plugin-sesh/commit/41928d1bd2faa9a712a55fa4bc3606f4841ec3c9))
+
+- feat(picker): add agent workspace sort mode by @fullerzz in [#94](https://github.com/fullerzz/herdr-plugin-sesh/pull/94) ([496a2d6](https://github.com/fullerzz/herdr-plugin-sesh/commit/496a2d677101d5d7e2b69444613443f3f343b477))
+
+- feat(config): support agent workspace sort by @fullerzz in [#95](https://github.com/fullerzz/herdr-plugin-sesh/pull/95) ([5350791](https://github.com/fullerzz/herdr-plugin-sesh/commit/5350791379021257b307e903b4e8dc31d12c8ce5))
+
+
+
+### 🐛 Bug Fixes
+
+- fix(go-deps): update module charm.land/bubbles/v2 to v2.2.1 by @renovate[bot] in [#78](https://github.com/fullerzz/herdr-plugin-sesh/pull/78) ([a1e448f](https://github.com/fullerzz/herdr-plugin-sesh/commit/a1e448f970d05103f7562ab6318967b9213ca32e))
+
+
+
+### 📚 Documentation
+
+- docs: add pull request template by @fullerzz in [#85](https://github.com/fullerzz/herdr-plugin-sesh/pull/85) ([800ecd7](https://github.com/fullerzz/herdr-plugin-sesh/commit/800ecd7cbfc724ee8044f45175f8d1f4f319a811))
+
+- docs: add Zensical documentation site by @fullerzz in [#87](https://github.com/fullerzz/herdr-plugin-sesh/pull/87) ([977add2](https://github.com/fullerzz/herdr-plugin-sesh/commit/977add2c216cbb5a36e775d86e56203bbfb42a76))
+
+- Remove Zensical setup notes by @fullerzz ([7577891](https://github.com/fullerzz/herdr-plugin-sesh/commit/7577891338318616d76c8bf4898caf2d85eccf16))
+
+- Add benchmark guide by @fullerzz ([7ecc5aa](https://github.com/fullerzz/herdr-plugin-sesh/commit/7ecc5aafb1171c75801a3fa6948541a4d97fef09))
+
+- docs: document agent workspace sorting by @fullerzz in [#96](https://github.com/fullerzz/herdr-plugin-sesh/pull/96) ([7fdc033](https://github.com/fullerzz/herdr-plugin-sesh/commit/7fdc0334b465f17ba8ea70d35543975375286ae2))
+
+
+
+### ⚡ Performance
+
+- perf(sources): skip unnecessary pane discovery by @fullerzz in [#91](https://github.com/fullerzz/herdr-plugin-sesh/pull/91) ([f4b47ea](https://github.com/fullerzz/herdr-plugin-sesh/commit/f4b47ea04e33b137534bd2f6567c1fc494be3793))
+
+- perf(picker): cancel superseded previews by @fullerzz in [#90](https://github.com/fullerzz/herdr-plugin-sesh/pull/90) ([94e1136](https://github.com/fullerzz/herdr-plugin-sesh/commit/94e11368c0adfec8816927da6d0e0cb8f6149e8e))
+
+
+
+### 🧪 Testing
+
+- test(bench): add performance benchmark suite by @fullerzz in [#92](https://github.com/fullerzz/herdr-plugin-sesh/pull/92) ([8c7d3e7](https://github.com/fullerzz/herdr-plugin-sesh/commit/8c7d3e7a85d010827b7af98aa53832870b10b662))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- **.gitignore**: Add additional entries to gitignore by @fullerzz ([0fda7dc](https://github.com/fullerzz/herdr-plugin-sesh/commit/0fda7dc693ce8d8248100d523cffe227b91907cc))
+
+- **python**: Configure dependency maintenance by @fullerzz ([5190ee6](https://github.com/fullerzz/herdr-plugin-sesh/commit/5190ee6bac21075801e89efc048a9fb833f9e3f0))
+
+- **python**: Configure dependency cooldown by @fullerzz ([b5d03e2](https://github.com/fullerzz/herdr-plugin-sesh/commit/b5d03e26393fefe72e6058430ac1cecca3146909))
+
+
+
+### 🎡 Continuous Integration
+
+- ci(ci-deps): update ci dependencies (major) by @renovate[bot] in [#88](https://github.com/fullerzz/herdr-plugin-sesh/pull/88) ([16c34dd](https://github.com/fullerzz/herdr-plugin-sesh/commit/16c34dd0624f88ceda90e6d9f7af7bfcbe94aaa7))
+
+- ci: compare benchmarks on pull requests by @fullerzz in [#93](https://github.com/fullerzz/herdr-plugin-sesh/pull/93) ([c333eed](https://github.com/fullerzz/herdr-plugin-sesh/commit/c333eed91db8d5e8fbce7222163ca10a100ded28))
+
+
+
 ## v0.9.0 (2026-08-23)
 
 ### 🚀 Features
