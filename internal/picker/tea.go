@@ -25,6 +25,10 @@ import (
 const (
 	defaultVisibleRows    = 12
 	statusRefreshInterval = time.Second
+
+	workspaceSortWorkspace = "workspace"
+	workspaceSortRecent    = "recent"
+	workspaceSortAgent     = "agent"
 )
 
 const (
@@ -146,6 +150,7 @@ type Options struct {
 	ReloadPicker         func(context.Context) (ReloadResult, error)
 	RecentWorkspaceIDs   []string
 	RecentWorkspaceSort  bool
+	WorkspaceSort        string
 	LastWorkspaceID      string
 	LastWorkspaceUnknown bool
 	HerdrWorkspaces      []sessionmodel.Session
@@ -212,7 +217,7 @@ type teaModel struct {
 	refreshAgentStatuses    func() (map[string]string, error)
 	workspaceOrder          []string
 	recentWorkspaceIDs      []string
-	recentSort              bool
+	workspaceSort           string
 	lastWorkspaceID         string
 	lastWorkspaceUnknown    bool
 	herdrWorkspaces         map[string]sessionmodel.Session
@@ -262,9 +267,16 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	}
 	workspaceOrder := herdrWorkspaceIDs(items)
 	items = append([]sessionmodel.Session(nil), items...)
+	workspaceSort := normalizeWorkspaceSort(opts.WorkspaceSort)
+	if opts.WorkspaceSort == "" && opts.RecentWorkspaceSort {
+		workspaceSort = workspaceSortRecent
+	}
 	initialOrder := workspaceOrder
-	if opts.RecentWorkspaceSort {
+	switch workspaceSort {
+	case workspaceSortRecent:
 		initialOrder = opts.RecentWorkspaceIDs
+	case workspaceSortAgent:
+		initialOrder = agentWorkspaceOrder(items, workspaceOrder)
 	}
 	sortHerdrWorkspaces(items, initialOrder)
 	list := New(items)
@@ -301,7 +313,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		refreshAgentStatuses:  opts.RefreshAgentStatuses,
 		workspaceOrder:        workspaceOrder,
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
-		recentSort:            opts.RecentWorkspaceSort,
+		workspaceSort:         workspaceSort,
 		lastWorkspaceID:       opts.LastWorkspaceID,
 		lastWorkspaceUnknown:  opts.LastWorkspaceUnknown,
 		herdrWorkspaces:       workspaceSessionsByID(opts.HerdrWorkspaces),
@@ -404,10 +416,32 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses)
 	}
 	if statuses, ok := msg.(agentStatusesMsg); ok {
-		if statuses.err == nil {
-			m.list.UpdateAgentStatuses(statuses.statuses)
+		if statuses.err != nil {
+			return m, scheduleStatusRefresh()
 		}
-		return m, scheduleStatusRefresh()
+		selectedKey := ""
+		if current, currentOK := m.list.Current(); currentOK {
+			selectedKey = sessionmodel.Key(current)
+		}
+		m.list.UpdateAgentStatuses(statuses.statuses)
+		if m.workspaceSort != workspaceSortAgent {
+			return m, scheduleStatusRefresh()
+		}
+		m.resortWorkspaces()
+		m.list.Filter(m.list.Query)
+		for i, item := range m.list.Filtered {
+			if sessionmodel.Key(item) == selectedKey {
+				m.list.Selected = i
+				break
+			}
+		}
+		m.smearActive = false
+		m.focusSmearActive = false
+		m, previewCmd := m.refreshPreview()
+		if previewCmd == nil {
+			return m, scheduleStatusRefresh()
+		}
+		return m, tea.Batch(previewCmd, scheduleStatusRefresh())
 	}
 	if _, ok := msg.(smearTickMsg); ok {
 		if m.focusSmearActive {
@@ -615,14 +649,24 @@ func closeWorkspaceCommand(
 
 func (m teaModel) resortWorkspaces() {
 	order := m.workspaceOrder
-	if m.recentSort {
+	switch m.workspaceSort {
+	case workspaceSortRecent:
 		order = m.recentWorkspaceIDs
+	case workspaceSortAgent:
+		order = agentWorkspaceOrder(m.list.All, m.workspaceOrder)
 	}
 	sortHerdrWorkspaces(m.list.All, order)
 }
 
 func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
-	m.recentSort = !m.recentSort
+	switch m.workspaceSort {
+	case workspaceSortWorkspace:
+		m.workspaceSort = workspaceSortRecent
+	case workspaceSortRecent:
+		m.workspaceSort = workspaceSortAgent
+	default:
+		m.workspaceSort = workspaceSortWorkspace
+	}
 	m.resortWorkspaces()
 	m.list.Selected = 0
 	m.list.Filter(m.list.Query)
@@ -685,11 +729,7 @@ func (m teaModel) View() tea.View {
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
-	sortMode := "workspace"
-	if m.recentSort {
-		sortMode = "recent"
-	}
-	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", sortMode))
+	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort))
 	if m.closeError != "" {
 		footer = emptyStyle.Render(m.closeError)
 	} else if m.hidePreview && m.closingWorkspaceID != "" {
@@ -730,6 +770,44 @@ func herdrWorkspaceIDs(items []sessionmodel.Session) []string {
 		}
 	}
 	return ids
+}
+
+func normalizeWorkspaceSort(sortMode string) string {
+	switch sortMode {
+	case workspaceSortWorkspace, workspaceSortRecent, workspaceSortAgent:
+		return sortMode
+	default:
+		return workspaceSortWorkspace
+	}
+}
+
+func agentStatusRank(status string) int {
+	switch status {
+	case "blocked":
+		return 0
+	case "done":
+		return 1
+	case "working":
+		return 2
+	case "idle":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func agentWorkspaceOrder(items []sessionmodel.Session, workspaceOrder []string) []string {
+	statuses := make(map[string]string, len(items))
+	for _, item := range items {
+		if item.Source == "herdr" && item.WorkspaceID != "" {
+			statuses[item.WorkspaceID] = item.AgentStatus
+		}
+	}
+	order := append([]string(nil), workspaceOrder...)
+	sort.SliceStable(order, func(i, j int) bool {
+		return agentStatusRank(statuses[order[i]]) < agentStatusRank(statuses[order[j]])
+	})
+	return order
 }
 
 func sortHerdrWorkspaces(items []sessionmodel.Session, order []string) {
