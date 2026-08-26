@@ -585,6 +585,17 @@ func TestListCacheDistinguishesRelativeConfigsAcrossWorkingDirectories(t *testin
 	}
 }
 
+func TestPickerOptionsPropagateWorkspaceSort(t *testing.T) {
+	cfg := config.Default()
+	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).WorkspaceSort; got != "workspace" {
+		t.Fatalf("default workspace sort = %q, want workspace", got)
+	}
+	cfg.TUI.DefaultSort = "agent"
+	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).WorkspaceSort; got != "agent" {
+		t.Fatalf("workspace sort = %q, want agent", got)
+	}
+}
+
 func TestPickerOptionsPropagateWorktreeIconReplacement(t *testing.T) {
 	cfg := config.Default()
 	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.DisableWorktreeIconReplacement {

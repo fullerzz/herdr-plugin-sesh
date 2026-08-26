@@ -122,8 +122,8 @@ func (n nativeConfig) validate(path string) error {
 	if n.Naming.PathComponents != nil && *n.Naming.PathComponents < 1 {
 		return fail("naming.path_components", "must be at least 1")
 	}
-	if s := n.Picker.WorkspaceSort; s != "" && s != "workspace" && s != "recent" {
-		return fail("picker.workspace_sort", "must be \"workspace\" or \"recent\", got %q", s)
+	if s := n.Picker.WorkspaceSort; s != "" && s != "workspace" && s != "recent" && s != "agent" {
+		return fail("picker.workspace_sort", "must be \"workspace\" or \"recent\" or \"agent\", got %q", s)
 	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {

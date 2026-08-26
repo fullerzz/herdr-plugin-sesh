@@ -276,22 +276,32 @@ func TestDefaultReplacesWorktreeIcon(t *testing.T) {
 }
 
 func TestLoadTUIDefaultSort(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "sesh.toml")
-	mustWrite(t, p, "[tui]\ndefault_sort = \"recent\"\n")
-	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.DefaultSort != "recent" {
-		t.Fatalf("default sort = %q", cfg.TUI.DefaultSort)
+	for _, sortMode := range []string{"recent", "agent"} {
+		t.Run(sortMode, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "sesh.toml")
+			mustWrite(t, p, "[tui]\ndefault_sort = \""+sortMode+"\"\n")
+			cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.TUI.DefaultSort != sortMode {
+				t.Fatalf("default sort = %q, want %q", cfg.TUI.DefaultSort, sortMode)
+			}
+		})
 	}
 }
 
 func TestLoadRejectsInvalidTUIDefaultSort(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sesh.toml")
 	mustWrite(t, p, "[tui]\ndefault_sort = \"newest\"\n")
-	if _, _, err := Load(LoadOptions{Warn: io.Discard, Path: p}); err == nil {
+	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
+	if err == nil {
 		t.Fatal("expected invalid default sort error")
+	}
+	for _, want := range []string{"tui.default_sort", "workspace", "recent", "agent"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
 	}
 }
 
