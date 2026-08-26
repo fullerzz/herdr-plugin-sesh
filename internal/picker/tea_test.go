@@ -1688,6 +1688,135 @@ func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
 	}
 }
 
+func TestTeaModelAgentSortRefreshPreservesSelectionAndPreview(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "api-one", WorkspaceID: "w1", AgentStatus: "working"},
+		{Source: "herdr", Name: "api-two", WorkspaceID: "w2", AgentStatus: "idle"},
+		{Source: "herdr", Name: "api-three", WorkspaceID: "w3", AgentStatus: "blocked"},
+	}, Options{WorkspaceSort: "agent"})
+	m.list.Filter("api")
+	m.list.Selected = 1
+	selected, ok := m.list.Current()
+	if !ok || selected.WorkspaceID != "w1" {
+		t.Fatalf("selected=%#v ok=%v", selected, ok)
+	}
+	selectedKey := model.Key(selected)
+	m.previewKey = selectedKey
+	previewRequestID := m.previewRequestID
+	m.smearActive = true
+	m.focusSmearActive = true
+
+	updated, next := m.Update(agentStatusesMsg{statuses: map[string]string{
+		"w1": "idle",
+		"w2": "blocked",
+		"w3": "done",
+	}})
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"api-two", "api-three", "api-one"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("all order=%v want %v", got, want)
+	}
+	if got, want := sessionNames(m.list.Filtered), []string{"api-two", "api-three", "api-one"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered order=%v want %v", got, want)
+	}
+	current, ok := m.list.Current()
+	if !ok || model.Key(current) != selectedKey {
+		t.Fatalf("current=%#v ok=%v, want key %q", current, ok, selectedKey)
+	}
+	if m.list.Query != "api" {
+		t.Fatalf("query=%q, want api", m.list.Query)
+	}
+	if m.previewKey != selectedKey || m.previewRequestID != previewRequestID {
+		t.Fatalf("preview changed: key=%q request=%d, want key=%q request=%d", m.previewKey, m.previewRequestID, selectedKey, previewRequestID)
+	}
+	if m.smearActive || m.focusSmearActive {
+		t.Fatal("status reorder kept stale smear animation")
+	}
+	if next == nil {
+		t.Fatal("status refresh did not schedule the next tick")
+	}
+}
+
+func TestTeaModelAgentSortRefreshDemotesMissingStatus(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "blocked", WorkspaceID: "w1", AgentStatus: "blocked"},
+		{Source: "herdr", Name: "idle", WorkspaceID: "w2", AgentStatus: "idle"},
+	}, Options{WorkspaceSort: "agent"})
+
+	updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w2": "idle"}})
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"idle", "blocked"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("agent order=%v want %v", got, want)
+	}
+	if got := m.list.All[1].AgentStatus; got != "" {
+		t.Fatalf("missing workspace status=%q, want empty", got)
+	}
+}
+
+func TestTeaModelAgentSortRefreshErrorKeepsState(t *testing.T) {
+	m := newTeaModel([]model.Session{
+		{Source: "herdr", Name: "blocked", WorkspaceID: "w1", AgentStatus: "blocked"},
+		{Source: "herdr", Name: "idle", WorkspaceID: "w2", AgentStatus: "idle"},
+	}, Options{WorkspaceSort: "agent"})
+	m.list.Selected = 1
+	selected, _ := m.list.Current()
+	selectedKey := model.Key(selected)
+	m.previewKey = selectedKey
+	previewRequestID := m.previewRequestID
+
+	updated, next := m.Update(agentStatusesMsg{statuses: map[string]string{"w1": "idle", "w2": "blocked"}, err: errors.New("offline")})
+	m = updated.(teaModel)
+
+	if got, want := sessionNames(m.list.All), []string{"blocked", "idle"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("agent order=%v want %v", got, want)
+	}
+	if m.list.All[0].AgentStatus != "blocked" || m.list.All[1].AgentStatus != "idle" {
+		t.Fatalf("statuses changed after error: %#v", m.list.All)
+	}
+	current, ok := m.list.Current()
+	if !ok || model.Key(current) != selectedKey {
+		t.Fatalf("current=%#v ok=%v, want key %q", current, ok, selectedKey)
+	}
+	if m.previewKey != selectedKey || m.previewRequestID != previewRequestID {
+		t.Fatal("preview changed after refresh error")
+	}
+	if next == nil {
+		t.Fatal("refresh error did not schedule the next tick")
+	}
+}
+
+func TestTeaModelAgentStatusRefreshKeepsNonAgentSortOrder(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want []string
+	}{
+		{mode: "workspace", want: []string{"first", "second"}},
+		{mode: "recent", want: []string{"second", "first"}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			m := newTeaModel([]model.Session{
+				{Source: "herdr", Name: "first", WorkspaceID: "w1", AgentStatus: "working"},
+				{Source: "herdr", Name: "second", WorkspaceID: "w2", AgentStatus: "idle"},
+			}, Options{WorkspaceSort: tc.mode, RecentWorkspaceIDs: []string{"w2", "w1"}})
+
+			updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w1": "idle", "w2": "blocked"}})
+			m = updated.(teaModel)
+
+			if got := sessionNames(m.list.All); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("order=%v want %v", got, tc.want)
+			}
+			statuses := map[string]string{}
+			for _, item := range m.list.All {
+				statuses[item.WorkspaceID] = item.AgentStatus
+			}
+			if !reflect.DeepEqual(statuses, map[string]string{"w1": "idle", "w2": "blocked"}) {
+				t.Fatalf("statuses=%v", statuses)
+			}
+		})
+	}
+}
+
 func TestPreviewViewUsesConstantHeight(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
 	m.preview = "one line"
@@ -1895,12 +2024,15 @@ func TestTeaModelHeaderShowsFilteredCountWhenAllRowsMatch(t *testing.T) {
 func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
 	items := []model.Session{
 		{Source: "config", Name: "configured"},
-		{Source: "herdr", Name: "first", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "first", WorkspaceID: "w1", AgentStatus: "working"},
 		{Source: "zoxide", Name: "recent-directory"},
-		{Source: "herdr", Name: "second", WorkspaceID: "w2"},
-		{Source: "herdr", Name: "third", WorkspaceID: "w3"},
+		{Source: "herdr", Name: "second", WorkspaceID: "w2", AgentStatus: "blocked"},
+		{Source: "herdr", Name: "third", WorkspaceID: "w3", AgentStatus: "idle"},
 	}
 	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w3", "w1"}})
+	if got, want := sessionNames(m.list.All), []string{"configured", "first", "recent-directory", "second", "third"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("workspace order=%v want %v", got, want)
+	}
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -1913,22 +2045,93 @@ func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
+	if got, want := sessionNames(m.list.All), []string{"configured", "second", "recent-directory", "first", "third"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("agent order=%v want %v", got, want)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r agent") {
+		t.Fatalf("view missing agent sort mode:\n%s", view)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
 	if got, want := sessionNames(m.list.All), []string{"configured", "first", "recent-directory", "second", "third"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("workspace order=%v want %v", got, want)
+		t.Fatalf("restored workspace order=%v want %v", got, want)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r workspace") {
+		t.Fatalf("view missing workspace sort mode:\n%s", view)
 	}
 }
 
 func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
-	m := newTeaModel([]model.Session{
-		{Source: "herdr", Name: "first", WorkspaceID: "w1"},
+	items := []model.Session{
+		{Source: "herdr", Name: "first", WorkspaceID: "w1", AgentStatus: "idle"},
 		{Source: "herdr", Name: "second", WorkspaceID: "w2"},
-	}, Options{RecentWorkspaceIDs: []string{"w2", "w1"}, RecentWorkspaceSort: true})
-
-	if got, want := sessionNames(m.list.All), []string{"second", "first"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("initial order=%v want %v", got, want)
+		{Source: "herdr", Name: "third", WorkspaceID: "w3", AgentStatus: "blocked"},
 	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r recent") {
-		t.Fatalf("view missing recent sort mode:\n%s", view)
+	tests := []struct {
+		name string
+		mode string
+		want []string
+	}{
+		{name: "default", want: []string{"first", "second", "third"}},
+		{name: "workspace", mode: "workspace", want: []string{"first", "second", "third"}},
+		{name: "recent", mode: "recent", want: []string{"second", "first", "third"}},
+		{name: "agent", mode: "agent", want: []string{"third", "first", "second"}},
+		{name: "unknown falls back", mode: "future", want: []string{"first", "second", "third"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w2", "w1", "w3"}, WorkspaceSort: tc.mode})
+			if got := sessionNames(m.list.All); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("initial order=%v want %v", got, tc.want)
+			}
+			wantMode := tc.mode
+			if wantMode == "" || wantMode == "future" {
+				wantMode = "workspace"
+			}
+			if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r "+wantMode) {
+				t.Fatalf("view missing %s sort mode:\n%s", wantMode, view)
+			}
+		})
+	}
+}
+
+func TestTeaModelAgentSortRanksStatusesAndPreservesSourceSlots(t *testing.T) {
+	items := []model.Session{
+		{Source: "config", Name: "configured"},
+		{Source: "herdr", Name: "unknown", WorkspaceID: "w-unknown", AgentStatus: "unknown"},
+		{Source: "zoxide", Name: "directory"},
+		{Source: "herdr", Name: "working-a", WorkspaceID: "w-working-a", AgentStatus: "working"},
+		{Source: "herdr", Name: "agentless", WorkspaceID: "w-agentless"},
+		{Source: "herdr", Name: "blocked", WorkspaceID: "w-blocked", AgentStatus: "blocked"},
+		{Source: "herdr", Name: "done", WorkspaceID: "w-done", AgentStatus: "done"},
+		{Source: "herdr", Name: "working-b", WorkspaceID: "w-working-b", AgentStatus: "working"},
+		{Source: "herdr", Name: "idle", WorkspaceID: "w-idle", AgentStatus: "idle"},
+		{Source: "herdr", Name: "future", WorkspaceID: "w-future", AgentStatus: "waiting"},
+	}
+
+	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
+
+	want := []string{"configured", "blocked", "directory", "done", "working-a", "working-b", "idle", "unknown", "agentless", "future"}
+	if got := sessionNames(m.list.All); !reflect.DeepEqual(got, want) {
+		t.Fatalf("agent order=%v want %v", got, want)
+	}
+}
+
+func TestTeaModelAgentSortPromotesWorktreeFamilyByBestMember(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "unresolved", WorkspaceID: "w-unresolved", AgentStatus: "working", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-missing"}},
+		{Source: "herdr", Name: "child-idle", WorkspaceID: "w-child-idle", AgentStatus: "idle", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+		{Source: "herdr", Name: "other", WorkspaceID: "w-other", AgentStatus: "done"},
+		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "child-blocked", WorkspaceID: "w-child-blocked", AgentStatus: "blocked", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	}
+
+	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
+
+	want := []string{"parent", "child-blocked", "child-idle", "other", "unresolved"}
+	if got := sessionNames(m.list.All); !reflect.DeepEqual(got, want) {
+		t.Fatalf("agent family order=%v want %v", got, want)
 	}
 }
 
@@ -1995,9 +2198,9 @@ func TestTeaModelGroupsWorktreeFamilyWithoutMutatingInput(t *testing.T) {
 
 func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
 	items := []model.Session{
-		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+		{Source: "herdr", Name: "child", WorkspaceID: "w-child", AgentStatus: "blocked", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
 		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
-		{Source: "herdr", Name: "other", WorkspaceID: "w-other"},
+		{Source: "herdr", Name: "other", WorkspaceID: "w-other", AgentStatus: "done"},
 	}
 	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w-other", "w-child"}})
 	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
@@ -2008,6 +2211,12 @@ func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
 	m = updated.(teaModel)
 	if got, want := sessionNames(m.list.All), []string{"other", "parent", "child"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent order=%v want %v", got, want)
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("agent order=%v want %v", got, want)
 	}
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
