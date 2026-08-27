@@ -88,6 +88,27 @@ behavioral metrics that protect the shape of an optimization:
     active selection still updates. Any other pair is a behavioral regression,
     even if one value moved farther in an apparently favorable direction.
 
+## Continuous benchmarking with CodSpeed
+
+The same benchmarks run on every push to `main` and on every pull request
+through [CodSpeed](https://app.codspeed.io/fullerzz/herdr-plugin-sesh), which
+reports the walltime of each benchmark and comments the comparison against the
+base branch.
+
+Run the CodSpeed suite locally with the
+[CodSpeed CLI](https://codspeed.io/docs/cli):
+
+```bash
+curl -fsSL https://codspeed.io/install.sh | sh
+codspeed run --mode walltime -- just bench-codspeed
+```
+
+`just bench-codspeed` runs `go test -bench=.` over `internal/sources` and
+`internal/picker`. CodSpeed only supports the `-bench` flag, so the extra
+`-benchmem`, `-count`, and `-run` flags used by `just bench` are omitted; the
+custom `commands/op`, `canceled/op`, and `completed/op` metrics are still
+reported.
+
 ## Benchmark strategy
 
 1. Benchmark user-facing hot paths with representative, generated data.
@@ -100,9 +121,11 @@ behavioral metrics that protect the shape of an optimization:
    does not justify extra commands or missing the exact `7` canceled / `1`
    completed preview target.
 
-The suite is intentionally a developer tool rather than a CI threshold. Shared
-CI runners are noisy, and fixed performance limits would fail for machine
-variation instead of meaningful regressions.
+The local `benchstat` flow stays a developer tool rather than a CI threshold.
+Shared CI runners are noisy, and fixed performance limits would fail for machine
+variation instead of meaningful regressions. CodSpeed covers the continuous side
+by comparing each pull request against its own base commit on the same runner
+class.
 
 [Picker benchmarks](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/picker/tea_benchmark_test.go){ .md-button }
 [Workspace-source benchmarks](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/sources/herdr_workspaces_benchmark_test.go){ .md-button }

@@ -55,6 +55,10 @@ bench count='1':
     @echo 'Unit completed/op assume=exact'
     go test -run '^$' -bench=. -benchmem -count={{count}} ./internal/sources ./internal/picker
 
+# Run the benchmark suite under the CodSpeed walltime instrument
+bench-codspeed:
+    go test -bench=. ./internal/sources ./internal/picker
+
 # Compare two saved benchmark runs
 bench-compare base candidate:
     go tool benchstat "base={{base}}" "candidate={{candidate}}"
