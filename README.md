@@ -1,6 +1,12 @@
 # Sesh for Herdr
 
+[![Latest release](https://img.shields.io/github/v/release/fullerzz/herdr-plugin-sesh)](https://github.com/fullerzz/herdr-plugin-sesh/releases/latest)
+[![Go version](https://img.shields.io/github/go-mod/go-version/fullerzz/herdr-plugin-sesh)](go.mod)
+[![License: MIT](https://img.shields.io/github/license/fullerzz/herdr-plugin-sesh)](LICENSE)
+[![Test](https://github.com/fullerzz/herdr-plugin-sesh/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/fullerzz/herdr-plugin-sesh/actions/workflows/test.yml)
+[![Lint](https://github.com/fullerzz/herdr-plugin-sesh/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/fullerzz/herdr-plugin-sesh/actions/workflows/lint.yml)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/fullerzz/herdr-plugin-sesh?utm_source=badge)
+
 
 A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and
 session manager for [Herdr](https://herdr.dev/).
