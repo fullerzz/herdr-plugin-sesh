@@ -1,5 +1,7 @@
 # Sesh for Herdr
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/fullerzz/herdr-plugin-sesh?utm_source=badge)
+
 A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and
 session manager for [Herdr](https://herdr.dev/).
 
