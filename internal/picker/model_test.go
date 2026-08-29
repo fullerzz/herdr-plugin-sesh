@@ -31,6 +31,27 @@ func TestFilterResetsSelectionWhenQueryChanges(t *testing.T) {
 		t.Fatalf("cur=%#v ok=%v", cur, ok)
 	}
 }
+func TestFilterRanksNameMatchesBeforePathMatches(t *testing.T) {
+	m := New([]model.Session{
+		{Source: "zoxide", Path: "/work/api-unnamed"},
+		{Source: "config", Name: "api-service", Path: "/work/service"},
+		{Source: "herdr", Name: "api-both", Path: "/work/api-both"},
+		{Source: "herdr", Name: "worker", Path: "/work/api-worker"},
+		{Source: "config", Name: "api-web", Path: "/work/web"},
+	})
+
+	m.Filter("api")
+
+	want := []string{"api-service", "api-both", "api-web", "", "worker"}
+	if len(m.Filtered) != len(want) {
+		t.Fatalf("filtered=%#v", m.Filtered)
+	}
+	for i, name := range want {
+		if m.Filtered[i].Name != name {
+			t.Fatalf("filtered[%d].Name=%q, want %q", i, m.Filtered[i].Name, name)
+		}
+	}
+}
 func TestFilterSelectsHomeDirectoryWhenQueryIsHome(t *testing.T) {
 	t.Setenv("HOME", "/Users/zach")
 	m := New([]model.Session{

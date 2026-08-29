@@ -27,16 +27,23 @@ func (m *Model) Filter(q string) {
 	m.Query = q
 	m.Filtered = m.Filtered[:0]
 	var homeMatches []model.Session
+	var pathMatches []model.Session
 	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
-		if Match(s.Name, q, m.SeparatorAware) || Match(s.Path, q, m.SeparatorAware) {
-			if homeQuery && isHomeSession(s) {
-				homeMatches = append(homeMatches, s)
-				continue
-			}
+		nameMatch := Match(s.Name, q, m.SeparatorAware)
+		pathMatch := Match(s.Path, q, m.SeparatorAware)
+		if !nameMatch && !pathMatch {
+			continue
+		}
+		if homeQuery && isHomeSession(s) {
+			homeMatches = append(homeMatches, s)
+		} else if nameMatch {
 			m.Filtered = append(m.Filtered, s)
+		} else {
+			pathMatches = append(pathMatches, s)
 		}
 	}
+	m.Filtered = append(m.Filtered, pathMatches...)
 	if len(homeMatches) > 0 {
 		m.Filtered = append(homeMatches, m.Filtered...)
 	}
