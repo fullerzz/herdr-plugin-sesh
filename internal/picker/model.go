@@ -27,16 +27,23 @@ func (m *Model) Filter(q string) {
 	m.Query = q
 	m.Filtered = m.Filtered[:0]
 	var homeMatches []model.Session
+	var pathMatches []model.Session
 	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
-		if Match(s.Name, q, m.SeparatorAware) || Match(s.Path, q, m.SeparatorAware) {
-			if homeQuery && isHomeSession(s) {
-				homeMatches = append(homeMatches, s)
-				continue
-			}
+		nameMatch := Match(s.Name, q, m.SeparatorAware)
+		pathMatch := Match(s.Path, q, m.SeparatorAware) || homeQuery && isHomePath(s.Path)
+		if !nameMatch && !pathMatch {
+			continue
+		}
+		if homeQuery && isHomePath(s.Path) {
+			homeMatches = append(homeMatches, s)
+		} else if nameMatch {
 			m.Filtered = append(m.Filtered, s)
+		} else {
+			pathMatches = append(pathMatches, s)
 		}
 	}
+	m.Filtered = append(m.Filtered, pathMatches...)
 	if len(homeMatches) > 0 {
 		m.Filtered = append(homeMatches, m.Filtered...)
 	}
@@ -72,7 +79,6 @@ func (m *Model) Current() (model.Session, bool) {
 	return m.Filtered[m.Selected], true
 }
 func Match(s, q string, sep bool) bool {
-	raw := s
 	s = strings.ToLower(s)
 	q = strings.ToLower(q)
 	if sep {
@@ -80,10 +86,7 @@ func Match(s, q string, sep bool) bool {
 		s = repl.Replace(s)
 		q = repl.Replace(q)
 	}
-	if strings.Contains(s, q) {
-		return true
-	}
-	return q == "home" && isHomePath(raw)
+	return strings.Contains(s, q)
 }
 func isHomePath(p string) bool {
 	if p == "" {
