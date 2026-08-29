@@ -1,3 +1,32 @@
+## v0.10.1 (2026-08-29)
+
+### 🐛 Bug Fixes
+
+- fix(picker): normalize separators in the query, not just the candidate by @cneller in [#104](https://github.com/fullerzz/herdr-plugin-sesh/pull/104) ([4faabda](https://github.com/fullerzz/herdr-plugin-sesh/commit/4faabda418011bb56a42225858bfffec91b5f089))
+
+
+
+### 📚 Documentation
+
+- **README**: Add badges to README by @fullerzz ([a8ca9d7](https://github.com/fullerzz/herdr-plugin-sesh/commit/a8ca9d7931909e9651b63f2babfda98e43ac50bb))
+
+
+
+### 🎡 Continuous Integration
+
+- ci(codspeed): run the benchmark suite with CodSpeed by @codspeed-hq[bot] in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99) ([af57466](https://github.com/fullerzz/herdr-plugin-sesh/commit/af574664396e9ecf0795e0561decdf76a45cff59))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#100](https://github.com/fullerzz/herdr-plugin-sesh/pull/100) ([d47a44e](https://github.com/fullerzz/herdr-plugin-sesh/commit/d47a44e61cd5b5be5d233184320e6e45447ca7f8))
+
+
+
+
+### New Contributors
+
+* @cneller made their first contribution in [#104](https://github.com/fullerzz/herdr-plugin-sesh/pull/104)
+
+* @codspeed-hq[bot] made their first contribution in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99)
+
 ## v0.10.0 (2026-08-26)
 
 ### 🚀 Features
