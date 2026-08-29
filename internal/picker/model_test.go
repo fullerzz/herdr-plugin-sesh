@@ -52,6 +52,24 @@ func TestFilterRanksNameMatchesBeforePathMatches(t *testing.T) {
 		}
 	}
 }
+func TestFilterKeepsNameMatchAheadOfPathOnlyWorktreeParent(t *testing.T) {
+	m := New([]model.Session{
+		{Source: "herdr", Name: "backend", Path: "/work/api", WorkspaceID: "w-parent"},
+		{Source: "herdr", Name: "api-fix", Path: "/work/api-fix", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+	})
+
+	m.Filter("api")
+
+	want := []string{"api-fix", "backend"}
+	if len(m.Filtered) != len(want) {
+		t.Fatalf("filtered=%#v", m.Filtered)
+	}
+	for i, name := range want {
+		if m.Filtered[i].Name != name {
+			t.Fatalf("filtered[%d].Name=%q, want %q", i, m.Filtered[i].Name, name)
+		}
+	}
+}
 func TestFilterSelectsHomeDirectoryWhenQueryIsHome(t *testing.T) {
 	t.Setenv("HOME", "/Users/zach")
 	m := New([]model.Session{
