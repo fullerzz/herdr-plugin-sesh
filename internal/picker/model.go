@@ -31,11 +31,11 @@ func (m *Model) Filter(q string) {
 	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
 		nameMatch := Match(s.Name, q, m.SeparatorAware)
-		pathMatch := Match(s.Path, q, m.SeparatorAware)
+		pathMatch := Match(s.Path, q, m.SeparatorAware) || homeQuery && isHomePath(s.Path)
 		if !nameMatch && !pathMatch {
 			continue
 		}
-		if homeQuery && isHomeSession(s) {
+		if homeQuery && isHomePath(s.Path) {
 			homeMatches = append(homeMatches, s)
 		} else if nameMatch {
 			m.Filtered = append(m.Filtered, s)
@@ -79,7 +79,6 @@ func (m *Model) Current() (model.Session, bool) {
 	return m.Filtered[m.Selected], true
 }
 func Match(s, q string, sep bool) bool {
-	raw := s
 	s = strings.ToLower(s)
 	q = strings.ToLower(q)
 	if sep {
@@ -87,10 +86,7 @@ func Match(s, q string, sep bool) bool {
 		s = repl.Replace(s)
 		q = repl.Replace(q)
 	}
-	if strings.Contains(s, q) {
-		return true
-	}
-	return q == "home" && isHomePath(raw)
+	return strings.Contains(s, q)
 }
 func isHomePath(p string) bool {
 	if p == "" {

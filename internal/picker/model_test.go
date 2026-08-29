@@ -64,6 +64,26 @@ func TestFilterSelectsHomeDirectoryWhenQueryIsHome(t *testing.T) {
 		t.Fatalf("cur=%#v ok=%v", cur, ok)
 	}
 }
+func TestFilterRanksActualHomePathBeforeMisleadingHomeName(t *testing.T) {
+	t.Setenv("HOME", "/Users/zachfuller")
+	m := New([]model.Session{
+		{Name: "~", Path: "/tmp/home-archive"},
+		{Name: "home-manager", Path: "/tmp/manager"},
+		{Name: "~", Path: "/Users/zachfuller"},
+	})
+
+	m.Filter("home")
+
+	want := []string{"/Users/zachfuller", "/tmp/manager", "/tmp/home-archive"}
+	if len(m.Filtered) != len(want) {
+		t.Fatalf("filtered=%#v", m.Filtered)
+	}
+	for i, path := range want {
+		if m.Filtered[i].Path != path {
+			t.Fatalf("filtered[%d].Path=%q, want %q", i, m.Filtered[i].Path, path)
+		}
+	}
+}
 func TestSeparatorAwareMatch(t *testing.T) {
 	if !Match("my-api.service", "api service", true) {
 		t.Fatal("expected separator aware match")
