@@ -48,3 +48,51 @@ func TestSeparatorAwareMatch(t *testing.T) {
 		t.Fatal("expected separator aware match")
 	}
 }
+
+func TestSeparatorAwareMatchNormalizesQuerySeparators(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		hay   string
+		query string
+	}{
+		{"query keeps the candidate's separator", "my-api.service", "api-service"},
+		{"query separator differs from the candidate's", "my-api.service", "api/service"},
+		{"query separator matches a path boundary", "/work/api-service", "work/api"},
+		{"underscore query against a dashed candidate", "my-api-service", "api_service"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !Match(tc.hay, tc.query, true) {
+				t.Fatalf("Match(%q, %q, true) = false, want true", tc.hay, tc.query)
+			}
+		})
+	}
+}
+
+// Normalizing the query is strictly additive: the candidate never retains any
+// of the four separators, so a query containing one could not match before.
+func TestSeparatorAwareMatchIsAdditive(t *testing.T) {
+	for _, tc := range []struct {
+		hay   string
+		query string
+		want  bool
+	}{
+		{"my-api.service", "api", true},
+		{"my-api.service", "nope", false},
+		{"my-api.service", "api service", true},
+		{"my-api.service", "service api", false},
+		{"my-api.service", "", true},
+	} {
+		if got := Match(tc.hay, tc.query, true); got != tc.want {
+			t.Fatalf("Match(%q, %q, true) = %v, want %v", tc.hay, tc.query, got, tc.want)
+		}
+	}
+}
+
+func TestSeparatorUnawareMatchLeavesQueryLiteral(t *testing.T) {
+	if !Match("my-api.service", "api.service", false) {
+		t.Fatal("expected literal match when separator awareness is off")
+	}
+	if Match("my-api.service", "api service", false) {
+		t.Fatal("did not expect separator normalization when it is off")
+	}
+}

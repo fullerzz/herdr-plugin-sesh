@@ -78,6 +78,7 @@ func Match(s, q string, sep bool) bool {
 	if sep {
 		repl := strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ")
 		s = repl.Replace(s)
+		q = repl.Replace(q)
 	}
 	if strings.Contains(s, q) {
 		return true
