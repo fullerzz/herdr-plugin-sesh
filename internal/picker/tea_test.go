@@ -28,6 +28,24 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestTeaModelHomePrioritizationOption(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		opts         Options
+		wantDisabled bool
+	}{
+		{name: "zero options keep prioritization enabled"},
+		{name: "explicit disable turns prioritization off", opts: Options{DisableHomePrioritization: true}, wantDisabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel(nil, tc.opts)
+			if m.list.DisableHomePrioritization != tc.wantDisabled {
+				t.Fatalf("DisableHomePrioritization=%t, want %t", m.list.DisableHomePrioritization, tc.wantDisabled)
+			}
+		})
+	}
+}
+
 func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Name: "api-service", Path: "/tmp/api"},

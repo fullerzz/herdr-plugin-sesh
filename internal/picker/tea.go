@@ -137,6 +137,7 @@ type Options struct {
 	HideLastWorkspace              bool
 	HideLastWorkspacePath          bool
 	SeparatorAware                 bool
+	DisableHomePrioritization      bool
 	HidePreview                    bool
 	DefaultPreviewCommand          string
 	FZFCommand                     string
@@ -277,6 +278,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	sortHerdrWorkspaces(items, initialOrder)
 	list := New(items)
 	list.SeparatorAware = opts.SeparatorAware
+	list.DisableHomePrioritization = opts.DisableHomePrioritization
 	prompt := opts.Prompt
 	if prompt == "" {
 		prompt = defaultPrompt

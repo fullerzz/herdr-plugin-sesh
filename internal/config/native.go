@@ -43,6 +43,7 @@ type nativePicker struct {
 	// an always-present value keeps icon behavior self-documenting.
 	ShowIcons             bool   `toml:"show_icons"`
 	ShowPreview           *bool  `toml:"show_preview,omitempty"`
+	PrioritizeHome        *bool  `toml:"prioritize_home,omitempty"`
 	HerdrThemeInherit     *bool  `toml:"herdr_theme_inherit,omitempty"`
 	ReplaceWorktreeIcon   *bool  `toml:"replace_worktree_icon,omitempty"`
 	ShowLastWorkspace     *bool  `toml:"show_last_workspace,omitempty"`
@@ -200,6 +201,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	cfg.TUI.ShowIcons = n.Picker.ShowIcons
 	if n.Picker.ShowPreview != nil {
 		cfg.TUI.ShowPreview = *n.Picker.ShowPreview
+	}
+	if n.Picker.PrioritizeHome != nil {
+		cfg.TUI.PrioritizeHome = *n.Picker.PrioritizeHome
 	}
 	if n.Picker.HerdrThemeInherit != nil {
 		cfg.TUI.HerdrThemeInherit = *n.Picker.HerdrThemeInherit
