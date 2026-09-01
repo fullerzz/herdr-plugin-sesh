@@ -37,9 +37,15 @@ func (m *Model) Filter(q string) {
 		if !nameMatch && !pathMatch {
 			continue
 		}
-		if homeQuery && m.PrioritizeHome && isHomePath(s.Path) {
-			homeMatches = append(homeMatches, s)
-		} else if nameMatch {
+		if homeQuery && isHomePath(s.Path) {
+			if m.PrioritizeHome {
+				homeMatches = append(homeMatches, s)
+			} else {
+				pathMatches = append(pathMatches, s)
+			}
+			continue
+		}
+		if nameMatch {
 			m.Filtered = append(m.Filtered, s)
 		} else {
 			pathMatches = append(pathMatches, s)

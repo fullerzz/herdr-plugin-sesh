@@ -109,14 +109,14 @@ func TestFilterCanDisableHomePrioritization(t *testing.T) {
 		{Name: "path-before", Path: "/tmp/home-path"},
 		{Name: "home-tools", Path: "/tmp/tools"},
 		{Name: "home-manager", Path: "/tmp/manager"},
-		{Name: "~", Path: "/Users/zach"},
+		{Name: "home-root", Path: "/Users/zach"},
 		{Name: "path-after", Path: "/tmp/home-after"},
 	})
 	m.PrioritizeHome = false
 
 	m.Filter("HOME")
 
-	want := []string{"home-tools", "home-manager", "path-before", "~", "path-after"}
+	want := []string{"home-tools", "home-manager", "path-before", "home-root", "path-after"}
 	if len(m.Filtered) != len(want) {
 		t.Fatalf("filtered=%#v", m.Filtered)
 	}
