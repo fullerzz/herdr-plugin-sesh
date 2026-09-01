@@ -9,19 +9,18 @@ import (
 )
 
 type Model struct {
-	All            []model.Session
-	Filtered       []model.Session
-	Query          string
-	Selected       int
-	SeparatorAware bool
-	PrioritizeHome bool
+	All                       []model.Session
+	Filtered                  []model.Session
+	Query                     string
+	Selected                  int
+	SeparatorAware            bool
+	DisableHomePrioritization bool
 }
 
 func New(items []model.Session) Model {
 	return Model{
-		All:            append([]model.Session(nil), items...),
-		Filtered:       append([]model.Session(nil), items...),
-		PrioritizeHome: true,
+		All:      append([]model.Session(nil), items...),
+		Filtered: append([]model.Session(nil), items...),
 	}
 }
 func (m *Model) Filter(q string) {
@@ -38,7 +37,7 @@ func (m *Model) Filter(q string) {
 			continue
 		}
 		if homeQuery && isHomePath(s.Path) {
-			if m.PrioritizeHome {
+			if !m.DisableHomePrioritization {
 				homeMatches = append(homeMatches, s)
 			} else {
 				pathMatches = append(pathMatches, s)

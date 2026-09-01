@@ -82,6 +82,22 @@ func TestFilterSelectsHomeDirectoryWhenQueryIsHome(t *testing.T) {
 		t.Fatalf("cur=%#v ok=%v", cur, ok)
 	}
 }
+
+func TestZeroValueModelPrioritizesHome(t *testing.T) {
+	t.Setenv("HOME", "/Users/zach")
+	m := Model{All: []model.Session{
+		{Name: "home-manager", Path: "/tmp/home-manager"},
+		{Name: "~", Path: "/Users/zach"},
+	}}
+
+	m.Filter("home")
+
+	cur, ok := m.Current()
+	if !ok || cur.Name != "~" {
+		t.Fatalf("cur=%#v ok=%v", cur, ok)
+	}
+}
+
 func TestFilterRanksActualHomePathBeforeMisleadingHomeName(t *testing.T) {
 	t.Setenv("HOME", "/Users/zachfuller")
 	m := New([]model.Session{
@@ -112,7 +128,7 @@ func TestFilterCanDisableHomePrioritization(t *testing.T) {
 		{Name: "home-root", Path: "/Users/zach"},
 		{Name: "path-after", Path: "/tmp/home-after"},
 	})
-	m.PrioritizeHome = false
+	m.DisableHomePrioritization = true
 
 	m.Filter("HOME")
 

@@ -278,9 +278,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	sortHerdrWorkspaces(items, initialOrder)
 	list := New(items)
 	list.SeparatorAware = opts.SeparatorAware
-	if opts.DisableHomePrioritization {
-		list.PrioritizeHome = false
-	}
+	list.DisableHomePrioritization = opts.DisableHomePrioritization
 	prompt := opts.Prompt
 	if prompt == "" {
 		prompt = defaultPrompt
