@@ -210,7 +210,7 @@ func pickerOptionsFromConfig(ctx context.Context, output io.Writer, cfg config.C
 		HideLastWorkspace:              !cfg.TUI.ShowLastWorkspace,
 		HideLastWorkspacePath:          !cfg.TUI.ShowLastWorkspacePath,
 		SeparatorAware:                 cfg.SeparatorAware,
-		PrioritizeHome:                 cfg.TUI.PrioritizeHome,
+		DisableHomePrioritization:      !cfg.TUI.PrioritizeHome,
 		HidePreview:                    !cfg.TUI.ShowPreview,
 		DefaultPreviewCommand:          cfg.DefaultSessionConfig.PreviewCommand,
 		WorkspaceSort:                  cfg.TUI.DefaultSort,
