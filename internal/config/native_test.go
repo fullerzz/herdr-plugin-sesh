@@ -35,6 +35,7 @@ path_components = 2
 [picker]
 show_icons = true
 show_preview = false
+prioritize_home = false
 herdr_theme_inherit = true
 show_last_workspace = true
 show_last_workspace_path = true
@@ -77,7 +78,7 @@ tabs = ["git"]
 		SeparatorAware: true,
 		SortOrder:      []string{"config", "herdr"},
 		Blacklist:      []string{"^scratch$"},
-		TUI:            TUIConfig{ShowIcons: true, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
+		TUI:            TUIConfig{ShowIcons: true, PrioritizeHome: false, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
 		DefaultSessionConfig: DefaultSessionConfig{
 			StartupCommand: "make dev",
 			PreviewCommand: "ls {}",
@@ -108,8 +109,18 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := Default()
-	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || !cfg.TUI.ReplaceWorktreeIcon || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
+	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.PrioritizeHome || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || !cfg.TUI.ReplaceWorktreeIcon || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
 		t.Fatalf("defaults lost: %#v", cfg)
+	}
+}
+
+func TestNativePickerCanDisableHomePrioritization(t *testing.T) {
+	cfg, err := loadNative(t, "version = 1\n[picker]\nprioritize_home = false\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TUI.PrioritizeHome {
+		t.Fatal("prioritize_home=true, want false")
 	}
 }
 

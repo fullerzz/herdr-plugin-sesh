@@ -618,6 +618,17 @@ func TestPickerOptionsPropagatePreviewVisibility(t *testing.T) {
 	}
 }
 
+func TestPickerOptionsPropagateHomePrioritization(t *testing.T) {
+	cfg := config.Default()
+	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); !opts.PrioritizeHome {
+		t.Fatal("default config disabled home prioritization")
+	}
+	cfg.TUI.PrioritizeHome = false
+	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.PrioritizeHome {
+		t.Fatal("prioritize_home=false was not propagated")
+	}
+}
+
 func TestPickerJSONCommand(t *testing.T) {
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}

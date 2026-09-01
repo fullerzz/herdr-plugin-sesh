@@ -55,6 +55,7 @@ path_components = 1
 [picker]
 show_icons = true
 show_preview = true
+prioritize_home = false
 herdr_theme_inherit = true
 replace_worktree_icon = true
 prompt = "Sesh> "
@@ -195,6 +196,7 @@ equivalent; native decoding rejects them like any other unknown key.
 | --- | --- |
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
 | `show_preview` | Shows the preview panel in the native picker. The default is `true`; set it to `false` to give the workspace list the full available width and height without running preview commands. This does not change fzf preview behavior. |
+| `prioritize_home` | Controls exact case-insensitive `home` searches in the native picker. The default is `true`, which promotes the actual home-directory session ahead of real-name and ordinary path matches. Set it to `false` to keep real-name matches first, then path matches in their existing order; the actual home-directory session remains searchable through the exact `home` alias. |
 | `herdr_theme_inherit` | Inherits colors from Herdr's active theme. The default is `true`; set it to `false` to keep the native picker's built-in colors. |
 | `replace_worktree_icon` | Replaces the Herdr sheep icon with `↳` for linked worktree rows. The default is `true`. Set it to `false` to keep the sheep icon (or plain `[herdr]` when icons are hidden); the purple type color and tree branches remain. |
 | `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |

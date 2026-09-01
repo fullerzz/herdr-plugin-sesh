@@ -14,12 +14,14 @@ type Model struct {
 	Query          string
 	Selected       int
 	SeparatorAware bool
+	PrioritizeHome bool
 }
 
 func New(items []model.Session) Model {
 	return Model{
-		All:      append([]model.Session(nil), items...),
-		Filtered: append([]model.Session(nil), items...),
+		All:            append([]model.Session(nil), items...),
+		Filtered:       append([]model.Session(nil), items...),
+		PrioritizeHome: true,
 	}
 }
 func (m *Model) Filter(q string) {
@@ -35,7 +37,7 @@ func (m *Model) Filter(q string) {
 		if !nameMatch && !pathMatch {
 			continue
 		}
-		if homeQuery && isHomePath(s.Path) {
+		if homeQuery && m.PrioritizeHome && isHomePath(s.Path) {
 			homeMatches = append(homeMatches, s)
 		} else if nameMatch {
 			m.Filtered = append(m.Filtered, s)
