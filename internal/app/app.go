@@ -541,10 +541,26 @@ func (a *App) window(ctx context.Context, args []string) error {
 	return err
 }
 func (a *App) plugin(ctx context.Context, args []string) error {
-	if len(args) >= 1 && args[0] == "open-picker" {
-		return herdr.NewCLIClient().PluginPaneOpen(ctx, "fullerzz.sesh", "picker", "overlay")
+	if len(args) == 0 {
+		return errors.New("unknown plugin command")
 	}
-	return errors.New("unknown plugin command")
+	switch args[0] {
+	case "open-picker":
+		return herdr.NewCLIClient().PluginPaneOpen(ctx, "fullerzz.sesh", "picker", "overlay")
+	case "sync-history":
+		stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
+		workspaceID := os.Getenv("HERDR_WORKSPACE_ID")
+		switch os.Getenv("HERDR_PLUGIN_EVENT") {
+		case "startup", "workspace.focused":
+			return state.Record(stateDir, workspaceID)
+		case "workspace.closed":
+			return state.RemoveWorkspace(stateDir, workspaceID)
+		default:
+			return fmt.Errorf("unknown Herdr plugin event %q", os.Getenv("HERDR_PLUGIN_EVENT"))
+		}
+	default:
+		return errors.New("unknown plugin command")
+	}
 }
 func (a *App) config(_ context.Context, args []string) error {
 	if len(args) == 0 {

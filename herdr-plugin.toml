@@ -15,6 +15,17 @@ command = [
   "./cmd/herdr-sesh",
 ]
 
+[[startup]]
+command = ["./bin/herdr-sesh", "plugin", "sync-history"]
+
+[[events]]
+on = "workspace.focused"
+command = ["./bin/herdr-sesh", "plugin", "sync-history"]
+
+[[events]]
+on = "workspace.closed"
+command = ["./bin/herdr-sesh", "plugin", "sync-history"]
+
 [[actions]]
 id = "open-picker"
 title = "Open Sesh Picker"

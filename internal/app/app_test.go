@@ -970,6 +970,77 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	}
 }
 
+func TestPluginSyncHistoryRoutesLifecycleEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		event     string
+		workspace string
+		initial   []string
+		want      []string
+	}{
+		{name: "startup records workspace", event: "startup", workspace: "startup-workspace", want: []string{"startup-workspace"}},
+		{name: "focused workspace promotes workspace", event: "workspace.focused", workspace: "focused-workspace", initial: []string{"current-workspace", "older-workspace"}, want: []string{"focused-workspace", "current-workspace", "older-workspace"}},
+		{name: "closed workspace removes workspace", event: "workspace.closed", workspace: "closed-workspace", initial: []string{"closed-workspace", "other-workspace"}, want: []string{"other-workspace"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateDir := filepath.Join(t.TempDir(), "state")
+			if err := state.SaveHistory(stateDir, state.History{Workspaces: tt.initial}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HERDR_PLUGIN_EVENT", tt.event)
+			t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+			t.Setenv("HERDR_WORKSPACE_ID", tt.workspace)
+
+			a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+			if err := a.Run(context.Background(), []string{"plugin", "sync-history"}); err != nil {
+				t.Fatal(err)
+			}
+			h, err := state.LoadHistory(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(h.Workspaces, tt.want) {
+				t.Fatalf("workspaces=%#v want %#v", h.Workspaces, tt.want)
+			}
+		})
+	}
+}
+
+func TestPluginSyncHistoryRejectsUnknownEvent(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.renamed")
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	err := a.Run(context.Background(), []string{"plugin", "sync-history"})
+	if err == nil || !strings.Contains(err.Error(), "unknown Herdr plugin event") {
+		t.Fatalf("err=%v, want unknown event error", err)
+	}
+}
+
+func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
+	d := t.TempDir()
+	logPath := filepath.Join(d, "herdr.log")
+	fakeHerdr := filepath.Join(d, "herdr")
+	//nolint:gosec // test creates a local executable fixture.
+	if err := os.WriteFile(fakeHerdr, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
+	t.Setenv("HERDR_FAKE_LOG", logPath)
+
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	if err := a.Run(context.Background(), []string{"plugin", "open-picker"}); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // logPath is a test-owned temp file.
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(log)); got != "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay" {
+		t.Fatalf("herdr args=%q", got)
+	}
+}
+
 func runPickerJSON(t *testing.T, cfgPath, zoxideOutput string) []model.Session {
 	t.Helper()
 	configureFakeSources(t, zoxideOutput)

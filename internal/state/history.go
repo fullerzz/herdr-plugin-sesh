@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 type History struct {
@@ -34,52 +35,83 @@ func SaveHistory(dir string, h History) error {
 	if dir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	return writeJSONFile(Path(dir), h)
+	return withHistoryLock(dir, func() error {
+		return writeJSONFile(Path(dir), h)
+	})
 }
 
 func Record(dir, workspaceID string) error {
-	if workspaceID == "" {
+	if dir == "" || workspaceID == "" {
 		return nil
 	}
-	h, err := loadHistoryForWrite(dir)
-	if err != nil {
-		return err
-	}
-	h.Workspaces = dedupeWorkspaces([]string{workspaceID}, h.Workspaces)
-	return SaveHistory(dir, h)
+	return withHistoryLock(dir, func() error {
+		h, err := loadHistoryForWrite(dir)
+		if err != nil {
+			return err
+		}
+		if len(h.Workspaces) > 0 && h.Workspaces[0] == workspaceID {
+			return nil
+		}
+		h.Workspaces = dedupeWorkspaces([]string{workspaceID}, h.Workspaces)
+		return writeJSONFile(Path(dir), h)
+	})
 }
 
 func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
-	if toWorkspaceID == "" {
+	if dir == "" || toWorkspaceID == "" {
 		return nil
 	}
-	h, err := loadHistoryForWrite(dir)
-	if err != nil {
-		return err
-	}
-	h.Workspaces = dedupeWorkspaces([]string{toWorkspaceID, fromWorkspaceID}, h.Workspaces)
-	return SaveHistory(dir, h)
+	return withHistoryLock(dir, func() error {
+		h, err := loadHistoryForWrite(dir)
+		if err != nil {
+			return err
+		}
+		h.Workspaces = dedupeWorkspaces([]string{toWorkspaceID, fromWorkspaceID}, h.Workspaces)
+		return writeJSONFile(Path(dir), h)
+	})
 }
 
 func RemoveWorkspace(dir, workspaceID string) error {
-	if workspaceID == "" {
+	if dir == "" || workspaceID == "" {
 		return nil
 	}
-	h, err := loadHistoryForWrite(dir)
+	return withHistoryLock(dir, func() error {
+		h, err := loadHistoryForWrite(dir)
+		if err != nil {
+			return err
+		}
+		workspaces := h.Workspaces[:0]
+		for _, id := range h.Workspaces {
+			if id != workspaceID {
+				workspaces = append(workspaces, id)
+			}
+		}
+		h.Workspaces = workspaces
+		return writeJSONFile(Path(dir), h)
+	})
+}
+
+func withHistoryLock(dir string, fn func() error) (err error) {
+	// ponytail: serializes writes, not hook scheduling; add an event queue only if ordering guarantees are required.
+	//nolint:gosec // dir is the trusted plugin-owned state directory supplied to this API.
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	//nolint:gosec // dir is the trusted plugin-owned state directory supplied to this API.
+	lock, err := os.OpenFile(filepath.Join(dir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
-	workspaces := h.Workspaces[:0]
-	for _, id := range h.Workspaces {
-		if id != workspaceID {
-			workspaces = append(workspaces, id)
-		}
+	defer func() {
+		err = errors.Join(err, lock.Close())
+	}()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
 	}
-	h.Workspaces = workspaces
-	return SaveHistory(dir, h)
+	defer func() {
+		err = errors.Join(err, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
+	}()
+	return fn()
 }
 
 func loadHistoryForWrite(dir string) (History, error) {
