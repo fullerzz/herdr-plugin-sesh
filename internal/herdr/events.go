@@ -12,9 +12,9 @@ import (
 
 const (
 	eventReconnectDelay = 100 * time.Millisecond
-	replayQuietPeriod   = 25 * time.Millisecond
-	replayDrainMax      = 150 * time.Millisecond
 	eventBufferSize     = 1024
+	// Protocol 21 starts lifecycle subscriptions at the current EventHub sequence.
+	minimumEventProtocol = 21
 )
 
 type eventSubscription struct {
@@ -43,7 +43,6 @@ type workspaceEvent struct {
 
 type sessionSnapshot struct {
 	FocusedWorkspaceID string
-	WorkspaceIDs       map[string]bool
 }
 
 func WatchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) error {
@@ -71,6 +70,14 @@ func WatchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onC
 }
 
 func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) (bool, error) {
+	protocol, err := loadServerProtocol(ctx, socketPath)
+	if err != nil {
+		return true, err
+	}
+	if protocol < minimumEventProtocol {
+		return false, fmt.Errorf("workspace history requires Herdr protocol %d or newer; server uses protocol %d", minimumEventProtocol, protocol)
+	}
+
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return true, fmt.Errorf("connect to Herdr event stream: %w", err)
@@ -108,23 +115,9 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 	streamErrors := make(chan error, 1)
 	go decodeWorkspaceEvents(streamCtx, decoder, events, streamErrors)
 
-	replayed, err := drainRetainedReplay(ctx, events, streamErrors)
-	if err != nil {
-		return streamResult(ctx, err)
-	}
 	snapshot, err := loadSessionSnapshot(ctx, socketPath)
 	if err != nil {
 		return true, err
-	}
-	for _, event := range replayed {
-		// A close for an ID that still exists in the fresh snapshot came
-		// from Herdr 0.8.x retained history and must not prune current state.
-		if event.Event == "workspace_closed" && snapshot.WorkspaceIDs[event.Data.WorkspaceID] {
-			continue
-		}
-		if err := applyWorkspaceEvent(event, onFocused, onClosed); err != nil {
-			return false, err
-		}
 	}
 	if snapshot.FocusedWorkspaceID != "" {
 		if err := onFocused(snapshot.FocusedWorkspaceID); err != nil {
@@ -170,35 +163,6 @@ func decodeWorkspaceEvents(ctx context.Context, decoder *json.Decoder, events ch
 	}
 }
 
-func drainRetainedReplay(ctx context.Context, events <-chan workspaceEvent, streamErrors <-chan error) ([]workspaceEvent, error) {
-	quiet := time.NewTimer(replayQuietPeriod)
-	defer quiet.Stop()
-	maximum := time.NewTimer(replayDrainMax)
-	defer maximum.Stop()
-	var replayed []workspaceEvent
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case err := <-streamErrors:
-			return nil, err
-		case event := <-events:
-			replayed = append(replayed, event)
-			if !quiet.Stop() {
-				select {
-				case <-quiet.C:
-				default:
-				}
-			}
-			quiet.Reset(replayQuietPeriod)
-		case <-quiet.C:
-			return replayed, nil
-		case <-maximum.C:
-			return replayed, nil
-		}
-	}
-}
-
 func drainBufferedEvents(events <-chan workspaceEvent, onFocused, onClosed func(string) error) error {
 	for {
 		select {
@@ -233,6 +197,42 @@ func streamResult(ctx context.Context, err error) (bool, error) {
 	return true, fmt.Errorf("read Herdr workspace event: %w", err)
 }
 
+func loadServerProtocol(ctx context.Context, socketPath string) (int, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+	if err != nil {
+		return 0, fmt.Errorf("connect to Herdr server: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
+
+	request := struct {
+		ID     string   `json:"id"`
+		Method string   `json:"method"`
+		Params struct{} `json:"params"`
+	}{ID: "herdr-sesh-history-ping", Method: "ping"}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
+		return 0, fmt.Errorf("ping Herdr server: %w", err)
+	}
+	var response struct {
+		Result struct {
+			Type     string `json:"type"`
+			Protocol int    `json:"protocol"`
+		} `json:"result"`
+		Error *apiError `json:"error"`
+	}
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		return 0, fmt.Errorf("read Herdr ping response: %w", err)
+	}
+	if response.Error != nil {
+		return 0, fmt.Errorf("herdr ping failed: %s: %s", response.Error.Code, response.Error.Message)
+	}
+	if response.Result.Type != "pong" {
+		return 0, fmt.Errorf("unexpected Herdr ping response %q", response.Result.Type)
+	}
+	return response.Result.Protocol, nil
+}
+
 func loadSessionSnapshot(ctx context.Context, socketPath string) (sessionSnapshot, error) {
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 	if err != nil {
@@ -255,9 +255,6 @@ func loadSessionSnapshot(ctx context.Context, socketPath string) (sessionSnapsho
 			Type     string `json:"type"`
 			Snapshot struct {
 				FocusedWorkspaceID string `json:"focused_workspace_id"`
-				Workspaces         []struct {
-					WorkspaceID string `json:"workspace_id"`
-				} `json:"workspaces"`
 			} `json:"snapshot"`
 		} `json:"result"`
 		Error *apiError `json:"error"`
@@ -271,12 +268,5 @@ func loadSessionSnapshot(ctx context.Context, socketPath string) (sessionSnapsho
 	if response.Result.Type != "session_snapshot" {
 		return sessionSnapshot{}, fmt.Errorf("unexpected Herdr session snapshot response %q", response.Result.Type)
 	}
-	snapshot := sessionSnapshot{
-		FocusedWorkspaceID: response.Result.Snapshot.FocusedWorkspaceID,
-		WorkspaceIDs:       make(map[string]bool, len(response.Result.Snapshot.Workspaces)),
-	}
-	for _, workspace := range response.Result.Snapshot.Workspaces {
-		snapshot.WorkspaceIDs[workspace.WorkspaceID] = true
-	}
-	return snapshot, nil
+	return sessionSnapshot{FocusedWorkspaceID: response.Result.Snapshot.FocusedWorkspaceID}, nil
 }

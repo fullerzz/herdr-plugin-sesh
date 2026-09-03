@@ -982,13 +982,17 @@ func TestPluginManifestStartsHistoryWatcherForRuntimeLifecycleEvents(t *testing.
 		t.Fatal(err)
 	}
 	var manifest struct {
-		Events []struct {
+		MinHerdrVersion string `toml:"min_herdr_version"`
+		Events          []struct {
 			On      string   `toml:"on"`
 			Command []string `toml:"command"`
 		} `toml:"events"`
 	}
 	if err := toml.Unmarshal(b, &manifest); err != nil {
 		t.Fatal(err)
+	}
+	if manifest.MinHerdrVersion != "0.8.2" {
+		t.Fatalf("min_herdr_version=%q, want 0.8.2", manifest.MinHerdrVersion)
 	}
 	wantCommand := []string{"./bin/herdr-sesh", "plugin", "watch-history"}
 	got := make(map[string][]string, len(manifest.Events))
@@ -999,6 +1003,84 @@ func TestPluginManifestStartsHistoryWatcherForRuntimeLifecycleEvents(t *testing.
 		if !reflect.DeepEqual(got[event], wantCommand) {
 			t.Errorf("%s command=%#v want %#v", event, got[event], wantCommand)
 		}
+	}
+}
+
+func TestApplyHistoryHookLeavesFocusedEventsToSubscriber(t *testing.T) {
+	historyDir := t.TempDir()
+	want := state.History{Workspaces: []string{"current", "older"}}
+	if err := state.SaveHistory(historyDir, want); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.focused")
+	t.Setenv("HERDR_WORKSPACE_ID", "late-hook")
+
+	err := applyHistoryHook(historyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.LoadHistory(historyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(history, want) {
+		t.Fatalf("history=%#v want %#v", history, want)
+	}
+}
+
+func TestApplyHistoryHookUsesClosedEventPayloadWorkspace(t *testing.T) {
+	historyDir := t.TempDir()
+	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"context", "closed", "older"}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.closed")
+	t.Setenv("HERDR_WORKSPACE_ID", "context")
+	t.Setenv("HERDR_PLUGIN_EVENT_JSON", `{"data":{"workspace_id":"closed"}}`)
+
+	if err := applyHistoryHook(historyDir); err != nil {
+		t.Fatal(err)
+	}
+	history, err := state.LoadHistory(historyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"context", "older"}
+	if !reflect.DeepEqual(history.Workspaces, want) {
+		t.Fatalf("workspaces=%#v want %#v", history.Workspaces, want)
+	}
+}
+
+func TestPluginWatchHistoryBoundsClosedHookLockWait(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"closed"}}); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // Test lock path is derived from t.TempDir().
+	lock, err := os.OpenFile(filepath.Join(historyDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Close() })
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) })
+
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.closed")
+	t.Setenv("HERDR_PLUGIN_EVENT_JSON", `{"data":{"workspace_id":"closed"}}`)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	err = (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"})
+	if !errors.Is(err, state.ErrHistoryLockTimeout) {
+		t.Fatalf("watch error=%v, want history lock timeout", err)
 	}
 }
 
@@ -1027,6 +1109,10 @@ func TestPluginWatchHistoryAppliesClosedHookBeforeNoHistoryStream(t *testing.T) 
 	releaseServer := make(chan struct{})
 	serverDone := make(chan error, 1)
 	go func() {
+		if err := serveHistoryWatcherPing(listener); err != nil {
+			serverDone <- err
+			return
+		}
 		conn, err := listener.Accept()
 		if err != nil {
 			serverDone <- err
@@ -1068,8 +1154,7 @@ func TestPluginWatchHistoryAppliesClosedHookBeforeNoHistoryStream(t *testing.T) 
 			return
 		}
 		_ = snapshotConn.Close()
-		// Current Herdr does not replay the hook event. A duplicate from an
-		// older server remains harmless when it is present.
+		// A duplicate live close event remains harmless.
 		if err := enc.Encode(map[string]any{"event": "workspace_closed", "data": map[string]any{"workspace_id": "closed"}}); err != nil {
 			serverDone <- err
 			return
@@ -1138,6 +1223,10 @@ func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
 	releaseServer := make(chan struct{})
 	serverDone := make(chan error, 1)
 	go func() {
+		if err := serveHistoryWatcherPing(listener); err != nil {
+			serverDone <- err
+			return
+		}
 		conn, err := listener.Accept()
 		if err != nil {
 			serverDone <- err
@@ -1255,6 +1344,10 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	snapshotSent := make(chan struct{})
 	serverDone := make(chan error, 1)
 	go func() {
+		if err := serveHistoryWatcherPing(listener); err != nil {
+			serverDone <- err
+			return
+		}
 		conn, err := listener.Accept()
 		if err != nil {
 			serverDone <- err
@@ -1349,8 +1442,8 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	watchDone := make(chan error, 1)
 	go func() { watchDone <- a.Run(ctx, []string{"plugin", "watch-history"}) }()
-	// Replayed events must wait for the history lock before the newer
-	// snapshot is installed.
+	// Snapshot initialization must wait for the history lock before buffered
+	// live events are applied.
 	time.Sleep(350 * time.Millisecond)
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
@@ -1382,6 +1475,29 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	if err := <-serverDone; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func serveHistoryWatcherPing(listener net.Listener) error {
+	conn, err := listener.Accept()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	var request struct {
+		Method string `json:"method"`
+	}
+	if err := json.NewDecoder(conn).Decode(&request); err != nil {
+		return err
+	}
+	if request.Method != "ping" {
+		return fmt.Errorf("method=%q want ping", request.Method)
+	}
+	return json.NewEncoder(conn).Encode(map[string]any{
+		"id": "herdr-sesh-history-ping",
+		"result": map[string]any{
+			"type": "pong", "version": "0.8.2-preview", "protocol": 21,
+		},
+	})
 }
 
 func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {

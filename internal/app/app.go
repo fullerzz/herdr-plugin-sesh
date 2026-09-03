@@ -592,7 +592,7 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 			}
 		}
 	}
-	if err := applyHistoryHook(retry, historyDir); err != nil {
+	if err := applyHistoryHook(historyDir); err != nil {
 		return err
 	}
 	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
@@ -611,34 +611,31 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	)
 }
 
-func applyHistoryHook(retry func(func() error) error, historyDir string) error {
+func applyHistoryHook(historyDir string) error {
 	eventName := os.Getenv("HERDR_PLUGIN_EVENT")
 	if eventName == "" || eventName == "startup" {
 		return nil
 	}
-	workspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-	if workspaceID == "" {
+	switch eventName {
+	case "workspace.focused":
+		return nil
+	case "workspace.closed":
 		var payload struct {
-			WorkspaceID string `json:"workspace_id"`
-			Data        struct {
+			Data struct {
 				WorkspaceID string `json:"workspace_id"`
 			} `json:"data"`
 		}
-		if raw := os.Getenv("HERDR_PLUGIN_EVENT_JSON"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-				return fmt.Errorf("decode HERDR_PLUGIN_EVENT_JSON: %w", err)
-			}
-			workspaceID = payload.WorkspaceID
-			if workspaceID == "" {
-				workspaceID = payload.Data.WorkspaceID
-			}
+		raw := os.Getenv("HERDR_PLUGIN_EVENT_JSON")
+		if raw == "" {
+			return errors.New("HERDR_PLUGIN_EVENT_JSON is required for workspace.closed")
 		}
-	}
-	switch eventName {
-	case "workspace.focused":
-		return retry(func() error { return state.Record(historyDir, workspaceID) })
-	case "workspace.closed":
-		return retry(func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return fmt.Errorf("decode HERDR_PLUGIN_EVENT_JSON: %w", err)
+		}
+		if payload.Data.WorkspaceID == "" {
+			return errors.New("workspace.closed event payload is missing data.workspace_id")
+		}
+		return state.RemoveWorkspace(historyDir, payload.Data.WorkspaceID)
 	default:
 		return fmt.Errorf("unknown Herdr plugin event %q", eventName)
 	}
