@@ -49,19 +49,18 @@ func SessionHistoryDir(dir, socketPath string) (string, error) {
 	}
 
 	err := withHistoryLock(dir, func() error {
-		if _, err := os.Stat(Path(sessionDir)); err == nil {
-			return nil
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		contents, err := os.ReadFile(Path(dir))
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(sessionDir, 0700); err != nil {
-			return err
-		}
-		return writeFile(Path(sessionDir), contents)
+		return withHistoryLock(sessionDir, func() error {
+			if _, err := os.Stat(Path(sessionDir)); err == nil {
+				return nil
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			contents, err := os.ReadFile(Path(dir))
+			if err != nil {
+				return err
+			}
+			return writeFile(Path(sessionDir), contents)
+		})
 	})
 	if err != nil {
 		return "", err

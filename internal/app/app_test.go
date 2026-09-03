@@ -643,6 +643,24 @@ func TestPickerJSONCommand(t *testing.T) {
 	}
 }
 
+func TestNativePickerFailsWhenWorkspaceHistoryCannotResolve(t *testing.T) {
+	configureFakeSources(t, "")
+	statePath := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(statePath, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", statePath)
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "herdr", "herdr.sock"))
+
+	err := (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(
+		context.Background(),
+		[]string{"picker", "--config", filepath.Join("..", "..", "testdata", "sesh.toml")},
+	)
+	if err == nil || !strings.Contains(err.Error(), "resolve workspace history") {
+		t.Fatalf("picker error=%v, want workspace history resolution failure", err)
+	}
+}
+
 func TestPickerJSONAppliesDefaultStartupCommand(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "sesh.toml")
 	if err := os.WriteFile(cfgPath, []byte(`[default_session]
@@ -1323,7 +1341,7 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"A"}}); err != nil {
+	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"A", "closed"}}); err != nil {
 		t.Fatal(err)
 	}
 	//nolint:gosec // Test lock path is derived from t.TempDir().
@@ -1380,17 +1398,9 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 		}
 
 		enc := json.NewEncoder(conn)
-		messages := []any{
-			map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}},
-			map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": "B"}},
-			map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": "C"}},
-			map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": "D"}},
-		}
-		for _, message := range messages {
-			if err := enc.Encode(message); err != nil {
-				serverDone <- err
-				return
-			}
+		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			serverDone <- err
+			return
 		}
 
 		snapshotConn, err := listener.Accept()
@@ -1411,11 +1421,16 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 			serverDone <- fmt.Errorf("snapshot method=%q", snapshotRequest.Method)
 			return
 		}
+		if err := encodeHistoryFocusEvents(enc, "C", "D"); err != nil {
+			_ = snapshotConn.Close()
+			serverDone <- err
+			return
+		}
 		if err := json.NewEncoder(snapshotConn).Encode(map[string]any{
 			"id": "herdr-sesh-history-snapshot",
 			"result": map[string]any{
 				"type":     "session_snapshot",
-				"snapshot": map[string]any{"focused_workspace_id": "D"},
+				"snapshot": map[string]any{"focused_workspace_id": "B"},
 			},
 		}); err != nil {
 			_ = snapshotConn.Close()
@@ -1427,7 +1442,7 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 			return
 		}
 		close(snapshotSent)
-		if err := enc.Encode(map[string]any{"event": "workspace_closed", "data": map[string]any{"type": "workspace_closed", "workspace_id": "B"}}); err != nil {
+		if err := enc.Encode(map[string]any{"event": "workspace_closed", "data": map[string]any{"type": "workspace_closed", "workspace_id": "closed"}}); err != nil {
 			serverDone <- err
 			return
 		}
@@ -1453,7 +1468,7 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("watcher did not request a snapshot after lock release")
 	}
-	want := []string{"D", "C", "A"}
+	want := []string{"D", "C", "B", "A"}
 	deadline := time.Now().Add(time.Second)
 	for {
 		h, loadErr := state.LoadHistory(historyDir)
@@ -1498,6 +1513,15 @@ func serveHistoryWatcherPing(listener net.Listener) error {
 			"type": "pong", "version": "0.8.2-preview", "protocol": 21,
 		},
 	})
+}
+
+func encodeHistoryFocusEvents(enc *json.Encoder, workspaceIDs ...string) error {
+	for _, workspaceID := range workspaceIDs {
+		if err := enc.Encode(map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": workspaceID}}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {

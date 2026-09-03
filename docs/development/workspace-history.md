@@ -78,7 +78,10 @@ Starting the decoder before the snapshot request closes the bootstrap window:
 an event that arrives while `session.snapshot` is in flight waits in the
 channel and is applied after the snapshot. The buffer holds 1,024 events. If
 the stream ends, buffered events are drained before the watcher reconnects
-after 100 ms.
+after 100 ms and installs a fresh snapshot. Herdr subscriptions do not expose a
+replay cursor, so an unexpected disconnect can lose intermediate focus changes;
+the snapshot restores the current focus but cannot reconstruct that transient
+order.[^reconnect-gap]
 
 Subscription request names use dotted event types. Incoming event envelopes
 use `workspace_focused` and `workspace_closed`; malformed, unrelated, and
@@ -87,11 +90,12 @@ ID-less envelopes are ignored.
 ```mermaid
 sequenceDiagram
     participant W as Watcher
+    participant P as Protocol connection
     participant E as Event connection
     participant S as Snapshot connection
     participant H as History
-    W->>E: ping
-    E-->>W: protocol
+    W->>P: ping
+    P-->>W: protocol
     W->>E: events.subscribe
     E-->>W: subscription_started
     Note over W,E: Decoder starts buffering live events
@@ -121,8 +125,8 @@ ${HERDR_PLUGIN_STATE_DIR}/history/<sha256-clean-socket-path>/history.json
 ```
 
 Existing unscoped `history.json` belongs to the default Herdr session. It is
-copied into that session's scoped directory on first use while holding the
-legacy history lock. Named sessions never inherit the old file.
+copied into that session's scoped directory on first use while holding both the
+legacy and destination history locks. Named sessions never inherit the old file.
 
 History mutation has a separate stable lock, `history.lock`. Writers attempt
 `LOCK_EX | LOCK_NB` every 10 ms for up to 250 ms. A timeout returns the typed
@@ -207,6 +211,9 @@ The most useful implementation entry points are:
     [protocol regression tests](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/herdr/events_test.go).
 [^snapshot-source]: See `loadSessionSnapshot` and the buffered decoder in
     [`internal/herdr/events.go`](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/herdr/events.go).
+[^reconnect-gap]: Herdr documents snapshots as reconnect reconciliation, while
+    lifecycle subscriptions explicitly do not replay retained events. See the
+    [Herdr socket API](https://herdr.dev/docs/socket-api/#session-snapshot).
 [^flock-source]: [`syscall.Flock`](https://pkg.go.dev/syscall#Flock) provides the
     process-level advisory lock used by `withHistoryLock` and
     `TryHistoryWatcherLock`.

@@ -279,7 +279,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		client := herdr.NewCLIClient()
 		historyDir, historyDirErr := historyStateDir()
 		if historyDirErr != nil {
-			a.warnf("could not resolve workspace history: %v", historyDirErr)
+			return fmt.Errorf("resolve workspace history: %w", historyDirErr)
 		}
 		history, historyErr := state.LoadHistory(historyDir)
 		if historyErr != nil {

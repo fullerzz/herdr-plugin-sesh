@@ -88,6 +88,69 @@ func TestSessionHistoryDirMigratesOnlyDefaultSessionHistory(t *testing.T) {
 	}
 }
 
+func TestSessionHistoryDirMigrationWaitsForDestinationLock(t *testing.T) {
+	stateDir := t.TempDir()
+	socketPath := filepath.Join(t.TempDir(), "herdr", "herdr.sock")
+	sessionDir, err := SessionHistoryDir(stateDir, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := History{Workspaces: []string{"legacy"}}
+	if err := SaveHistory(stateDir, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessionDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	//nolint:gosec // Test lock path is derived from t.TempDir().
+	lock, err := os.OpenFile(filepath.Join(sessionDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		}
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		_, migrateErr := SessionHistoryDir(stateDir, socketPath)
+		done <- migrateErr
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("migration bypassed destination lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	concurrent := History{Workspaces: []string{"concurrent"}}
+	if err := writeJSONFile(Path(sessionDir), concurrent); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	locked = false
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadHistory(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, concurrent) {
+		t.Fatalf("migrated history=%#v want concurrent history %#v", got, concurrent)
+	}
+}
+
 func TestHistoryRecordsMostRecentWithoutDuplicates(t *testing.T) {
 	d := t.TempDir()
 	if err := Record(d, "a"); err != nil {

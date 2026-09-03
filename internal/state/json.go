@@ -1,33 +1,20 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 )
 
 func writeJSONFile(path string, v any) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-
-	enc := json.NewEncoder(tmp)
+	var contents bytes.Buffer
+	enc := json.NewEncoder(&contents)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
-		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return writeFile(path, contents.Bytes())
 }
 
 func writeFile(path string, contents []byte) error {
