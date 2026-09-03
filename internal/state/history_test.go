@@ -2,6 +2,7 @@ package state
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,81 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSessionHistoryDirIsolatesSockets(t *testing.T) {
+	stateDir := t.TempDir()
+	firstDir, err := SessionHistoryDir(stateDir, "/tmp/herdr-a.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDir, err := SessionHistoryDir(stateDir, "/tmp/herdr-b.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstDir == secondDir {
+		t.Fatalf("session history dirs are shared: %q", firstDir)
+	}
+
+	if err := SaveHistory(firstDir, History{Workspaces: []string{"w1", "first-only"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveHistory(secondDir, History{Workspaces: []string{"w1", "second-only"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordSwitch(firstDir, "w1", "first-only"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveWorkspace(secondDir, "w1"); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := LoadHistory(firstDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadHistory(secondDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"first-only", "w1"}; !reflect.DeepEqual(first.Workspaces, want) {
+		t.Fatalf("first workspaces=%#v want %#v", first.Workspaces, want)
+	}
+	if want := []string{"second-only"}; !reflect.DeepEqual(second.Workspaces, want) {
+		t.Fatalf("second workspaces=%#v want %#v", second.Workspaces, want)
+	}
+}
+
+func TestSessionHistoryDirMigratesOnlyDefaultSessionHistory(t *testing.T) {
+	stateDir := t.TempDir()
+	legacy := History{Workspaces: []string{"current", "previous"}}
+	if err := SaveHistory(stateDir, legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	namedDir, err := SessionHistoryDir(stateDir, filepath.Join("/config", "herdr", "sessions", "work", "herdr.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, err := LoadHistory(namedDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(named.Workspaces) != 0 {
+		t.Fatalf("named session imported legacy history: %#v", named.Workspaces)
+	}
+
+	defaultDir, err := SessionHistoryDir(stateDir, filepath.Join("/config", "herdr", "herdr.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := LoadHistory(defaultDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(migrated, legacy) {
+		t.Fatalf("migrated history=%#v want %#v", migrated, legacy)
+	}
+}
 
 func TestHistoryRecordsMostRecentWithoutDuplicates(t *testing.T) {
 	d := t.TempDir()
@@ -95,6 +171,41 @@ func TestHistoryMutationsWaitForProcessLock(t *testing.T) {
 			}
 			assertHistoryMutationWaitsForLock(t, d, tc.action)
 		})
+	}
+}
+
+func TestHistoryMutationTimesOutWaitingForProcessLock(t *testing.T) {
+	d := t.TempDir()
+	//nolint:gosec // Test lock path is derived from t.TempDir().
+	lock, err := os.OpenFile(filepath.Join(d, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		}
+	}()
+
+	done := make(chan error, 1)
+	go func() { done <- Record(d, "blocked") }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrHistoryLockTimeout) {
+			t.Fatalf("err=%v, want history lock timeout", err)
+		}
+	case <-time.After(2 * time.Second):
+		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+			t.Fatal(err)
+		}
+		locked = false
+		<-done
+		t.Fatal("history mutation remained blocked for two seconds")
 	}
 }
 

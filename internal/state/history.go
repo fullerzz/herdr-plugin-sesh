@@ -1,20 +1,108 @@
 package state
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 type History struct {
 	Workspaces []string `json:"workspaces"`
 }
 
-const maxWorkspaces = 50
+var ErrHistoryLockTimeout = errors.New("timed out waiting for history lock")
+
+const (
+	maxWorkspaces       = 50
+	historyLockTimeout  = 250 * time.Millisecond
+	historyLockInterval = 10 * time.Millisecond
+)
 
 func Path(dir string) string { return filepath.Join(dir, "history.json") }
+
+// SessionHistoryDir resolves a socket-scoped history directory. Existing
+// unscoped history belongs to the default session and is copied on first use;
+// named sessions never inherit it.
+func SessionHistoryDir(dir, socketPath string) (string, error) {
+	if dir == "" || socketPath == "" {
+		return dir, nil
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(socketPath)))
+	sessionDir := filepath.Join(dir, "history", fmt.Sprintf("%x", sum))
+	if !isDefaultSessionSocket(socketPath) {
+		return sessionDir, nil
+	}
+	if _, err := os.Stat(Path(sessionDir)); err == nil {
+		return sessionDir, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if _, err := os.Stat(Path(dir)); os.IsNotExist(err) {
+		return sessionDir, nil
+	} else if err != nil {
+		return "", err
+	}
+
+	err := withHistoryLock(dir, func() error {
+		if _, err := os.Stat(Path(sessionDir)); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		contents, err := os.ReadFile(Path(dir))
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(sessionDir, 0700); err != nil {
+			return err
+		}
+		return writeFile(Path(sessionDir), contents)
+	})
+	if err != nil {
+		return "", err
+	}
+	return sessionDir, nil
+}
+
+func isDefaultSessionSocket(socketPath string) bool {
+	clean := filepath.Clean(socketPath)
+	parent := filepath.Dir(clean)
+	if filepath.Base(clean) != "herdr.sock" || filepath.Base(parent) != "herdr" {
+		return false
+	}
+	return filepath.Base(filepath.Dir(parent)) != "sessions"
+}
+
+// TryHistoryWatcherLock permits one event subscriber per Herdr socket.
+func TryHistoryWatcherLock(dir, socketPath string) (release func() error, acquired bool, err error) {
+	if dir == "" {
+		return nil, false, errors.New("HERDR_PLUGIN_STATE_DIR is required")
+	}
+	//nolint:gosec // dir is the trusted plugin-owned state directory supplied to this API.
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, false, err
+	}
+	lockName := fmt.Sprintf("history-watch-%x.lock", sha256.Sum256([]byte(socketPath)))
+	//nolint:gosec // dir is the trusted plugin-owned state directory supplied to this API.
+	lock, err := os.OpenFile(filepath.Join(dir, lockName), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, false, lock.Close()
+		}
+		return nil, false, errors.Join(err, lock.Close())
+	}
+	return func() error {
+		return errors.Join(syscall.Flock(int(lock.Fd()), syscall.LOCK_UN), lock.Close())
+	}, true, nil
+}
 
 func LoadHistory(dir string) (History, error) {
 	var h History
@@ -92,7 +180,6 @@ func RemoveWorkspace(dir, workspaceID string) error {
 }
 
 func withHistoryLock(dir string, fn func() error) (err error) {
-	// ponytail: serializes writes, not hook scheduling; add an event queue only if ordering guarantees are required.
 	//nolint:gosec // dir is the trusted plugin-owned state directory supplied to this API.
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -105,8 +192,19 @@ func withHistoryLock(dir string, fn func() error) (err error) {
 	defer func() {
 		err = errors.Join(err, lock.Close())
 	}()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return err
+	deadline := time.Now().Add(historyLockTimeout)
+	for {
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return err
+		}
+		if time.Now().Add(historyLockInterval).After(deadline) {
+			return fmt.Errorf("%w after %s", ErrHistoryLockTimeout, historyLockTimeout)
+		}
+		time.Sleep(historyLockInterval)
 	}
 	defer func() {
 		err = errors.Join(err, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))

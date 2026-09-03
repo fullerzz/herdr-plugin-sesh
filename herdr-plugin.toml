@@ -16,15 +16,15 @@ command = [
 ]
 
 [[startup]]
-command = ["./bin/herdr-sesh", "plugin", "sync-history"]
+command = ["./bin/herdr-sesh", "plugin", "watch-history"]
 
 [[events]]
 on = "workspace.focused"
-command = ["./bin/herdr-sesh", "plugin", "sync-history"]
+command = ["./bin/herdr-sesh", "plugin", "watch-history"]
 
 [[events]]
 on = "workspace.closed"
-command = ["./bin/herdr-sesh", "plugin", "sync-history"]
+command = ["./bin/herdr-sesh", "plugin", "watch-history"]
 
 [[actions]]
 id = "open-picker"

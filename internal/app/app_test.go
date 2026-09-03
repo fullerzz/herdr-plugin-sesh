@@ -7,17 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestVersionCommand(t *testing.T) {
@@ -828,6 +831,7 @@ esac
 				t.Fatal(err)
 			}
 			t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+			t.Setenv("HERDR_SOCKET_PATH", "")
 			pickerWorkspaceID := "closed-workspace"
 			var warnings []string
 			warn := func(format string, args ...any) {
@@ -946,6 +950,7 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
 	t.Setenv("HERDR_FAKE_LOG", logPath)
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", "")
 	t.Setenv("HERDR_WORKSPACE_ID", "current")
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
@@ -970,49 +975,412 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	}
 }
 
-func TestPluginSyncHistoryRoutesLifecycleEvents(t *testing.T) {
-	tests := []struct {
-		name      string
-		event     string
-		workspace string
-		initial   []string
-		want      []string
-	}{
-		{name: "startup records workspace", event: "startup", workspace: "startup-workspace", want: []string{"startup-workspace"}},
-		{name: "focused workspace promotes workspace", event: "workspace.focused", workspace: "focused-workspace", initial: []string{"current-workspace", "older-workspace"}, want: []string{"focused-workspace", "current-workspace", "older-workspace"}},
-		{name: "closed workspace removes workspace", event: "workspace.closed", workspace: "closed-workspace", initial: []string{"closed-workspace", "other-workspace"}, want: []string{"other-workspace"}},
+func TestPluginManifestStartsHistoryWatcherForRuntimeLifecycleEvents(t *testing.T) {
+	//nolint:gosec // The manifest is a repository-owned test fixture.
+	b, err := os.ReadFile("../../herdr-plugin.toml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stateDir := filepath.Join(t.TempDir(), "state")
-			if err := state.SaveHistory(stateDir, state.History{Workspaces: tt.initial}); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("HERDR_PLUGIN_EVENT", tt.event)
-			t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
-			t.Setenv("HERDR_WORKSPACE_ID", tt.workspace)
-
-			a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-			if err := a.Run(context.Background(), []string{"plugin", "sync-history"}); err != nil {
-				t.Fatal(err)
-			}
-			h, err := state.LoadHistory(stateDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(h.Workspaces, tt.want) {
-				t.Fatalf("workspaces=%#v want %#v", h.Workspaces, tt.want)
-			}
-		})
+	var manifest struct {
+		Events []struct {
+			On      string   `toml:"on"`
+			Command []string `toml:"command"`
+		} `toml:"events"`
+	}
+	if err := toml.Unmarshal(b, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	wantCommand := []string{"./bin/herdr-sesh", "plugin", "watch-history"}
+	got := make(map[string][]string, len(manifest.Events))
+	for _, event := range manifest.Events {
+		got[event.On] = event.Command
+	}
+	for _, event := range []string{"workspace.focused", "workspace.closed"} {
+		if !reflect.DeepEqual(got[event], wantCommand) {
+			t.Errorf("%s command=%#v want %#v", event, got[event], wantCommand)
+		}
 	}
 }
 
-func TestPluginSyncHistoryRejectsUnknownEvent(t *testing.T) {
-	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.renamed")
+func TestPluginWatchHistoryAppliesClosedHookBeforeNoHistoryStream(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-hook-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "herdr.sock")
+	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"closed", "other"}}); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	streamReady := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var request struct {
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(conn).Decode(&request); err != nil {
+			serverDone <- err
+			return
+		}
+		if request.Method != "events.subscribe" {
+			serverDone <- fmt.Errorf("method=%q", request.Method)
+			return
+		}
+		enc := json.NewEncoder(conn)
+		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			serverDone <- err
+			return
+		}
+		snapshotConn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if err := json.NewDecoder(snapshotConn).Decode(&request); err != nil {
+			_ = snapshotConn.Close()
+			serverDone <- err
+			return
+		}
+		if err := json.NewEncoder(snapshotConn).Encode(map[string]any{
+			"id":     "herdr-sesh-history-snapshot",
+			"result": map[string]any{"type": "session_snapshot", "snapshot": map[string]any{"focused_workspace_id": ""}},
+		}); err != nil {
+			_ = snapshotConn.Close()
+			serverDone <- err
+			return
+		}
+		_ = snapshotConn.Close()
+		// Current Herdr does not replay the hook event. A duplicate from an
+		// older server remains harmless when it is present.
+		if err := enc.Encode(map[string]any{"event": "workspace_closed", "data": map[string]any{"workspace_id": "closed"}}); err != nil {
+			serverDone <- err
+			return
+		}
+		close(streamReady)
+		<-releaseServer
+		serverDone <- nil
+	}()
+
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.closed")
+	t.Setenv("HERDR_WORKSPACE_ID", "")
+	t.Setenv("HERDR_PLUGIN_EVENT_JSON", `{"data":{"workspace_id":"closed"}}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	watchDone := make(chan error, 1)
+	go func() {
+		a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+		watchDone <- a.Run(ctx, []string{"plugin", "watch-history"})
+	}()
+	select {
+	case <-streamReady:
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not bootstrap")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		history, loadErr := state.LoadHistory(historyDir)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if reflect.DeepEqual(history.Workspaces, []string{"other"}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("history after hook and duplicate replay=%#v", history.Workspaces)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	close(releaseServer)
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-watchDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("watch error=%v, want context cancellation", err)
+	}
+}
+
+func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "herdr.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	watcherReady := make(chan struct{})
+	releaseServer := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var request struct {
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(conn).Decode(&request); err != nil {
+			serverDone <- err
+			return
+		}
+		if request.Method != "events.subscribe" {
+			serverDone <- fmt.Errorf("method=%q", request.Method)
+			return
+		}
+		if err := json.NewEncoder(conn).Encode(map[string]any{
+			"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
+		}); err != nil {
+			serverDone <- err
+			return
+		}
+
+		snapshotConn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = snapshotConn.Close() }()
+		if err := json.NewDecoder(snapshotConn).Decode(&request); err != nil {
+			serverDone <- err
+			return
+		}
+		if request.Method != "session.snapshot" {
+			serverDone <- fmt.Errorf("snapshot method=%q", request.Method)
+			return
+		}
+		if err := json.NewEncoder(snapshotConn).Encode(map[string]any{
+			"id": "herdr-sesh-history-snapshot",
+			"result": map[string]any{
+				"type": "session_snapshot", "snapshot": map[string]any{"focused_workspace_id": ""},
+			},
+		}); err != nil {
+			serverDone <- err
+			return
+		}
+		close(watcherReady)
+		<-releaseServer
+		serverDone <- nil
+	}()
+
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	firstDone := make(chan error, 1)
+	go func() {
+		a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+		firstDone <- a.Run(firstCtx, []string{"plugin", "watch-history"})
+	}()
+	select {
+	case <-watcherReady:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first watcher did not subscribe")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-	err := a.Run(context.Background(), []string{"plugin", "sync-history"})
-	if err == nil || !strings.Contains(err.Error(), "unknown Herdr plugin event") {
-		t.Fatalf("err=%v, want unknown event error", err)
+	secondErr := a.Run(ctx, []string{"plugin", "watch-history"})
+	cancelFirst()
+	close(releaseServer)
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("first watcher error=%v, want context cancellation", err)
+	}
+	if secondErr != nil {
+		t.Fatalf("second watcher returned %v, want a successful no-op", secondErr)
+	}
+}
+
+func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "herdr.sock")
+	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"A"}}); err != nil {
+		t.Fatal(err)
+	}
+	//nolint:gosec // Test lock path is derived from t.TempDir().
+	lock, err := os.OpenFile(filepath.Join(historyDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	snapshotSent := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		var request struct {
+			Method string `json:"method"`
+			Params struct {
+				Subscriptions []struct {
+					Type string `json:"type"`
+				} `json:"subscriptions"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(conn).Decode(&request); err != nil {
+			serverDone <- err
+			return
+		}
+		if request.Method != "events.subscribe" {
+			serverDone <- fmt.Errorf("method=%q", request.Method)
+			return
+		}
+		gotSubscriptions := make([]string, 0, len(request.Params.Subscriptions))
+		for _, subscription := range request.Params.Subscriptions {
+			gotSubscriptions = append(gotSubscriptions, subscription.Type)
+		}
+		if want := []string{"workspace.focused", "workspace.closed"}; !reflect.DeepEqual(gotSubscriptions, want) {
+			serverDone <- fmt.Errorf("subscriptions=%#v want %#v", gotSubscriptions, want)
+			return
+		}
+
+		enc := json.NewEncoder(conn)
+		messages := []any{
+			map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}},
+			map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": "B"}},
+			map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": "C"}},
+			map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": "D"}},
+		}
+		for _, message := range messages {
+			if err := enc.Encode(message); err != nil {
+				serverDone <- err
+				return
+			}
+		}
+
+		snapshotConn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		var snapshotRequest struct {
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(snapshotConn).Decode(&snapshotRequest); err != nil {
+			_ = snapshotConn.Close()
+			serverDone <- err
+			return
+		}
+		if snapshotRequest.Method != "session.snapshot" {
+			_ = snapshotConn.Close()
+			serverDone <- fmt.Errorf("snapshot method=%q", snapshotRequest.Method)
+			return
+		}
+		if err := json.NewEncoder(snapshotConn).Encode(map[string]any{
+			"id": "herdr-sesh-history-snapshot",
+			"result": map[string]any{
+				"type":     "session_snapshot",
+				"snapshot": map[string]any{"focused_workspace_id": "D"},
+			},
+		}); err != nil {
+			_ = snapshotConn.Close()
+			serverDone <- err
+			return
+		}
+		if err := snapshotConn.Close(); err != nil {
+			serverDone <- err
+			return
+		}
+		close(snapshotSent)
+		if err := enc.Encode(map[string]any{"event": "workspace_closed", "data": map[string]any{"type": "workspace_closed", "workspace_id": "B"}}); err != nil {
+			serverDone <- err
+			return
+		}
+		serverDone <- nil
+	}()
+
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_WORKSPACE_ID", "stale")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	watchDone := make(chan error, 1)
+	go func() { watchDone <- a.Run(ctx, []string{"plugin", "watch-history"}) }()
+	// Replayed events must wait for the history lock before the newer
+	// snapshot is installed.
+	time.Sleep(350 * time.Millisecond)
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-snapshotSent:
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not request a snapshot after lock release")
+	}
+	want := []string{"D", "C", "A"}
+	deadline := time.Now().Add(time.Second)
+	for {
+		h, loadErr := state.LoadHistory(historyDir)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if reflect.DeepEqual(h.Workspaces, want) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if watchErr := <-watchDone; !errors.Is(watchErr, context.Canceled) {
+		t.Fatalf("watch error=%v, want context cancellation", watchErr)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
 	}
 }
 

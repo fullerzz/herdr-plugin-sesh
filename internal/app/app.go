@@ -277,14 +277,18 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		selected, ok, err = pickerpkg.RunFZF(ctx, sessions, pickOpts)
 	} else {
 		client := herdr.NewCLIClient()
-		history, historyErr := state.LoadHistory(os.Getenv("HERDR_PLUGIN_STATE_DIR"))
+		historyDir, historyDirErr := historyStateDir()
+		if historyDirErr != nil {
+			a.warnf("could not resolve workspace history: %v", historyDirErr)
+		}
+		history, historyErr := state.LoadHistory(historyDir)
 		if historyErr != nil {
 			a.warnf("ignoring workspace history: %v", historyErr)
 		}
 		pickOpts.RecentWorkspaceIDs = append([]string{currentWorkspaceID}, history.Workspaces...)
 		if cfg.TUI.ShowLastWorkspace {
 			pickOpts.HerdrWorkspaces = herdrWorkspaces
-			lastWorkspaceID, _, lastWorkspaceErr := lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), currentWorkspaceID)
+			lastWorkspaceID, _, lastWorkspaceErr := lastWorkspace(historyDir, currentWorkspaceID)
 			if lastWorkspaceErr != nil {
 				a.warnf("could not determine last workspace: %v", lastWorkspaceErr)
 			}
@@ -301,7 +305,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			if err := client.WorkspaceClose(closeCtx, id); err != nil {
 				return err
 			}
-			if err := state.RemoveWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), id); err != nil {
+			if err := state.RemoveWorkspace(historyDir, id); err != nil {
 				deferWarn("could not prune workspace history: %v", err)
 			}
 			return nil
@@ -356,7 +360,12 @@ func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *
 	var lastID string
 	var lastErr error
 	if cfg.TUI.ShowLastWorkspace {
-		lastID, _, lastErr = lastWorkspace(os.Getenv("HERDR_PLUGIN_STATE_DIR"), *pickerWorkspaceID)
+		historyDir, err := historyStateDir()
+		if err != nil {
+			lastErr = err
+		} else {
+			lastID, _, lastErr = lastWorkspace(historyDir, *pickerWorkspaceID)
+		}
 	}
 	if focusErr != nil {
 		*pickerWorkspaceID = ""
@@ -492,9 +501,12 @@ func gitRoot(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 func (a *App) last(ctx context.Context, _ []string) error {
-	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
+	historyDir, err := historyStateDir()
+	if err != nil {
+		return err
+	}
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-	id, ok, err := lastWorkspace(stateDir, currentWorkspaceID)
+	id, ok, err := lastWorkspace(historyDir, currentWorkspaceID)
 	if err != nil {
 		return err
 	}
@@ -504,7 +516,7 @@ func (a *App) last(ctx context.Context, _ []string) error {
 	if err := herdr.NewCLIClient().WorkspaceFocus(ctx, id); err != nil {
 		return err
 	}
-	if err := state.RecordSwitch(stateDir, currentWorkspaceID, id); err != nil {
+	if err := state.RecordSwitch(historyDir, currentWorkspaceID, id); err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
 	return nil
@@ -518,9 +530,17 @@ func lastWorkspace(stateDir, currentWorkspaceID string) (string, bool, error) {
 }
 
 func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string) {
-	if err := state.RecordSwitch(os.Getenv("HERDR_PLUGIN_STATE_DIR"), fromWorkspaceID, toWorkspaceID); err != nil {
+	historyDir, err := historyStateDir()
+	if err == nil {
+		err = state.RecordSwitch(historyDir, fromWorkspaceID, toWorkspaceID)
+	}
+	if err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
+}
+
+func historyStateDir() (string, error) {
+	return state.SessionHistoryDir(os.Getenv("HERDR_PLUGIN_STATE_DIR"), os.Getenv("HERDR_SOCKET_PATH"))
 }
 
 func (a *App) window(ctx context.Context, args []string) error {
@@ -547,21 +567,83 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "open-picker":
 		return herdr.NewCLIClient().PluginPaneOpen(ctx, "fullerzz.sesh", "picker", "overlay")
-	case "sync-history":
-		stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
-		workspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-		switch os.Getenv("HERDR_PLUGIN_EVENT") {
-		case "startup", "workspace.focused":
-			return state.Record(stateDir, workspaceID)
-		case "workspace.closed":
-			return state.RemoveWorkspace(stateDir, workspaceID)
-		default:
-			return fmt.Errorf("unknown Herdr plugin event %q", os.Getenv("HERDR_PLUGIN_EVENT"))
-		}
+	case "watch-history":
+		return a.watchHistory(ctx)
 	default:
 		return errors.New("unknown plugin command")
 	}
 }
+
+func (a *App) watchHistory(ctx context.Context) (err error) {
+	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
+	socketPath := os.Getenv("HERDR_SOCKET_PATH")
+	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
+	if err != nil {
+		return err
+	}
+	retry := func(mutate func() error) error {
+		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			err := mutate()
+			if !errors.Is(err, state.ErrHistoryLockTimeout) {
+				return err
+			}
+		}
+	}
+	if err := applyHistoryHook(retry, historyDir); err != nil {
+		return err
+	}
+	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	if err != nil || !acquired {
+		return err
+	}
+	defer func() { err = errors.Join(err, release()) }()
+
+	return herdr.WatchWorkspaceEvents(ctx, socketPath,
+		func(workspaceID string) error {
+			return retry(func() error { return state.Record(historyDir, workspaceID) })
+		},
+		func(workspaceID string) error {
+			return retry(func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
+		},
+	)
+}
+
+func applyHistoryHook(retry func(func() error) error, historyDir string) error {
+	eventName := os.Getenv("HERDR_PLUGIN_EVENT")
+	if eventName == "" || eventName == "startup" {
+		return nil
+	}
+	workspaceID := os.Getenv("HERDR_WORKSPACE_ID")
+	if workspaceID == "" {
+		var payload struct {
+			WorkspaceID string `json:"workspace_id"`
+			Data        struct {
+				WorkspaceID string `json:"workspace_id"`
+			} `json:"data"`
+		}
+		if raw := os.Getenv("HERDR_PLUGIN_EVENT_JSON"); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+				return fmt.Errorf("decode HERDR_PLUGIN_EVENT_JSON: %w", err)
+			}
+			workspaceID = payload.WorkspaceID
+			if workspaceID == "" {
+				workspaceID = payload.Data.WorkspaceID
+			}
+		}
+	}
+	switch eventName {
+	case "workspace.focused":
+		return retry(func() error { return state.Record(historyDir, workspaceID) })
+	case "workspace.closed":
+		return retry(func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
+	default:
+		return fmt.Errorf("unknown Herdr plugin event %q", eventName)
+	}
+}
+
 func (a *App) config(_ context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("config requires path, init, validate, or migrate")
