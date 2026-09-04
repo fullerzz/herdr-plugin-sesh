@@ -12,3 +12,58 @@ exclude-newer = "1 day"
 
 [tool.uv.sources]
 mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" }
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.6",
+]
+
+[tool.ruff]
+include = [".github/scripts/**/*.py"]
+line-length = 120
+indent-width = 4
+
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "C90",
+    "I",
+    "N",
+    "UP",
+    "ASYNC",
+    "S",
+    "B",
+    "ERA",
+    "PLE",
+    "PLW",
+    "PLC",
+    "PLW",
+    "PERF",
+    "RUF",
+    "SIM",
+    "PT",
+    "T20",
+    "PTH",
+    "LOG",
+    "G",
+    "FA",
+    "ANN"
+]
+ignore = ["E501", "PLC0415"]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

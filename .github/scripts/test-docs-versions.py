@@ -1,14 +1,19 @@
 """Integration regression: release snapshots, latest, selector and redirects."""
 
+# Assertions are the checks in this standalone regression script, not input validation.
+# ruff: noqa: S101
+
 import importlib.util
 import json
-from pathlib import Path
+import logging
 import re
 import tempfile
+from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "docs_versions", Path(__file__).with_name("build-docs-versions.py")
-)
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+spec = importlib.util.spec_from_file_location("docs_versions", Path(__file__).with_name("build-docs-versions.py"))
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
 
@@ -47,16 +52,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert {item["version"] for item in versions} == {"latest", "v1.0.0"}
     release = (output / "v1.0.0/index.html").read_text()
     latest = (output / "latest/index.html").read_text()
-    assert "Released documentation" in release and "Latest documentation" not in release
+    assert "Released documentation" in release
+    assert "Latest documentation" not in release
     assert "Latest documentation" in latest
     assert "Uncommitted preview guide" in (output / "latest/guide/index.html").read_text()
     assert "Released guide" in (output / "v1.0.0/guide/index.html").read_text()
     assert 'href="guide/"' in release
     assert 'rel="canonical" href="https://example.com/wiki/v1.0.0/"' in release
     assert 'rel="canonical" href="https://example.com/wiki/latest/"' in latest
-    runtime_config = json.loads(re.search(
-        r'<script id="__config" type="application/json">(.*?)</script>', release
-    ).group(1))
+    runtime_config = json.loads(
+        re.search(r'<script id="__config" type="application/json">(.*?)</script>', release).group(1)
+    )
     assert runtime_config["version"] == {"default": "latest", "provider": "mike"}
     assert "edit/main/docs/" not in release
     assert 'href="latest/"' in (output / "index.html").read_text()
@@ -71,4 +77,4 @@ with tempfile.TemporaryDirectory() as directory:
         assert (output / page).parent.joinpath(href).resolve().joinpath("index.html").is_file()
     assert builder.git(source, "status", "--porcelain") == before
     assert not builder.git(source, "branch", "--list", "gh-pages").strip()
-    print("Versioned documentation checks passed")
+    logger.info("Versioned documentation checks passed")

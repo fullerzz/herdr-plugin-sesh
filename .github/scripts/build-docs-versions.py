@@ -2,8 +2,8 @@
 
 import io
 import json
+import logging
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -11,21 +11,53 @@ import tarfile
 import tempfile
 import tomllib
 from contextlib import chdir
+from pathlib import Path
 
 from mike import commands, utils
 
-
-def git(repo, *args):
-    return subprocess.check_output(["git", "-C", str(repo), *args])
+logger = logging.getLogger(__name__)
 
 
-def extract(repo, ref, destination, *paths):
+def executable(name: str) -> str:
+    path = shutil.which(name)
+    if path is None:
+        raise FileNotFoundError(f"Required executable not found: {name}")
+    return path
+
+
+def git(repo: Path, *args: str) -> bytes:
+    # Internal callers supply Git arguments; tag refs are validated and no shell is used.
+    return subprocess.check_output([executable("git"), "-C", str(repo), *args])  # noqa: S603
+
+
+def extract(repo: Path, ref: str, destination: Path, *paths: str) -> None:
     archive = git(repo, "archive", ref, *paths)
     with tarfile.open(fileobj=io.BytesIO(archive)) as files:
         files.extractall(destination, filter="data")
 
 
-def build(source, output):
+def hydrate_assets(source: Path, docs: Path) -> None:
+    """Replace git archive's LFS pointers with the fetched asset contents."""
+    for path in docs.rglob("*"):
+        if not path.is_file():
+            continue
+        with path.open("rb") as file:
+            pointer = file.read(1024)
+        if not pointer.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+            continue
+        # Pointer contents are stdin data, never executable arguments or shell input.
+        result = subprocess.run(  # noqa: S603
+            [executable("git"), "-C", str(source), "lfs", "smudge"],
+            input=pointer,
+            capture_output=True,
+            check=True,
+        )
+        if result.stdout.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+            raise RuntimeError(f"Unresolved LFS pointer: {path}")
+        path.write_bytes(result.stdout)
+
+
+def build(source: Path, output: Path) -> None:
     source, output = source.resolve(), output.resolve()
     tags = git(source, "tag", "--list", "v*", "--sort=version:refname").decode().splitlines()
     versions = []
@@ -37,7 +69,7 @@ def build(source, output):
         if "zensical.toml" in paths and "docs" in paths:
             versions.append((tag, ref))
         else:
-            print(f"Skipping {tag}: predates the Zensical wiki", flush=True)
+            logger.info("Skipping %s: predates the Zensical wiki", tag)
 
     # ponytail: rebuild all tags; cache immutable snapshots if release builds get slow.
     with tempfile.TemporaryDirectory(prefix="herdr-sesh-docs-") as directory:
@@ -56,19 +88,7 @@ def build(source, output):
                 shutil.copytree(source / "docs", snapshot / "docs")
                 shutil.copy2(source / "zensical.toml", snapshot / "zensical.toml")
 
-            # git archive preserves LFS pointers; hydrate them from fetched objects.
-            for path in (snapshot / "docs").rglob("*"):
-                if path.is_file():
-                    with path.open("rb") as file:
-                        pointer = file.read(1024)
-                    if pointer.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
-                        result = subprocess.run(
-                            ["git", "-C", str(source), "lfs", "smudge"],
-                            input=pointer, capture_output=True, check=True,
-                        )
-                        if result.stdout.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
-                            raise RuntimeError(f"Unresolved LFS pointer: {path}")
-                        path.write_bytes(result.stdout)
+            hydrate_assets(source, snapshot / "docs")
 
             config = tomllib.loads((snapshot / "zensical.toml").read_text())["project"]
             config.setdefault("extra", {})["version"] = {"provider": "mike", "default": "latest"}
@@ -76,13 +96,15 @@ def build(source, output):
             # JSON is YAML: retain each tag's config without adding a TOML writer.
             config_file = snapshot / "mkdocs.yml"
             config_file.write_text(json.dumps(config))
-            print(f"Building documentation: {version}", flush=True)
+            logger.info("Building documentation: %s", version)
             with chdir(work):
                 cfg = utils.load_config(str(config_file))
                 with commands.deploy(cfg, version, message=f"docs: build {version}"):
-                    subprocess.run(
-                        ["zensical", "build", "--clean", "--strict", "-f", str(config_file)],
-                        env={**os.environ, "MIKE_DOCS_VERSION": version}, check=True,
+                    # The config path is generated locally and passed without a shell.
+                    subprocess.run(  # noqa: S603
+                        [executable("zensical"), "build", "--clean", "--strict", "-f", str(config_file)],
+                        env={**os.environ, "MIKE_DOCS_VERSION": version},
+                        check=True,
                     )
         with chdir(work):
             commands.set_default("latest")
@@ -107,5 +129,6 @@ def build(source, output):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     root = Path(__file__).resolve().parents[2]
     build(root, root / "site")
