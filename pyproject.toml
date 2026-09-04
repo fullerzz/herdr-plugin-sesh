@@ -15,7 +15,7 @@ mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592d
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.6",
+    "ruff==0.16.6",
 ]
 
 [tool.ruff]
