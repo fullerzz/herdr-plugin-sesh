@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	eventReconnectDelay = 100 * time.Millisecond
-	eventBufferSize     = 1024
+	eventReconnectDelay  = 100 * time.Millisecond
+	replayQuietPeriod    = 25 * time.Millisecond
+	eventBufferSize      = 1024
+	minimumEventProtocol = 20
 	// Protocol 21 starts lifecycle subscriptions at the current EventHub sequence.
-	minimumEventProtocol = 21
+	liveOnlyEventProtocol = 21
 )
 
 type eventSubscription struct {
@@ -43,6 +45,7 @@ type workspaceEvent struct {
 
 type sessionSnapshot struct {
 	FocusedWorkspaceID string
+	WorkspaceIDs       map[string]bool
 }
 
 func WatchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) error {
@@ -115,9 +118,26 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 	streamErrors := make(chan error, 1)
 	go decodeWorkspaceEvents(streamCtx, decoder, events, streamErrors)
 
+	var replayed []workspaceEvent
+	if protocol < liveOnlyEventProtocol {
+		replayed, err = drainRetainedReplay(ctx, events, streamErrors)
+		if err != nil {
+			return streamResult(ctx, err)
+		}
+	}
 	snapshot, err := loadSessionSnapshot(ctx, socketPath)
 	if err != nil {
 		return true, err
+	}
+	for _, event := range replayed {
+		// Protocol 20 replays retained history to a new subscription. Ignore a
+		// stale close when the fresh snapshot shows that workspace still exists.
+		if event.Event == "workspace_closed" && snapshot.WorkspaceIDs[event.Data.WorkspaceID] {
+			continue
+		}
+		if err := applyWorkspaceEvent(event, onFocused, onClosed); err != nil {
+			return false, err
+		}
 	}
 	if snapshot.FocusedWorkspaceID != "" {
 		if err := onFocused(snapshot.FocusedWorkspaceID); err != nil {
@@ -159,6 +179,31 @@ func decodeWorkspaceEvents(ctx context.Context, decoder *json.Decoder, events ch
 		case events <- event:
 		case <-ctx.Done():
 			return
+		}
+	}
+}
+
+func drainRetainedReplay(ctx context.Context, events <-chan workspaceEvent, streamErrors <-chan error) ([]workspaceEvent, error) {
+	quiet := time.NewTimer(replayQuietPeriod)
+	defer quiet.Stop()
+	var replayed []workspaceEvent
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case err := <-streamErrors:
+			return nil, err
+		case event := <-events:
+			replayed = append(replayed, event)
+			if !quiet.Stop() {
+				select {
+				case <-quiet.C:
+				default:
+				}
+			}
+			quiet.Reset(replayQuietPeriod)
+		case <-quiet.C:
+			return replayed, nil
 		}
 	}
 }
@@ -255,6 +300,9 @@ func loadSessionSnapshot(ctx context.Context, socketPath string) (sessionSnapsho
 			Type     string `json:"type"`
 			Snapshot struct {
 				FocusedWorkspaceID string `json:"focused_workspace_id"`
+				Workspaces         []struct {
+					WorkspaceID string `json:"workspace_id"`
+				} `json:"workspaces"`
 			} `json:"snapshot"`
 		} `json:"result"`
 		Error *apiError `json:"error"`
@@ -268,5 +316,12 @@ func loadSessionSnapshot(ctx context.Context, socketPath string) (sessionSnapsho
 	if response.Result.Type != "session_snapshot" {
 		return sessionSnapshot{}, fmt.Errorf("unexpected Herdr session snapshot response %q", response.Result.Type)
 	}
-	return sessionSnapshot{FocusedWorkspaceID: response.Result.Snapshot.FocusedWorkspaceID}, nil
+	snapshot := sessionSnapshot{
+		FocusedWorkspaceID: response.Result.Snapshot.FocusedWorkspaceID,
+		WorkspaceIDs:       make(map[string]bool, len(response.Result.Snapshot.Workspaces)),
+	}
+	for _, workspace := range response.Result.Snapshot.Workspaces {
+		snapshot.WorkspaceIDs[workspace.WorkspaceID] = true
+	}
+	return snapshot, nil
 }

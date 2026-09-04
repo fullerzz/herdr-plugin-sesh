@@ -14,7 +14,143 @@ import (
 	"time"
 )
 
-func TestWatchWorkspaceEventsRejectsRetainedReplayProtocol(t *testing.T) {
+func TestWatchWorkspaceEventsReconcilesProtocol20ReplayBeforeSnapshot(t *testing.T) {
+	listener, socketPath := listenTestSocket(t)
+	serverDone := make(chan error, 1)
+	go func() {
+		if err := serveCompatiblePing(listener); err != nil {
+			serverDone <- err
+			return
+		}
+		stream, err := acceptRequest(listener, "events.subscribe")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = stream.Close() }()
+		enc := json.NewEncoder(stream)
+		for _, message := range []any{
+			map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}},
+			workspaceEventMessage("workspace_focused", "stale"),
+			workspaceEventMessage("workspace_closed", "gone"),
+			workspaceEventMessage("workspace_closed", "still-open"),
+		} {
+			if err := enc.Encode(message); err != nil {
+				serverDone <- err
+				return
+			}
+		}
+
+		snapshot, err := acceptRequest(listener, "session.snapshot")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = snapshot.Close() }()
+		if err := enc.Encode(workspaceEventMessage("workspace_focused", "live")); err != nil {
+			serverDone <- err
+			return
+		}
+		serverDone <- json.NewEncoder(snapshot).Encode(snapshotResponse("snapshot", "snapshot", "still-open"))
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var got []string
+	record := func(kind, id string) error {
+		got = append(got, kind+":"+id)
+		if kind == "focus" && id == "live" {
+			cancel()
+		}
+		return nil
+	}
+	err := WatchWorkspaceEvents(ctx, socketPath,
+		func(id string) error { return record("focus", id) },
+		func(id string) error { return record("close", id) },
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("watch error=%v, want context cancellation", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"focus:stale", "close:gone", "focus:snapshot", "focus:live"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutations=%#v want %#v", got, want)
+	}
+}
+
+func TestWatchWorkspaceEventsWaitsForCompleteProtocol20ReplayBeforePublishingHistory(t *testing.T) {
+	listener, socketPath := listenTestSocket(t)
+	replayDone := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		if err := serveCompatiblePing(listener); err != nil {
+			serverDone <- err
+			return
+		}
+		stream, err := acceptRequest(listener, "events.subscribe")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = stream.Close() }()
+		enc := json.NewEncoder(stream)
+		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			serverDone <- err
+			return
+		}
+
+		replayErr := make(chan error, 1)
+		go func() {
+			for i := 0; i < 10; i++ {
+				if err := enc.Encode(workspaceEventMessage("workspace_focused", fmt.Sprintf("stale-%d", i))); err != nil {
+					replayErr <- err
+					return
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			close(replayDone)
+			replayErr <- nil
+		}()
+
+		snapshot, err := acceptRequest(listener, "session.snapshot")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if err := json.NewEncoder(snapshot).Encode(snapshotResponse("current", "current")); err != nil {
+			_ = snapshot.Close()
+			serverDone <- err
+			return
+		}
+		_ = snapshot.Close()
+		serverDone <- <-replayErr
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	record := func(id string) error {
+		select {
+		case <-replayDone:
+		default:
+			return errors.New("history published before retained replay finished")
+		}
+		if id == "current" {
+			cancel()
+		}
+		return nil
+	}
+	err := WatchWorkspaceEvents(ctx, socketPath, record, func(string) error { return nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("watch error=%v, want context cancellation after complete replay", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWatchWorkspaceEventsRejectsPreSubscriptionProtocol(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
@@ -27,7 +163,7 @@ func TestWatchWorkspaceEventsRejectsRetainedReplayProtocol(t *testing.T) {
 		serverDone <- json.NewEncoder(conn).Encode(map[string]any{
 			"id": "herdr-sesh-history-ping",
 			"result": map[string]any{
-				"type": "pong", "version": "0.8.2", "protocol": 20,
+				"type": "pong", "version": "0.8.1", "protocol": 19,
 			},
 		})
 	}()
@@ -35,8 +171,8 @@ func TestWatchWorkspaceEventsRejectsRetainedReplayProtocol(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	err := WatchWorkspaceEvents(ctx, socketPath, func(string) error { return nil }, func(string) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "requires Herdr protocol 21") {
-		t.Fatalf("watch error=%v, want protocol 21 requirement", err)
+	if err == nil || !strings.Contains(err.Error(), "requires Herdr protocol 20") {
+		t.Fatalf("watch error=%v, want protocol 20 requirement", err)
 	}
 	if err := <-serverDone; err != nil {
 		t.Fatal(err)
@@ -219,7 +355,7 @@ func serveCompatiblePing(listener net.Listener) error {
 	return json.NewEncoder(conn).Encode(map[string]any{
 		"id": "herdr-sesh-history-ping",
 		"result": map[string]any{
-			"type": "pong", "version": "0.8.2-preview", "protocol": 21,
+			"type": "pong", "version": "0.8.2", "protocol": 20,
 		},
 	})
 }
