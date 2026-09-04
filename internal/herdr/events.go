@@ -12,7 +12,6 @@ import (
 
 const (
 	eventReconnectDelay  = 100 * time.Millisecond
-	replayQuietPeriod    = 25 * time.Millisecond
 	eventBufferSize      = 1024
 	minimumEventProtocol = 20
 	// Protocol 21 starts lifecycle subscriptions at the current EventHub sequence.
@@ -118,31 +117,28 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 	streamErrors := make(chan error, 1)
 	go decodeWorkspaceEvents(streamCtx, decoder, events, streamErrors)
 
-	var replayed []workspaceEvent
-	if protocol < liveOnlyEventProtocol {
-		replayed, err = drainRetainedReplay(ctx, events, streamErrors)
-		if err != nil {
-			return streamResult(ctx, err)
-		}
-	}
 	snapshot, err := loadSessionSnapshot(ctx, socketPath)
 	if err != nil {
 		return true, err
-	}
-	for _, event := range replayed {
-		// Protocol 20 replays retained history to a new subscription. Ignore a
-		// stale close when the fresh snapshot shows that workspace still exists.
-		if event.Event == "workspace_closed" && snapshot.WorkspaceIDs[event.Data.WorkspaceID] {
-			continue
-		}
-		if err := applyWorkspaceEvent(event, onFocused, onClosed); err != nil {
-			return false, err
-		}
 	}
 	if snapshot.FocusedWorkspaceID != "" {
 		if err := onFocused(snapshot.FocusedWorkspaceID); err != nil {
 			return false, err
 		}
+	}
+	applyEvents := func(events []workspaceEvent) (bool, error) {
+		if len(events) == 0 {
+			return false, nil
+		}
+		var current *sessionSnapshot
+		if protocol < liveOnlyEventProtocol {
+			snapshot, err := loadSessionSnapshot(ctx, socketPath)
+			if err != nil {
+				return true, err
+			}
+			current = &snapshot
+		}
+		return false, applyWorkspaceEvents(events, current, onFocused, onClosed)
 	}
 
 	for {
@@ -150,13 +146,13 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 		case <-ctx.Done():
 			return false, ctx.Err()
 		case err := <-streamErrors:
-			if drainErr := drainBufferedEvents(events, onFocused, onClosed); drainErr != nil {
-				return false, drainErr
+			if reconnect, drainErr := applyEvents(drainBufferedEvents(events, nil)); drainErr != nil {
+				return reconnect, drainErr
 			}
 			return streamResult(ctx, err)
 		case event := <-events:
-			if err := applyWorkspaceEvent(event, onFocused, onClosed); err != nil {
-				return false, err
+			if reconnect, err := applyEvents(drainBufferedEvents(events, []workspaceEvent{event})); err != nil {
+				return reconnect, err
 			}
 		}
 	}
@@ -183,42 +179,33 @@ func decodeWorkspaceEvents(ctx context.Context, decoder *json.Decoder, events ch
 	}
 }
 
-func drainRetainedReplay(ctx context.Context, events <-chan workspaceEvent, streamErrors <-chan error) ([]workspaceEvent, error) {
-	quiet := time.NewTimer(replayQuietPeriod)
-	defer quiet.Stop()
-	var replayed []workspaceEvent
+func drainBufferedEvents(events <-chan workspaceEvent, buffered []workspaceEvent) []workspaceEvent {
 	for {
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case err := <-streamErrors:
-			return nil, err
 		case event := <-events:
-			replayed = append(replayed, event)
-			if !quiet.Stop() {
-				select {
-				case <-quiet.C:
-				default:
-				}
-			}
-			quiet.Reset(replayQuietPeriod)
-		case <-quiet.C:
-			return replayed, nil
+			buffered = append(buffered, event)
+		default:
+			return buffered
 		}
 	}
 }
 
-func drainBufferedEvents(events <-chan workspaceEvent, onFocused, onClosed func(string) error) error {
-	for {
-		select {
-		case event := <-events:
-			if err := applyWorkspaceEvent(event, onFocused, onClosed); err != nil {
-				return err
+func applyWorkspaceEvents(events []workspaceEvent, snapshot *sessionSnapshot, onFocused, onClosed func(string) error) error {
+	for _, event := range events {
+		if snapshot != nil {
+			exists := snapshot.WorkspaceIDs[event.Data.WorkspaceID]
+			if (event.Event == "workspace_focused" && !exists) || (event.Event == "workspace_closed" && exists) {
+				continue
 			}
-		default:
-			return nil
+		}
+		if err := applyWorkspaceEvent(event, onFocused, onClosed); err != nil {
+			return err
 		}
 	}
+	if snapshot != nil && snapshot.FocusedWorkspaceID != "" {
+		return onFocused(snapshot.FocusedWorkspaceID)
+	}
+	return nil
 }
 
 func applyWorkspaceEvent(event workspaceEvent, onFocused, onClosed func(string) error) error {

@@ -581,17 +581,6 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	retry := func(mutate func() error) error {
-		for {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			err := mutate()
-			if !errors.Is(err, state.ErrHistoryLockTimeout) {
-				return err
-			}
-		}
-	}
 	if err := applyHistoryHook(historyDir); err != nil {
 		return err
 	}
@@ -603,12 +592,24 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 
 	return herdr.WatchWorkspaceEvents(ctx, socketPath,
 		func(workspaceID string) error {
-			return retry(func() error { return state.Record(historyDir, workspaceID) })
+			return retryHistoryMutation(ctx, func() error { return state.Record(historyDir, workspaceID) })
 		},
 		func(workspaceID string) error {
-			return retry(func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
+			return retryHistoryMutation(ctx, func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
 		},
 	)
+}
+
+func retryHistoryMutation(ctx context.Context, mutate func() error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := mutate()
+		if !errors.Is(err, state.ErrHistoryLockTimeout) {
+			return err
+		}
+	}
 }
 
 func applyHistoryHook(historyDir string) error {

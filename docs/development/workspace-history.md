@@ -15,14 +15,14 @@ plugin. Herdr lifecycle hooks elect one long-lived subscriber per socket, and
 that subscriber serializes focus and close events into plugin-owned
 history.[^watcher-source]
 
-!!! info "Protocol 20 replay is reconciled before history is published"
+!!! info "Protocol 20 replay is reconciled against current session state"
 
     The manifest requires Herdr 0.8.2 or newer, whose stable socket protocol is
-    20. Protocol 20 replays retained lifecycle events to a new subscriber, so
-    the watcher buffers the complete replay before publishing any history and
-    then reconciles it with a fresh session snapshot. Protocol 21 and newer
-    start lifecycle subscriptions at the current event sequence and skip that
-    replay step; see the [subscriber implementation](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/herdr/events.go)
+    20. Protocol 20 replays retained lifecycle events without a completion
+    marker, so the watcher reconciles every available event batch with a fresh
+    session snapshot instead of inferring a boundary from timing. Protocol 21
+    and newer start lifecycle subscriptions at the current event sequence and
+    skip that replay step; see the [subscriber implementation](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/herdr/events.go)
     and [protocol regression tests](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/herdr/events_test.go).
 
 ## Why a resident subscriber exists
@@ -70,24 +70,24 @@ Each connection attempt follows this order:
 2. Open the event connection and subscribe to `workspace.focused` and
    `workspace.closed`.
 3. Start decoding events as soon as the subscription acknowledgement arrives.
-4. On protocol 20, buffer retained events until the stream is quiet. There is
-   no fixed cutoff: publishing a partial replay could temporarily move a stale
-   workspace ahead of the current one.
-5. Use a second socket connection to request
+4. Use a second socket connection to request the initial
    `session.snapshot`.[^snapshot-source]
-6. Apply retained events, discard stale close events for workspaces present in
-   the snapshot, record `focused_workspace_id`, then consume already-buffered
-   and future live events in decoder order.
+5. On protocol 20, drain each currently available event batch and request a
+   fresh snapshot. Apply focus events only for workspaces that still exist,
+   close events only for workspaces that no longer exist, then record the
+   snapshot's authoritative `focused_workspace_id`.
+6. On protocol 21 and newer, apply the already-buffered and future live events
+   directly in decoder order.
 
-Starting the decoder before replay reconciliation and the snapshot request
-closes both bootstrap windows. An event that arrives while `session.snapshot`
-is in flight waits in the channel and is applied after the snapshot. The buffer
-holds 1,024 events. Protocol 21 and newer have no retained replay, so they move
-directly from decoder startup to the snapshot. If the stream ends, buffered
-events are drained before the watcher reconnects after 100 ms and installs a
-fresh snapshot. Herdr subscriptions do not expose a replay cursor, so an
-unexpected disconnect can lose intermediate focus changes; the snapshot
-restores the current focus but cannot reconstruct that transient order.[^reconnect-gap]
+Starting the decoder before the initial snapshot request closes the bootstrap
+window. The protocol 20 path has no timer or fixed replay cutoff: a delayed
+retained event becomes a later batch and is re-anchored to current session
+state. The buffer holds 1,024 events. If the stream ends, queued protocol 20
+events go through the same snapshot reconciliation before the watcher
+reconnects after 100 ms. Herdr subscriptions do not expose a replay cursor, so
+events that never reached the client before an unexpected disconnect can still
+be lost; the reconnect snapshot restores current focus but cannot reconstruct
+that transient order.[^reconnect-gap]
 
 Subscription request names use dotted event types. Incoming event envelopes
 use `workspace_focused` and `workspace_closed`; malformed, unrelated, and
@@ -105,24 +105,28 @@ sequenceDiagram
     W->>E: events.subscribe
     E-->>W: subscription_started
     Note over W,E: Decoder starts buffering events
-    opt Protocol 20
-        W->>W: Drain complete retained replay
-    end
     W->>S: session.snapshot
     S-->>W: focused_workspace_id + workspace IDs
-    W->>H: Apply replay, then record snapshot focus
+    W->>H: Record initial snapshot focus
+    opt Protocol 20
+        W->>W: Drain available event batch
+        W->>S: session.snapshot
+        S-->>W: Current focus + workspace IDs
+        W->>H: Reconcile batch, then record snapshot focus
+    end
     loop Ordered live stream
         E-->>W: workspace event
-        W->>H: Record or RemoveWorkspace
+        W->>H: Reconcile protocol 20 or apply protocol 21
     end
     E--xW: unexpected EOF
     W->>H: Drain buffered events
     W->>E: Reconnect after 100 ms
 ```
 
-Regression tests define four boundaries for this flow: reconcile protocol 20
-replay before the snapshot, never publish a partial replay, preserve an event
-from the snapshot window, and reconnect after unexpected EOF.
+Regression tests define four boundaries for this flow: reconcile delayed
+protocol 20 replay without a timer, preserve queued replay across stream
+failure, preserve an event from the snapshot window, and reconnect after
+unexpected EOF.
 
 ## Session-scoped persistence
 

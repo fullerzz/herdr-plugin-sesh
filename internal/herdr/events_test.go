@@ -14,11 +14,11 @@ import (
 	"time"
 )
 
-func TestWatchWorkspaceEventsReconcilesProtocol20ReplayBeforeSnapshot(t *testing.T) {
+func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
-		if err := serveCompatiblePing(listener); err != nil {
+		if err := serveCompatiblePing(listener, 20); err != nil {
 			serverDone <- err
 			return
 		}
@@ -27,126 +27,131 @@ func TestWatchWorkspaceEventsReconcilesProtocol20ReplayBeforeSnapshot(t *testing
 			serverDone <- err
 			return
 		}
-		defer func() { _ = stream.Close() }()
-		enc := json.NewEncoder(stream)
-		for _, message := range []any{
-			map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}},
-			workspaceEventMessage("workspace_focused", "stale"),
-			workspaceEventMessage("workspace_closed", "gone"),
-			workspaceEventMessage("workspace_closed", "still-open"),
-		} {
-			if err := enc.Encode(message); err != nil {
-				serverDone <- err
-				return
-			}
-		}
-
-		snapshot, err := acceptRequest(listener, "session.snapshot")
-		if err != nil {
-			serverDone <- err
-			return
-		}
-		defer func() { _ = snapshot.Close() }()
-		if err := enc.Encode(workspaceEventMessage("workspace_focused", "live")); err != nil {
-			serverDone <- err
-			return
-		}
-		serverDone <- json.NewEncoder(snapshot).Encode(snapshotResponse("snapshot", "snapshot", "still-open"))
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var got []string
-	record := func(kind, id string) error {
-		got = append(got, kind+":"+id)
-		if kind == "focus" && id == "live" {
-			cancel()
-		}
-		return nil
-	}
-	err := WatchWorkspaceEvents(ctx, socketPath,
-		func(id string) error { return record("focus", id) },
-		func(id string) error { return record("close", id) },
-	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("watch error=%v, want context cancellation", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"focus:stale", "close:gone", "focus:snapshot", "focus:live"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mutations=%#v want %#v", got, want)
-	}
-}
-
-func TestWatchWorkspaceEventsWaitsForCompleteProtocol20ReplayBeforePublishingHistory(t *testing.T) {
-	listener, socketPath := listenTestSocket(t)
-	replayDone := make(chan struct{})
-	serverDone := make(chan error, 1)
-	go func() {
-		if err := serveCompatiblePing(listener); err != nil {
-			serverDone <- err
-			return
-		}
-		stream, err := acceptRequest(listener, "events.subscribe")
-		if err != nil {
-			serverDone <- err
-			return
-		}
-		defer func() { _ = stream.Close() }()
 		enc := json.NewEncoder(stream)
 		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			_ = stream.Close()
 			serverDone <- err
 			return
 		}
-
-		replayErr := make(chan error, 1)
-		go func() {
-			for i := 0; i < 10; i++ {
-				if err := enc.Encode(workspaceEventMessage("workspace_focused", fmt.Sprintf("stale-%d", i))); err != nil {
-					replayErr <- err
-					return
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-			close(replayDone)
-			replayErr <- nil
-		}()
+		if err := enc.Encode(workspaceEventMessage("workspace_focused", "older")); err != nil {
+			_ = stream.Close()
+			serverDone <- err
+			return
+		}
 
 		snapshot, err := acceptRequest(listener, "session.snapshot")
 		if err != nil {
+			_ = stream.Close()
 			serverDone <- err
 			return
 		}
-		if err := json.NewEncoder(snapshot).Encode(snapshotResponse("current", "current")); err != nil {
+		if err := json.NewEncoder(snapshot).Encode(snapshotResponse("current", "current", "older", "previous")); err != nil {
 			_ = snapshot.Close()
+			_ = stream.Close()
 			serverDone <- err
 			return
 		}
 		_ = snapshot.Close()
-		serverDone <- <-replayErr
+
+		// Protocol 20 can deliver another retained event after the initial
+		// snapshot with no replay-boundary marker.
+		if err := enc.Encode(workspaceEventMessage("workspace_focused", "previous")); err != nil {
+			_ = stream.Close()
+			serverDone <- err
+			return
+		}
+		if err := enc.Encode(workspaceEventMessage("workspace_closed", "current")); err != nil {
+			_ = stream.Close()
+			serverDone <- err
+			return
+		}
+		_ = stream.Close()
+		serverDone <- serveProtocol20Snapshots(listener, "current", "current", "older", "previous")
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	record := func(id string) error {
-		select {
-		case <-replayDone:
-		default:
-			return errors.New("history published before retained replay finished")
-		}
-		if id == "current" {
-			cancel()
-		}
-		return nil
-	}
-	err := WatchWorkspaceEvents(ctx, socketPath, record, func(string) error { return nil })
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("watch error=%v, want context cancellation after complete replay", err)
+	var history []string
+	reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath,
+		func(id string) error {
+			history = recordHistoryVisit(history, id)
+			return nil
+		},
+		func(id string) error {
+			history = removeHistoryWorkspace(history, id)
+			return nil
+		},
+	)
+	_ = listener.Close()
+	if !reconnect || err == nil {
+		t.Fatalf("watch result=(%v, %v), want reconnect after closed stream", reconnect, err)
 	}
 	if err := <-serverDone; err != nil {
 		t.Fatal(err)
+	}
+	want := []string{"current", "previous", "older"}
+	if !reflect.DeepEqual(history, want) {
+		t.Fatalf("history=%#v want %#v", history, want)
+	}
+}
+
+func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) {
+	listener, socketPath := listenTestSocket(t)
+	serverDone := make(chan error, 1)
+	go func() {
+		if err := serveCompatiblePing(listener, 20); err != nil {
+			serverDone <- err
+			return
+		}
+		stream, err := acceptRequest(listener, "events.subscribe")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		enc := json.NewEncoder(stream)
+		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			_ = stream.Close()
+			serverDone <- err
+			return
+		}
+		for _, event := range []map[string]any{
+			workspaceEventMessage("workspace_focused", "older"),
+			workspaceEventMessage("workspace_focused", "previous"),
+			workspaceEventMessage("workspace_closed", "current"),
+		} {
+			if err := enc.Encode(event); err != nil {
+				_ = stream.Close()
+				serverDone <- err
+				return
+			}
+		}
+		_ = stream.Close()
+		serverDone <- serveProtocol20Snapshots(listener, "current", "current", "older", "previous")
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var history []string
+	reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath,
+		func(id string) error {
+			history = recordHistoryVisit(history, id)
+			return nil
+		},
+		func(id string) error {
+			history = removeHistoryWorkspace(history, id)
+			return nil
+		},
+	)
+	_ = listener.Close()
+	if !reconnect || err == nil {
+		t.Fatalf("watch result=(%v, %v), want reconnect after closed stream", reconnect, err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"current", "previous", "older"}
+	if !reflect.DeepEqual(history, want) {
+		t.Fatalf("history=%#v want %#v", history, want)
 	}
 }
 
@@ -183,7 +188,7 @@ func TestWatchWorkspaceEventsNoHistoryKeepsSnapshotWindowEvent(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
-		if err := serveCompatiblePing(listener); err != nil {
+		if err := serveCompatiblePing(listener, 21); err != nil {
 			serverDone <- err
 			return
 		}
@@ -240,7 +245,7 @@ func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
 	serverDone := make(chan error, 1)
 	go func() {
 		for attempt := 0; attempt < 2; attempt++ {
-			if err := serveCompatiblePing(listener); err != nil {
+			if err := serveCompatiblePing(listener, 21); err != nil {
 				serverDone <- err
 				return
 			}
@@ -346,7 +351,7 @@ func acceptRequest(listener net.Listener, method string) (net.Conn, error) {
 	return conn, nil
 }
 
-func serveCompatiblePing(listener net.Listener) error {
+func serveCompatiblePing(listener net.Listener, protocol int) error {
 	conn, err := acceptRequest(listener, "ping")
 	if err != nil {
 		return err
@@ -355,7 +360,7 @@ func serveCompatiblePing(listener net.Listener) error {
 	return json.NewEncoder(conn).Encode(map[string]any{
 		"id": "herdr-sesh-history-ping",
 		"result": map[string]any{
-			"type": "pong", "version": "0.8.2", "protocol": 20,
+			"type": "pong", "version": "compatible", "protocol": protocol,
 		},
 	})
 }
@@ -379,4 +384,41 @@ func snapshotResponse(focusedWorkspaceID string, workspaceIDs ...string) map[str
 			},
 		},
 	}
+}
+
+func serveProtocol20Snapshots(listener net.Listener, focusedWorkspaceID string, workspaceIDs ...string) error {
+	for {
+		conn, err := acceptRequest(listener, "session.snapshot")
+		if errors.Is(err, net.ErrClosed) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		err = json.NewEncoder(conn).Encode(snapshotResponse(focusedWorkspaceID, workspaceIDs...))
+		_ = conn.Close()
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func recordHistoryVisit(history []string, workspaceID string) []string {
+	next := []string{workspaceID}
+	for _, existing := range history {
+		if existing != workspaceID {
+			next = append(next, existing)
+		}
+	}
+	return next
+}
+
+func removeHistoryWorkspace(history []string, workspaceID string) []string {
+	next := history[:0]
+	for _, existing := range history {
+		if existing != workspaceID {
+			next = append(next, existing)
+		}
+	}
+	return next
 }

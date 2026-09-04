@@ -1329,166 +1329,53 @@ func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T) {
-	stateDir := filepath.Join(t.TempDir(), "state")
-	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
-	socketPath := filepath.Join(socketDir, "herdr.sock")
-	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"A", "closed"}}); err != nil {
-		t.Fatal(err)
-	}
-	//nolint:gosec // Test lock path is derived from t.TempDir().
-	lock, err := os.OpenFile(filepath.Join(historyDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
+func TestRetryHistoryMutationPreservesOrderAfterLockTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	firstAttempt := true
+	var got []string
 
-	snapshotSent := make(chan struct{})
-	serverDone := make(chan error, 1)
 	go func() {
-		if err := serveHistoryWatcherPing(listener); err != nil {
-			serverDone <- err
-			return
+		for _, workspaceID := range []string{"B", "C", "D"} {
+			err := retryHistoryMutation(ctx, func() error {
+				if workspaceID == "B" && firstAttempt {
+					firstAttempt = false
+					close(blocked)
+					select {
+					case <-release:
+						return fmt.Errorf("contended: %w", state.ErrHistoryLockTimeout)
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				got = append(got, workspaceID)
+				return nil
+			})
+			if err != nil {
+				done <- err
+				return
+			}
 		}
-		conn, err := listener.Accept()
-		if err != nil {
-			serverDone <- err
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		var request struct {
-			Method string `json:"method"`
-			Params struct {
-				Subscriptions []struct {
-					Type string `json:"type"`
-				} `json:"subscriptions"`
-			} `json:"params"`
-		}
-		if err := json.NewDecoder(conn).Decode(&request); err != nil {
-			serverDone <- err
-			return
-		}
-		if request.Method != "events.subscribe" {
-			serverDone <- fmt.Errorf("method=%q", request.Method)
-			return
-		}
-		gotSubscriptions := make([]string, 0, len(request.Params.Subscriptions))
-		for _, subscription := range request.Params.Subscriptions {
-			gotSubscriptions = append(gotSubscriptions, subscription.Type)
-		}
-		if want := []string{"workspace.focused", "workspace.closed"}; !reflect.DeepEqual(gotSubscriptions, want) {
-			serverDone <- fmt.Errorf("subscriptions=%#v want %#v", gotSubscriptions, want)
-			return
-		}
-
-		enc := json.NewEncoder(conn)
-		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
-			serverDone <- err
-			return
-		}
-
-		snapshotConn, err := listener.Accept()
-		if err != nil {
-			serverDone <- err
-			return
-		}
-		var snapshotRequest struct {
-			Method string `json:"method"`
-		}
-		if err := json.NewDecoder(snapshotConn).Decode(&snapshotRequest); err != nil {
-			_ = snapshotConn.Close()
-			serverDone <- err
-			return
-		}
-		if snapshotRequest.Method != "session.snapshot" {
-			_ = snapshotConn.Close()
-			serverDone <- fmt.Errorf("snapshot method=%q", snapshotRequest.Method)
-			return
-		}
-		if err := encodeHistoryFocusEvents(enc, "C", "D"); err != nil {
-			_ = snapshotConn.Close()
-			serverDone <- err
-			return
-		}
-		if err := json.NewEncoder(snapshotConn).Encode(map[string]any{
-			"id": "herdr-sesh-history-snapshot",
-			"result": map[string]any{
-				"type":     "session_snapshot",
-				"snapshot": map[string]any{"focused_workspace_id": "B"},
-			},
-		}); err != nil {
-			_ = snapshotConn.Close()
-			serverDone <- err
-			return
-		}
-		if err := snapshotConn.Close(); err != nil {
-			serverDone <- err
-			return
-		}
-		close(snapshotSent)
-		if err := enc.Encode(map[string]any{"event": "workspace_closed", "data": map[string]any{"type": "workspace_closed", "workspace_id": "closed"}}); err != nil {
-			serverDone <- err
-			return
-		}
-		serverDone <- nil
+		done <- nil
 	}()
 
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
-	t.Setenv("HERDR_SOCKET_PATH", socketPath)
-	t.Setenv("HERDR_WORKSPACE_ID", "stale")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-	watchDone := make(chan error, 1)
-	go func() { watchDone <- a.Run(ctx, []string{"plugin", "watch-history"}) }()
-	// Snapshot initialization must wait for the history lock before buffered
-	// live events are applied.
-	time.Sleep(350 * time.Millisecond)
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
 	select {
-	case <-snapshotSent:
-	case <-time.After(time.Second):
-		t.Fatal("watcher did not request a snapshot after lock release")
+	case <-blocked:
+	case <-ctx.Done():
+		t.Fatal("history mutation did not reach lock contention")
 	}
-	want := []string{"D", "C", "B", "A"}
-	deadline := time.Now().Add(time.Second)
-	for {
-		h, loadErr := state.LoadHistory(historyDir)
-		if loadErr != nil {
-			t.Fatal(loadErr)
-		}
-		if reflect.DeepEqual(h.Workspaces, want) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if len(got) != 0 {
+		t.Fatalf("later mutations overtook the contended mutation: %#v", got)
 	}
-	cancel()
-	if watchErr := <-watchDone; !errors.Is(watchErr, context.Canceled) {
-		t.Fatalf("watch error=%v, want context cancellation", watchErr)
-	}
-	if err := <-serverDone; err != nil {
+	close(release)
+	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+	if want := []string{"B", "C", "D"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutations=%#v want %#v", got, want)
 	}
 }
 
@@ -1513,15 +1400,6 @@ func serveHistoryWatcherPing(listener net.Listener) error {
 			"type": "pong", "version": "0.8.2-preview", "protocol": 21,
 		},
 	})
-}
-
-func encodeHistoryFocusEvents(enc *json.Encoder, workspaceIDs ...string) error {
-	for _, workspaceID := range workspaceIDs {
-		if err := enc.Encode(map[string]any{"event": "workspace_focused", "data": map[string]any{"type": "workspace_focused", "workspace_id": workspaceID}}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
