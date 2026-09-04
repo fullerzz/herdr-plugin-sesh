@@ -18,10 +18,6 @@ func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
-		if err := serveCompatiblePing(listener, 20); err != nil {
-			serverDone <- err
-			return
-		}
 		stream, err := acceptRequest(listener, "events.subscribe")
 		if err != nil {
 			serverDone <- err
@@ -34,6 +30,11 @@ func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 			return
 		}
 		if err := enc.Encode(workspaceEventMessage("workspace_focused", "older")); err != nil {
+			_ = stream.Close()
+			serverDone <- err
+			return
+		}
+		if err := serveCompatiblePing(listener, 20); err != nil {
 			_ = stream.Close()
 			serverDone <- err
 			return
@@ -99,10 +100,6 @@ func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) 
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
-		if err := serveCompatiblePing(listener, 20); err != nil {
-			serverDone <- err
-			return
-		}
 		stream, err := acceptRequest(listener, "events.subscribe")
 		if err != nil {
 			serverDone <- err
@@ -110,6 +107,11 @@ func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) 
 		}
 		enc := json.NewEncoder(stream)
 		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			_ = stream.Close()
+			serverDone <- err
+			return
+		}
+		if err := serveCompatiblePing(listener, 20); err != nil {
 			_ = stream.Close()
 			serverDone <- err
 			return
@@ -159,6 +161,18 @@ func TestWatchWorkspaceEventsRejectsPreSubscriptionProtocol(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
+		stream, err := acceptRequest(listener, "events.subscribe")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = stream.Close() }()
+		if err := json.NewEncoder(stream).Encode(map[string]any{
+			"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
+		}); err != nil {
+			serverDone <- err
+			return
+		}
 		conn, err := acceptRequest(listener, "ping")
 		if err != nil {
 			serverDone <- err
@@ -184,14 +198,105 @@ func TestWatchWorkspaceEventsRejectsPreSubscriptionProtocol(t *testing.T) {
 	}
 }
 
+func TestWatchWorkspaceEventsBuffersProtocol21EventsDuringProtocolProbe(t *testing.T) {
+	listener, socketPath := listenTestSocket(t)
+	serverDone := make(chan error, 1)
+	go func() {
+		first, method, err := acceptAnyRequest(listener)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		var stream net.Conn
+		switch method {
+		case "events.subscribe":
+			stream = first
+			if err := json.NewEncoder(stream).Encode(map[string]any{
+				"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
+			}); err != nil {
+				serverDone <- err
+				return
+			}
+			ping, err := acceptRequest(listener, "ping")
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			for _, workspaceID := range []string{"B", "C"} {
+				if err := json.NewEncoder(stream).Encode(workspaceEventMessage("workspace_focused", workspaceID)); err != nil {
+					_ = ping.Close()
+					serverDone <- err
+					return
+				}
+			}
+			if err := encodeCompatiblePing(ping, 21); err != nil {
+				_ = ping.Close()
+				serverDone <- err
+				return
+			}
+			_ = ping.Close()
+		case "ping":
+			if err := encodeCompatiblePing(first, 21); err != nil {
+				_ = first.Close()
+				serverDone <- err
+				return
+			}
+			_ = first.Close()
+			stream, err = acceptRequest(listener, "events.subscribe")
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			if err := json.NewEncoder(stream).Encode(map[string]any{
+				"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
+			}); err != nil {
+				serverDone <- err
+				return
+			}
+		default:
+			_ = first.Close()
+			serverDone <- fmt.Errorf("first method=%q want events.subscribe or ping", method)
+			return
+		}
+		defer func() { _ = stream.Close() }()
+
+		snapshot, err := acceptRequest(listener, "session.snapshot")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		serverDone <- json.NewEncoder(snapshot).Encode(snapshotResponse("C", "B", "C"))
+		_ = snapshot.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	history := []string{"A"}
+	reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath,
+		func(id string) error {
+			history = recordHistoryVisit(history, id)
+			return nil
+		},
+		func(id string) error {
+			history = removeHistoryWorkspace(history, id)
+			return nil
+		},
+	)
+	if !reconnect || err == nil {
+		t.Fatalf("watch result=(%v, %v), want reconnect after closed stream", reconnect, err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"C", "B", "A"}; !reflect.DeepEqual(history, want) {
+		t.Fatalf("history=%#v want %#v", history, want)
+	}
+}
+
 func TestWatchWorkspaceEventsNoHistoryKeepsSnapshotWindowEvent(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
-		if err := serveCompatiblePing(listener, 21); err != nil {
-			serverDone <- err
-			return
-		}
 		stream, err := acceptRequest(listener, "events.subscribe")
 		if err != nil {
 			serverDone <- err
@@ -200,6 +305,10 @@ func TestWatchWorkspaceEventsNoHistoryKeepsSnapshotWindowEvent(t *testing.T) {
 		defer func() { _ = stream.Close() }()
 		enc := json.NewEncoder(stream)
 		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := serveCompatiblePing(listener, 21); err != nil {
 			serverDone <- err
 			return
 		}
@@ -245,10 +354,6 @@ func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
 	serverDone := make(chan error, 1)
 	go func() {
 		for attempt := 0; attempt < 2; attempt++ {
-			if err := serveCompatiblePing(listener, 21); err != nil {
-				serverDone <- err
-				return
-			}
 			stream, err := acceptRequest(listener, "events.subscribe")
 			if err != nil {
 				serverDone <- err
@@ -256,6 +361,11 @@ func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
 			}
 			enc := json.NewEncoder(stream)
 			if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+				_ = stream.Close()
+				serverDone <- err
+				return
+			}
+			if err := serveCompatiblePing(listener, 21); err != nil {
 				_ = stream.Close()
 				serverDone <- err
 				return
@@ -333,22 +443,30 @@ func listenTestSocket(t *testing.T) (net.Listener, string) {
 }
 
 func acceptRequest(listener net.Listener, method string) (net.Conn, error) {
-	conn, err := listener.Accept()
+	conn, got, err := acceptAnyRequest(listener)
 	if err != nil {
 		return nil, err
+	}
+	if got != method {
+		_ = conn.Close()
+		return nil, fmt.Errorf("method=%q want %q", got, method)
+	}
+	return conn, nil
+}
+
+func acceptAnyRequest(listener net.Listener) (net.Conn, string, error) {
+	conn, err := listener.Accept()
+	if err != nil {
+		return nil, "", err
 	}
 	var request struct {
 		Method string `json:"method"`
 	}
 	if err := json.NewDecoder(conn).Decode(&request); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, "", err
 	}
-	if request.Method != method {
-		_ = conn.Close()
-		return nil, fmt.Errorf("method=%q want %q", request.Method, method)
-	}
-	return conn, nil
+	return conn, request.Method, nil
 }
 
 func serveCompatiblePing(listener net.Listener, protocol int) error {
@@ -357,6 +475,10 @@ func serveCompatiblePing(listener net.Listener, protocol int) error {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	return encodeCompatiblePing(conn, protocol)
+}
+
+func encodeCompatiblePing(conn net.Conn, protocol int) error {
 	return json.NewEncoder(conn).Encode(map[string]any{
 		"id": "herdr-sesh-history-ping",
 		"result": map[string]any{

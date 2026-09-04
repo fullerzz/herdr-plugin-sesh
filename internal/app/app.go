@@ -577,6 +577,17 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 func (a *App) watchHistory(ctx context.Context) (err error) {
 	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
 	socketPath := os.Getenv("HERDR_SOCKET_PATH")
+	// Elect first so non-winning startup and focus hooks cannot migrate history.
+	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	if err != nil {
+		return err
+	}
+	if acquired {
+		defer func() { err = errors.Join(err, release()) }()
+	}
+	if !acquired && os.Getenv("HERDR_PLUGIN_EVENT") != "workspace.closed" {
+		return nil
+	}
 	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
 	if err != nil {
 		return err
@@ -584,11 +595,9 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	if err := applyHistoryHook(historyDir); err != nil {
 		return err
 	}
-	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
-	if err != nil || !acquired {
-		return err
+	if !acquired {
+		return nil
 	}
-	defer func() { err = errors.Join(err, release()) }()
 
 	return herdr.WatchWorkspaceEvents(ctx, socketPath,
 		func(workspaceID string) error {

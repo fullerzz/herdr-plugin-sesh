@@ -72,14 +72,7 @@ func WatchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onC
 }
 
 func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) (bool, error) {
-	protocol, err := loadServerProtocol(ctx, socketPath)
-	if err != nil {
-		return true, err
-	}
-	if protocol < minimumEventProtocol {
-		return false, fmt.Errorf("workspace history requires Herdr protocol %d or newer; server uses protocol %d", minimumEventProtocol, protocol)
-	}
-
+	// Protocol 21 does not replay, so start buffering before any other request.
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return true, fmt.Errorf("connect to Herdr event stream: %w", err)
@@ -116,6 +109,14 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 	events := make(chan workspaceEvent, eventBufferSize)
 	streamErrors := make(chan error, 1)
 	go decodeWorkspaceEvents(streamCtx, decoder, events, streamErrors)
+
+	protocol, err := loadServerProtocol(ctx, socketPath)
+	if err != nil {
+		return true, err
+	}
+	if protocol < minimumEventProtocol {
+		return false, fmt.Errorf("workspace history requires Herdr protocol %d or newer; server uses protocol %d", minimumEventProtocol, protocol)
+	}
 
 	snapshot, err := loadSessionSnapshot(ctx, socketPath)
 	if err != nil {

@@ -35,27 +35,32 @@ The plugin manifest routes three lifecycle triggers to the same hidden command:
 
 | Trigger | Hook behavior | Subscriber behavior |
 | --- | --- | --- |
-| Startup | Does not mutate history; attempts watcher election. | Establishes the event stream and records the session snapshot. |
-| `workspace.focused` | Does not mutate history; attempts watcher election. | Records the focused workspace in stream order. |
-| `workspace.closed` | Removes the ID from `data.workspace_id` once, then attempts watcher election. | Removes the same ID if the stream also reports it; removal is idempotent. |
+| Startup | Attempts watcher election; does not mutate history directly. | Establishes the event stream and records the session snapshot. |
+| `workspace.focused` | Attempts watcher election; does not mutate history directly. | Records the focused workspace in stream order. |
+| `workspace.closed` | Attempts watcher election, then removes the ID from `data.workspace_id` once. | Removes the same ID if the stream also reports it; removal is idempotent. |
 
 `TryHistoryWatcherLock` uses a socket-derived `flock` file named
-`history-watch-<sha256(socket)>.lock`. The winner holds the lock while
-`WatchWorkspaceEvents` runs; other hook processes exit. A later lifecycle hook
-can elect a replacement if the subscriber stops.
+`history-watch-<sha256(socket)>.lock`. Election happens before resolving the
+session history directory, so non-winning startup and focus hooks cannot trigger
+legacy-history migration. A non-winning close hook still prunes its payload ID.
+The winner holds the lock while `WatchWorkspaceEvents` runs; a later lifecycle
+hook can elect a replacement if the subscriber stops.
 
 The following diagram maps the production control flow in `internal/app` while
 keeping the hook and subscriber responsibilities separate.
 
 ```mermaid
 flowchart TD
-    Hook["startup / focused / closed hook"] --> Apply["applyHistoryHook"]
-    Apply -->|startup or focused| NoWrite["No focus-history write"]
+    Hook["startup / focused / closed hook"] --> Elect{"TryHistoryWatcherLock"}
+    Elect -->|not acquired startup/focused| Exit["Exit hook process"]
+    Elect -->|not acquired closed| Resolve["Resolve session history"]
+    Elect -->|acquired| Resolve
+    Resolve --> Apply["applyHistoryHook"]
+    Apply -->|startup or focused| NoWrite["No direct focus-history write"]
     Apply -->|closed| RemoveOnce["Remove payload workspace once"]
-    NoWrite --> Elect{"TryHistoryWatcherLock"}
-    RemoveOnce --> Elect
-    Elect -->|not acquired| Exit["Exit hook process"]
-    Elect -->|acquired| Watch["WatchWorkspaceEvents"]
+    NoWrite -->|winner| Watch["WatchWorkspaceEvents"]
+    RemoveOnce -->|winner| Watch
+    RemoveOnce -->|non-winner| Exit
     Watch -->|workspace_focused| Record["Record"]
     Watch -->|workspace_closed| Remove["RemoveWorkspace"]
     Record --> Retry["Retry only ErrHistoryLockTimeout in place"]
@@ -66,11 +71,11 @@ flowchart TD
 
 Each connection attempt follows this order:
 
-1. Call `ping` and reject servers below protocol 20.
-2. Open the event connection and subscribe to `workspace.focused` and
+1. Open the event connection and subscribe to `workspace.focused` and
    `workspace.closed`.
-3. Start decoding events as soon as the subscription acknowledgement arrives.
-4. Use a second socket connection to request the initial
+2. Start decoding events as soon as the subscription acknowledgement arrives.
+3. Call `ping` on a second connection and reject servers below protocol 20.
+4. Use another socket connection to request the initial
    `session.snapshot`.[^snapshot-source]
 5. On protocol 20, drain each currently available event batch and request a
    fresh snapshot. Apply focus events only for workspaces that still exist,
@@ -79,15 +84,15 @@ Each connection attempt follows this order:
 6. On protocol 21 and newer, apply the already-buffered and future live events
    directly in decoder order.
 
-Starting the decoder before the initial snapshot request closes the bootstrap
-window. The protocol 20 path has no timer or fixed replay cutoff: a delayed
-retained event becomes a later batch and is re-anchored to current session
-state. The buffer holds 1,024 events. If the stream ends, queued protocol 20
-events go through the same snapshot reconciliation before the watcher
-reconnects after 100 ms. Herdr subscriptions do not expose a replay cursor, so
-events that never reached the client before an unexpected disconnect can still
-be lost; the reconnect snapshot restores current focus but cannot reconstruct
-that transient order.[^reconnect-gap]
+Starting the decoder before the protocol probe and initial snapshot request
+closes both bootstrap windows. The protocol 20 path has no timer or fixed replay
+cutoff: a delayed retained event becomes a later batch and is re-anchored to
+current session state. The buffer holds 1,024 events. If the stream ends,
+queued protocol 20 events go through the same snapshot reconciliation before
+the watcher reconnects after 100 ms. Herdr subscriptions do not expose a replay
+cursor, so events that never reached the client before an unexpected disconnect
+can still be lost; the reconnect snapshot restores current focus but cannot
+reconstruct that transient order.[^reconnect-gap]
 
 Subscription request names use dotted event types. Incoming event envelopes
 use `workspace_focused` and `workspace_closed`; malformed, unrelated, and
@@ -100,11 +105,11 @@ sequenceDiagram
     participant E as Event connection
     participant S as Snapshot connection
     participant H as History
-    W->>P: ping
-    P-->>W: protocol
     W->>E: events.subscribe
     E-->>W: subscription_started
     Note over W,E: Decoder starts buffering events
+    W->>P: ping
+    P-->>W: protocol
     W->>S: session.snapshot
     S-->>W: focused_workspace_id + workspace IDs
     W->>H: Record initial snapshot focus
