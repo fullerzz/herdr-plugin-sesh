@@ -3,8 +3,12 @@ name = "herdr-sesh-docs"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "mike",
     "zensical==0.0.57",
 ]
 
 [tool.uv]
 exclude-newer = "1 day"
+
+[tool.uv.sources]
+mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" }
