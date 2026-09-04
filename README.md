@@ -7,7 +7,6 @@
 [![Lint](https://github.com/fullerzz/herdr-plugin-sesh/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/fullerzz/herdr-plugin-sesh/actions/workflows/lint.yml)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/fullerzz/herdr-plugin-sesh?utm_source=badge)
 
-
 A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and
 session manager for [Herdr](https://herdr.dev/).
 
@@ -154,7 +153,14 @@ just install-plugin
 ```
 
 `just install-plugin` builds the binary and links the current checkout into
-Herdr. Verify the local plugin with:
+Herdr. Local builds (`just build` and `just install-plugin`) embed a Git-derived
+version, for example `v0.10.1-5-g0686c01`: the nearest reachable version tag,
+commits since that tag, and the commit hash. Uncommitted tracked changes append
+`-dirty`; an exact clean tag uses the tag alone. Without a reachable version tag,
+the commit hash is used; without Git metadata, the version falls back to `dev`.
+Release builds continue to use the release version.
+
+Verify the local plugin with:
 
 ```bash
 herdr plugin action list --plugin fullerzz.sesh
