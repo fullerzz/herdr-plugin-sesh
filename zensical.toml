@@ -13,6 +13,7 @@ nav = [
   { "Configuration" = "config.md" },
   { "Keybindings" = "keybindings.md" },
   { "Development" = [
+    { "Workspace history" = "development/workspace-history.md" },
     { "Benchmarks" = "development/benchmarks.md" },
   ] },
 ]
@@ -27,6 +28,7 @@ favicon = "assets/favicon.svg"
 language = "en"
 features = [
   "content.code.copy",
+  "content.footnote.tooltips",
   "navigation.footer",
   "navigation.instant",
   "navigation.path",
@@ -62,13 +64,16 @@ toggle.name = "Switch to system preference"
 [project.markdown_extensions]
 admonition = {}
 attr_list = {}
+footnotes = {}
 md_in_html = {}
 tables = {}
 toc.permalink = true
 pymdownx.details = {}
 pymdownx.highlight.anchor_linenums = true
 pymdownx.highlight.pygments_lang_class = true
-pymdownx.superfences = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
 pymdownx.tabbed.alternate_style = true
 pymdownx.keys = {}
 pymdownx.smartsymbols = {}

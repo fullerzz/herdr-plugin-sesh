@@ -42,7 +42,7 @@ herdr plugin action invoke fullerzz.sesh.open-picker
 
 ## Requirements
 
-- Herdr 0.8.0 or newer
+- Herdr 0.8.2 or newer
 - Linux or macOS
 - Git and Go 1.26.4 or newer for Herdr's source-based plugin installation
 - Optional: `zoxide` for directory history and `eza` for the default preview
