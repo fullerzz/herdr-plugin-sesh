@@ -66,6 +66,12 @@ with tempfile.TemporaryDirectory() as directory:
     assert runtime_config["version"] == {"default": "latest", "provider": "mike"}
     assert "edit/main/docs/" not in release
     assert 'href="latest/"' in (output / "index.html").read_text()
+    not_found = (output / "404.html").read_text()
+    assert not_found == (output / "latest/404.html").read_text()
+    assert 'href="/wiki/latest/guide/"' in not_found
+    assert 'href="/wiki/latest/assets/stylesheets/' in not_found
+    assert 'src="/wiki/latest/assets/javascripts/' in not_found
+    assert "window.location.replace(" not in not_found
     for page, href in (
         ("guide/index.html", "../latest/guide/"),
         ("development/benchmarks/index.html", "../../latest/development/benchmarks/"),

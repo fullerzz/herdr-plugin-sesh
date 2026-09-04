@@ -113,12 +113,14 @@ def build(source: Path, output: Path) -> None:
             shutil.rmtree(output)
         output.mkdir(parents=True)
         extract(work, "refs/heads/gh-pages", output)
+        # Zensical's 404 uses site-root paths, so its latest navigation and assets remain valid here.
+        shutil.copy2(output / "latest/404.html", output / "404.html")
         # Preserve unversioned page links using mike's query/fragment-aware redirect.
         template = commands._redirect_template()
         for page in (output / "latest").rglob("*.html"):
             relative = page.relative_to(output / "latest")
             redirect = output / relative
-            if redirect.exists() or relative == Path("404.html"):
+            if redirect.exists():
                 continue
             target = page.parent if page.name == "index.html" else page
             href = Path(os.path.relpath(target, redirect.parent)).as_posix()
