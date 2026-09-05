@@ -29,7 +29,7 @@ clean:
 build:
     @echo "{{ BOLD + BLUE + BG_BLACK }} Building the project...{{ NORMAL }}"
     mkdir -p bin
-    go build -o bin/herdr-sesh ./cmd/herdr-sesh
+    go build -ldflags "-X github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=$(git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || printf 'dev')" -o bin/herdr-sesh ./cmd/herdr-sesh
 
 # Rebuild and relink this checkout as a local Herdr plugin
 install-plugin: build
