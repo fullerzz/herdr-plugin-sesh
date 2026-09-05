@@ -208,10 +208,48 @@ equivalent; native decoding rejects them like any other unknown key.
 | `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to disable the feature. |
 | `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
 
+#### Search ranking
+
+The native picker matches names and paths case-insensitively and places name
+matches before path-only matches, retaining the existing order within each
+group. For example, searching `api` puts a workspace named `api` ahead of one
+named `web` whose path contains `/api/`. `workspace_sort` determines the Herdr
+workspace order within these match groups.
+
+An exact `home` query also matches the actual home-directory session, even if
+its name does not contain `home`. With `prioritize_home = true` (the default),
+that session comes first. With `false`, it stays in the path-match group.
+These ranking rules apply only to the native picker; fzf uses its own ranking.
+
+#### Preview controls
+
 When the native picker shows the preview beside the workspace list, click and
 drag the vertical divider with the left mouse button to resize it. Both panels
 keep a minimum width. The chosen width lasts until the picker closes; narrow
 terminals continue to show the preview below the list.
+
+See [Keybindings](keybindings.md) for switching between command and active-pane
+previews. Pane mode reads visible terminal contents without focusing the selected
+workspace or running its configured preview command.
+
+#### Workspace history
+
+`herdr-sesh last`, the previous-workspace footer, and recent sorting use history
+that also tracks workspace switches made through Herdr's own controls or CLI.
+The installed plugin starts tracking automatically through startup, focus, and
+close hooks; no additional keybinding or configuration is required. Closed
+workspaces are removed from history.
+
+History is separate for each Herdr session, using `HERDR_SOCKET_PATH` to select
+`${HERDR_PLUGIN_STATE_DIR}/history/<socket-hash>/history.json`. Existing unscoped
+history is copied on first use for the default session only; named sessions
+start with their own history. Hiding the footer with `show_last_workspace = false`
+does not disable history tracking or the `last` command.
+
+See [Workspace history tracking](development/workspace-history.md) for lifecycle,
+persistence, and reconnect limitations.
+
+#### Cursor and status indicators
 
 Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
 

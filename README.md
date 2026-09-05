@@ -10,6 +10,10 @@
 A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and
 session manager for [Herdr](https://herdr.dev/).
 
+This README describes `main`, including unreleased changes. Use the
+[documentation version selector](https://fullerzz.github.io/herdr-plugin-sesh/)
+for the documentation matching your installed release.
+
 `herdr-plugin-sesh` combines running Herdr workspaces, configured sessions, and
 zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command and
@@ -20,7 +24,8 @@ tabs.
 ## Features
 
 - Search active Herdr workspaces, Sesh-style TOML sessions, and zoxide history
-  from a native terminal picker.
+  from a native terminal picker, with name matches ahead of path-only matches
+  and configurable home-directory priority.
 - Match the native picker to Herdr's active theme by default, with a
   configuration toggle to retain the picker's built-in colors.
 - Group linked Git worktree workspaces beneath their open parent workspace,
@@ -29,9 +34,12 @@ tabs.
 - Focus an existing workspace or create one from a configured session or
   directory.
 - Apply startup commands, previews, and named Herdr tabs to new workspaces.
+- Toggle between command previews and live active-pane previews with `Ctrl+O`,
+  and drag the divider to resize side-by-side previews.
 - Filter, deduplicate, and optionally cache session results, with native
   [workspace, recent, and agent-priority sorting](docs/config.md#picker).
-- Jump directly to the previously focused workspace.
+- Jump directly to the previously focused workspace, including switches made
+  outside the plugin, with separate history for each Herdr session.
 - Clone a Git repository and connect to it in one command.
 - Use the built-in picker by default or opt into the experimental fzf picker.
 

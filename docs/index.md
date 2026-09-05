@@ -37,6 +37,21 @@ Use the version selector in the header to choose a release's documentation.
 `latest` follows the `main` branch and may describe changes not yet released.
 Release snapshots are available starting with `v0.10.0`, when the wiki was added.
 
+### Changes since v0.10.1
+
+- Native search puts name matches before path-only matches, with configurable
+  home-directory priority through `picker.prioritize_home`.
+- Previous-workspace history tracks switches outside the plugin and is isolated
+  per Herdr session. This raises the minimum Herdr version to 0.8.2.
+- Native previews can show the selected workspace's active pane. Use ++ctrl+o++
+  to toggle modes or `picker.preview_mode = "pane"` to choose the initial mode.
+- Drag the vertical preview divider to resize side-by-side panels for the
+  current picker invocation.
+- Local builds embed a Git-derived version, including a `-dirty` suffix for
+  tracked working-tree changes.
+
+### Reference
+
 - [Configuration](config.md) explains config discovery, picker behavior,
   workspaces, tabs, and legacy Sesh migration.
 - [Keybindings](keybindings.md) shows how to invoke the picker and related

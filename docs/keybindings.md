@@ -1,5 +1,7 @@
 # Keybindings
 
+## Native picker previews
+
 In the native picker, press ++ctrl+o++ to switch between the configured preview
 and **Pane** mode. Pane mode shows the visible terminal contents of the selected
 Herdr workspace's active pane, in its active tab, and refreshes once per second.
@@ -12,6 +14,17 @@ the default is `"command"`. Switching modes in the picker does not change the fi
 Configured sessions and directories have no running pane and display an
 unavailable message in Pane mode. The toggle is disabled when
 `[picker].show_preview = false` and does not affect the fzf picker.
+
+When the preview is beside the list, drag the vertical divider with the left
+mouse button to resize it. The width resets when the picker closes; narrow
+terminals show a stacked preview instead.
+
+## Herdr actions
+
+The `fullerzz.sesh.last` action switches to the previously focused workspace,
+including switches made outside the picker. History is separate for each Herdr
+session and closed workspaces are pruned automatically. See
+[Workspace history](config.md#workspace-history) for details.
 
 !!! note "Prerequisite"
 
