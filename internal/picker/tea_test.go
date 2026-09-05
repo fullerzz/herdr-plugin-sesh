@@ -14,10 +14,12 @@ import (
 
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/spinner"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
@@ -39,9 +41,7 @@ func TestTeaModelHomePrioritizationOption(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTeaModel(nil, tc.opts)
-			if m.list.DisableHomePrioritization != tc.wantDisabled {
-				t.Fatalf("DisableHomePrioritization=%t, want %t", m.list.DisableHomePrioritization, tc.wantDisabled)
-			}
+			assert.Equal(t, tc.wantDisabled, m.list.DisableHomePrioritization)
 		})
 	}
 }
@@ -53,9 +53,7 @@ func TestTeaModelDragsPreviewDivider(t *testing.T) {
 	m.list.Selected = 1
 	m.preview = strings.Repeat("preview ", 30)
 	previewID := m.previewRequestID
-	if m.View().MouseMode != tea.MouseModeCellMotion {
-		t.Fatal("picker must request mouse drag events")
-	}
+	require.Equal(t, tea.MouseModeCellMotion, m.View().MouseMode)
 	for _, step := range []struct {
 		name string
 		msg  tea.Msg
@@ -74,17 +72,15 @@ func TestTeaModelDragsPreviewDivider(t *testing.T) {
 		t.Run(step.name, func(t *testing.T) {
 			updated, cmd := m.Update(step.msg)
 			m = updated.(teaModel)
-			if cmd != nil || m.previewRequestID != previewID || m.list.Selected != 1 || m.input.Value() != "" {
-				t.Fatal("resizing changed picker selection/input or requested a new preview")
-			}
+			require.Nil(t, cmd)
+			require.Equal(t, previewID, m.previewRequestID)
+			require.Equal(t, 1, m.list.Selected)
+			require.Empty(t, m.input.Value())
 			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 			for y := 5; y < 5+previewTitleRows+m.previewBodyLines(); y++ {
-				if cell := ansi.Cut(lines[y], step.x, step.x+1); cell != "│" {
-					t.Fatalf("divider at (%d,%d) = %q", step.x, y, cell)
-				}
-				if width := lipgloss.Width(lines[y]); width != m.width {
-					t.Fatalf("rendered width = %d, want %d", width, m.width)
-				}
+				require.Equal(t, "│", ansi.Cut(lines[y], step.x, step.x+1))
+				width := lipgloss.Width(lines[y])
+				require.Equal(t, m.width, width)
 			}
 		})
 	}
@@ -112,8 +108,8 @@ func TestTeaModelIgnoresMouseOutsidePreviewDivider(t *testing.T) {
 			m := newTeaModel(nil, Options{HidePreview: tc.hidden})
 			m.width, m.height = tc.width, 28
 			before := m.View()
-			if (tc.hidden || tc.width < previewSplitWidth) && before.MouseMode != tea.MouseModeNone {
-				t.Fatal("mouse reporting enabled without a divider")
+			if tc.hidden || tc.width < previewSplitWidth {
+				assert.Equal(t, tea.MouseModeNone, before.MouseMode, "mouse reporting enabled without a divider")
 			}
 			updated, _ := m.Update(tc.click)
 			m = updated.(teaModel)
@@ -123,9 +119,7 @@ func TestTeaModelIgnoresMouseOutsidePreviewDivider(t *testing.T) {
 			}
 			updated, _ = m.Update(tea.MouseMotionMsg{X: 54, Y: 6, Button: tea.MouseLeft})
 			m = updated.(teaModel)
-			if got := m.View().Content; got != before.Content {
-				t.Fatal("mouse events outside an active divider drag changed the view")
-			}
+			assert.Equal(t, before.Content, m.View().Content)
 		})
 	}
 }
@@ -138,14 +132,13 @@ func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'a', Text: "api service"})
 	m = updated.(teaModel)
 	cur, ok := m.list.Current()
-	if !ok || cur.Name != "api-service" {
-		t.Fatalf("current = %#v ok=%v", cur, ok)
-	}
+	require.True(t, ok)
+	require.Equal(t, "api-service", cur.Name)
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(teaModel)
-	if cmd == nil || !m.chosen || m.choice.Name != "api-service" {
-		t.Fatalf("chosen=%v choice=%#v cmd=%v", m.chosen, m.choice, cmd)
-	}
+	require.NotNil(t, cmd)
+	require.True(t, m.chosen)
+	assert.Equal(t, "api-service", m.choice.Name)
 }
 
 func TestTeaModelMovesSelection(t *testing.T) {
@@ -155,9 +148,8 @@ func TestTeaModelMovesSelection(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	cur, ok := m.list.Current()
-	if !ok || cur.Name != "web" {
-		t.Fatalf("current = %#v ok=%v", cur, ok)
-	}
+	require.True(t, ok)
+	assert.Equal(t, "web", cur.Name)
 }
 
 func TestTeaModelCtrlJKMovesSelection(t *testing.T) {
@@ -167,21 +159,20 @@ func TestTeaModelCtrlJKMovesSelection(t *testing.T) {
 	m = updated.(teaModel)
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if current, ok := m.list.Current(); !ok || current.Name != "web" {
-		t.Fatalf("current = %#v ok=%v, want web", current, ok)
-	}
+	current, ok := m.list.Current()
+	require.True(t, ok)
+	assert.Equal(t, "web", current.Name)
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if current, ok := m.list.Current(); !ok || current.Name != "api" {
-		t.Fatalf("current = %#v ok=%v, want api", current, ok)
-	}
+	current, ok = m.list.Current()
+	require.True(t, ok)
+	assert.Equal(t, "api", current.Name)
 	updated, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit") || !strings.Contains(view, "LAST WORKSPACE · None recorded") {
-		t.Fatalf("view missing complete navigation help or last workspace:\n%s", view)
-	}
+	require.Contains(t, view, "enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
+	assert.Contains(t, view, "LAST WORKSPACE · None recorded")
 }
 
 func TestTeaModelCtrlKDeletesAfterFilterCursor(t *testing.T) {
@@ -192,9 +183,7 @@ func TestTeaModelCtrlKDeletesAfterFilterCursor(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 
-	if got := m.input.Value(); got != "api" {
-		t.Fatalf("input=%q, want %q", got, "api")
-	}
+	assert.Equal(t, "api", m.input.Value())
 }
 
 func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
@@ -212,31 +201,22 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if cmd == nil {
-		t.Fatal("ctrl+x did not return a close command")
-	}
+	require.NotNil(t, cmd)
 	updated, enterCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(teaModel)
-	if enterCmd != nil || m.chosen {
-		t.Fatalf("closing workspace remained selectable: cmd=%v chosen=%v", enterCmd, m.chosen)
-	}
+	require.Nil(t, enterCmd)
+	require.False(t, m.chosen)
 	m.list.Move(1)
 	m, _ = m.refreshPreview()
 	updated, _ = m.Update(cmd())
 	m = updated.(teaModel)
 
-	if closed != "w1" {
-		t.Fatalf("closed workspace=%q, want w1", closed)
-	}
-	if got, want := sessionNames(m.list.All), []string{"api-selected", "api-other"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("remaining sessions=%v want %v", got, want)
-	}
-	if current, ok := m.list.Current(); !ok || current.Name != "api-selected" {
-		t.Fatalf("current=%#v ok=%v, want api-selected", current, ok)
-	}
-	if current, _ := m.list.Current(); m.previewKey != model.Key(current) {
-		t.Fatalf("preview key=%q, want selected session %q", m.previewKey, model.Key(current))
-	}
+	require.Equal(t, "w1", closed)
+	require.Equal(t, []string{"api-selected", "api-other"}, sessionNames(m.list.All))
+	current, ok := m.list.Current()
+	require.True(t, ok)
+	assert.Equal(t, "api-selected", current.Name)
+	assert.Equal(t, model.Key(current), m.previewKey)
 }
 
 func TestTeaModelCtrlXUpdatesLastWorkspace(t *testing.T) {
@@ -267,12 +247,8 @@ func TestTeaModelCtrlXUpdatesLastWorkspace(t *testing.T) {
 	updated, _ = m.Update(closeCmd())
 	m = updated.(teaModel)
 
-	if m.lastWorkspaceID != "w2" {
-		t.Fatalf("last workspace=%q, want w2", m.lastWorkspaceID)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · older") {
-		t.Fatalf("view missing updated last workspace:\n%s", view)
-	}
+	require.Equal(t, "w2", m.lastWorkspaceID)
+	assert.Contains(t, ansi.Strip(m.View().Content), "LAST WORKSPACE · older")
 }
 
 func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
@@ -300,9 +276,9 @@ func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
 			updated, cmd := m.Update(tt.key)
 			m = updated.(teaModel)
 
-			if cmd != nil || m.chosen || m.closingWorkspaceID != "w1" {
-				t.Fatalf("pending close quit picker: cmd=%v chosen=%v closing=%q", cmd, m.chosen, m.closingWorkspaceID)
-			}
+			require.Nil(t, cmd)
+			require.False(t, m.chosen)
+			assert.Equal(t, "w1", m.closingWorkspaceID)
 		})
 	}
 }
@@ -337,13 +313,10 @@ func TestTeaModelCtrlCCancelsWorkspaceCloseAndQuitsAfterResult(t *testing.T) {
 
 			updated, quitCmd := m.Update(closeCmd())
 			_ = updated.(teaModel)
-			if quitCmd == nil {
-				t.Fatal("picker did not quit after cancelled close returned")
-			}
+			require.NotNil(t, quitCmd)
 			msg := quitCmd()
-			if _, ok := msg.(tea.QuitMsg); !ok {
-				t.Fatalf("command returned %T, want tea.QuitMsg", msg)
-			}
+			_, ok := msg.(tea.QuitMsg)
+			assert.True(t, ok)
 		})
 	}
 }
@@ -368,12 +341,10 @@ func TestTeaModelCtrlXRestoresDeduplicatedSessionAfterClose(t *testing.T) {
 	updated, _ = m.Update(closeCmd())
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"api", "web"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("sessions=%v want %v", got, want)
-	}
-	if current, ok := m.list.Current(); !ok || current.Name != "web" {
-		t.Fatalf("current=%#v ok=%v, want web", current, ok)
-	}
+	require.Equal(t, []string{"api", "web"}, sessionNames(m.list.All))
+	current, ok := m.list.Current()
+	require.True(t, ok)
+	assert.Equal(t, "web", current.Name)
 }
 
 func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
@@ -394,17 +365,11 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 	updated, _ = m.Update(closeCmd())
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"web"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("sessions=%v want %v", got, want)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "Workspace closed, but sessions could not be refreshed: workspace list failed") {
-		t.Fatalf("view missing reload failure:\n%s", view)
-	}
+	require.Equal(t, []string{"web"}, sessionNames(m.list.All))
+	require.Contains(t, ansi.Strip(m.View().Content), "Workspace closed, but sessions could not be refreshed: workspace list failed")
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · Unavailable") {
-		t.Fatalf("view did not refresh last workspace after reload failure:\n%s", view)
-	}
+	assert.Contains(t, ansi.Strip(m.View().Content), "LAST WORKSPACE · Unavailable")
 }
 
 func TestTeaModelCtrlXClearsClosedParentWhenReloadFails(t *testing.T) {
@@ -433,13 +398,14 @@ func TestTeaModelCtrlXClearsClosedParentWhenReloadFails(t *testing.T) {
 	m = updated.(teaModel)
 
 	child, ok := m.list.Current()
-	if !ok || !child.Worktree.Linked || child.Worktree.ParentWorkspaceID != "" || child.Worktree.ParentWorkspaceName != "" {
-		t.Fatalf("child=%#v ok=%v", child, ok)
-	}
+	require.True(t, ok)
+	require.True(t, child.Worktree.Linked)
+	require.Empty(t, child.Worktree.ParentWorkspaceID)
+	require.Empty(t, child.Worktree.ParentWorkspaceName)
 	rowText := ansi.Strip(row(child, false, 80, false, ""))
-	if !strings.Contains(rowText, "[↳ herdr]") || strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "linked worktree") {
-		t.Fatalf("child row kept stale parent description or lost worktree badge: %q", rowText)
-	}
+	require.Contains(t, rowText, "[↳ herdr]")
+	require.NotContains(t, rowText, "worktree of parent")
+	assert.NotContains(t, rowText, "linked worktree")
 }
 
 func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T) {
@@ -465,14 +431,10 @@ func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T)
 	updated, _ = m.Update(closeCmd())
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"old label"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("sessions=%v want retained rows %v", got, want)
-	}
+	require.Equal(t, []string{"old label"}, sessionNames(m.list.All))
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · new label") {
-		t.Fatalf("view kept stale Herdr metadata:\n%s", view)
-	}
+	assert.Contains(t, ansi.Strip(m.View().Content), "LAST WORKSPACE · new label")
 }
 
 func TestTeaModelCtrlXGroupsReloadedWorktreeFamily(t *testing.T) {
@@ -491,9 +453,7 @@ func TestTeaModelCtrlXGroupsReloadedWorktreeFamily(t *testing.T) {
 	updated, _ = m.Update(closeCmd())
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"parent", "child"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("reloaded order=%v want %v", got, want)
-	}
+	assert.Equal(t, []string{"parent", "child"}, sessionNames(m.list.All))
 }
 
 func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
@@ -509,20 +469,14 @@ func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 	m.list.Move(1)
 	m, _ = m.refreshPreview()
 	stalePreview := previewMsg{key: m.previewKey, text: "stale preview"}
-	updated, previewCmd := m.Update(cmd())
+	updated, _ = m.Update(cmd())
 	m = updated.(teaModel)
-	if m.preview == "Closing workspace..." {
-		t.Fatalf("failed close left stale preview: cmd=%v", previewCmd)
-	}
+	require.NotEqual(t, "Closing workspace...", m.preview)
 	updated, _ = m.Update(stalePreview)
 	m = updated.(teaModel)
 
-	if len(m.list.All) != 2 {
-		t.Fatalf("workspace removed after close failure: %#v", m.list.All)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "close failed") {
-		t.Fatalf("view missing close failure after selection and preview changed:\n%s", view)
-	}
+	require.Len(t, m.list.All, 2)
+	assert.Contains(t, ansi.Strip(m.View().Content), "close failed")
 }
 
 func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
@@ -535,9 +489,8 @@ func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
 	updated, previewCmd := m.Update(closeCmd())
 	m = updated.(teaModel)
 
-	if previewCmd == nil || m.preview == "Closing workspace..." {
-		t.Fatalf("failed close did not refresh preview: preview=%q cmd=%v", m.preview, previewCmd)
-	}
+	require.NotNil(t, previewCmd)
+	assert.NotEqual(t, "Closing workspace...", m.preview)
 }
 
 func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
@@ -551,9 +504,8 @@ func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	_ = updated.(teaModel)
-	if cmd != nil || called {
-		t.Fatalf("non-Herdr ctrl+x returned cmd=%v called=%v", cmd, called)
-	}
+	require.Nil(t, cmd)
+	assert.False(t, called)
 }
 
 func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
@@ -561,41 +513,31 @@ func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
 	m = updated.(teaModel)
-	if view := ansi.Strip(m.listView(40, 2)); strings.Contains(view, "┃") {
-		t.Fatalf("list cursor visible while filter is focused:\n%s", view)
-	}
+	require.NotContains(t, ansi.Strip(m.listView(40, 2)), "┃")
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
-	if m.input.Focused() {
-		t.Fatal("filter remained focused after moving into the list")
-	}
-	if m.list.Selected != 0 {
-		t.Fatalf("selected row=%d, want first filtered row", m.list.Selected)
-	}
+	require.False(t, m.input.Focused(), "filter remained focused after moving into the list")
+	require.Equal(t, 0, m.list.Selected)
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	startColumn := visualColumn(lines[3], "┃")
 	wantStartColumn := horizontalPadding + lipgloss.Width(defaultPrompt+"work")
-	if startColumn != wantStartColumn {
-		t.Fatalf("transfer cursor column=%d, want typed-text endpoint %d:\n%s", startColumn, wantStartColumn, strings.Join(lines, "\n"))
-	}
+	require.Equal(t, wantStartColumn, startColumn)
 
 	updated, _ = m.Update(smearTickMsg{})
 	m = updated.(teaModel)
 	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
 	nextColumn := visualColumn(lines[4], "┃")
-	if nextColumn < horizontalPadding || nextColumn >= startColumn {
-		t.Fatalf("transfer cursor did not move down-left: start=%d next=%d\n%s", startColumn, nextColumn, strings.Join(lines, "\n"))
-	}
+	require.GreaterOrEqual(t, nextColumn, horizontalPadding)
+	require.Less(t, nextColumn, startColumn)
 
 	for range 10 {
 		updated, _ = m.Update(smearTickMsg{})
 		m = updated.(teaModel)
 	}
 	view := ansi.Strip(m.View().Content)
-	if strings.Count(view, "┃") != 1 || !strings.Contains(ansi.Strip(m.listView(40, 2)), "┃") {
-		t.Fatalf("cursor did not settle as the single list rail:\n%s", view)
-	}
+	require.Equal(t, 1, strings.Count(view, "┃"))
+	assert.Contains(t, ansi.Strip(m.listView(40, 2)), "┃")
 }
 
 func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
@@ -612,30 +554,23 @@ func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	m = updated.(teaModel)
-	if m.input.Focused() {
-		t.Fatal("filter refocused before the reverse smear completed")
-	}
+	require.False(t, m.input.Focused(), "filter refocused before the reverse smear completed")
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	startColumn := visualColumn(lines[listFirstRowIndex], "┃")
-	if startColumn != horizontalPadding {
-		t.Fatalf("reverse cursor column=%d, want list rail %d:\n%s", startColumn, horizontalPadding, strings.Join(lines, "\n"))
-	}
+	require.Equal(t, horizontalPadding, startColumn)
 
 	updated, _ = m.Update(smearTickMsg{})
 	m = updated.(teaModel)
 	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
 	nextColumn := visualColumn(lines[listFirstRowIndex-1], "┃")
-	if nextColumn <= startColumn {
-		t.Fatalf("reverse cursor did not move up-right: start=%d next=%d\n%s", startColumn, nextColumn, strings.Join(lines, "\n"))
-	}
+	require.Greater(t, nextColumn, startColumn)
 
 	for range 10 {
 		updated, _ = m.Update(smearTickMsg{})
 		m = updated.(teaModel)
 	}
-	if !m.input.Focused() || strings.Contains(ansi.Strip(m.listView(40, 2)), "┃") {
-		t.Fatalf("cursor did not settle in the filter:\n%s", ansi.Strip(m.View().Content))
-	}
+	require.True(t, m.input.Focused())
+	assert.NotContains(t, ansi.Strip(m.listView(40, 2)), "┃")
 }
 
 func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
@@ -652,16 +587,14 @@ func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(teaModel)
-	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
-		t.Fatalf("right arrow skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
-	}
+	require.False(t, m.input.Focused())
+	require.True(t, m.focusSmearActive)
+	require.Equal(t, -1, m.focusSmearDirection)
 
 	updated, _ = m.Update(smearTickMsg{})
 	m = updated.(teaModel)
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-	if column := visualColumn(lines[listFirstRowIndex-1], "┃"); column <= horizontalPadding {
-		t.Fatalf("right-arrow cursor did not smear up-right: column=%d\n%s", column, strings.Join(lines, "\n"))
-	}
+	assert.Greater(t, visualColumn(lines[listFirstRowIndex-1], "┃"), horizontalPadding)
 }
 
 func TestTeaModelTypingTransfersCursorFromListToFilter(t *testing.T) {
@@ -673,19 +606,16 @@ func TestTeaModelTypingTransfersCursorFromListToFilter(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	m = updated.(teaModel)
-	if m.input.Value() != "w" || m.list.Query != "w" {
-		t.Fatalf("typed key was not applied during transfer: input=%q query=%q", m.input.Value(), m.list.Query)
-	}
-	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
-		t.Fatalf("typing skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
-	}
+	require.Equal(t, "w", m.input.Value())
+	require.Equal(t, "w", m.list.Query)
+	require.False(t, m.input.Focused())
+	require.True(t, m.focusSmearActive)
+	require.Equal(t, -1, m.focusSmearDirection)
 
 	updated, _ = m.Update(smearTickMsg{})
 	m = updated.(teaModel)
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-	if column := visualColumn(lines[listFirstRowIndex], "┃"); column <= horizontalPadding {
-		t.Fatalf("typed cursor did not smear up-right: column=%d\n%s", column, strings.Join(lines, "\n"))
-	}
+	assert.Greater(t, visualColumn(lines[listFirstRowIndex], "┃"), horizontalPadding)
 }
 
 func TestTeaModelPasteTransfersCursorFromListToFilter(t *testing.T) {
@@ -696,12 +626,11 @@ func TestTeaModelPasteTransfersCursorFromListToFilter(t *testing.T) {
 
 	updated, _ := m.Update(tea.PasteMsg{Content: "workspace"})
 	m = updated.(teaModel)
-	if m.input.Value() != "workspace" || m.list.Query != "workspace" {
-		t.Fatalf("pasted text was not applied during transfer: input=%q query=%q", m.input.Value(), m.list.Query)
-	}
-	if m.input.Focused() || !m.focusSmearActive || m.focusSmearDirection != -1 {
-		t.Fatalf("paste skipped reverse smear: inputFocused=%v active=%v direction=%d", m.input.Focused(), m.focusSmearActive, m.focusSmearDirection)
-	}
+	require.Equal(t, "workspace", m.input.Value())
+	require.Equal(t, "workspace", m.list.Query)
+	require.False(t, m.input.Focused())
+	require.True(t, m.focusSmearActive)
+	assert.Equal(t, -1, m.focusSmearDirection)
 }
 
 func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
@@ -721,9 +650,7 @@ func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
 	m = updated.(teaModel)
 	distance := m.focusSmearSteps
 	wantDistance := listFirstRowIndex + m.list.Selected - filterLineIndex
-	if distance != wantDistance {
-		t.Fatalf("transfer distance=%d, want selected-row distance %d", distance, wantDistance)
-	}
+	require.Equal(t, wantDistance, distance)
 	previousStep := m.focusSmearStep
 	ticks := 0
 	largestAdvance := 0
@@ -735,9 +662,8 @@ func TestTeaModelAcceleratesLongFocusTransfers(t *testing.T) {
 		previousStep = m.focusSmearStep
 	}
 
-	if ticks >= distance || largestAdvance <= 1 {
-		t.Fatalf("long transfer did not accelerate: distance=%d ticks=%d largestAdvance=%d", distance, ticks, largestAdvance)
-	}
+	require.Less(t, ticks, distance)
+	assert.Greater(t, largestAdvance, 1)
 }
 
 func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
@@ -759,9 +685,7 @@ func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
 	for frame := range 3 {
 		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 		column := visualColumn(lines[listFirstRowIndex-frame], "█")
-		if column < 0 {
-			t.Fatalf("frame %d missing Gooey cursor:\n%s", frame, strings.Join(lines, "\n"))
-		}
+		require.GreaterOrEqual(t, column, 0)
 		columns = append(columns, column)
 		if frame < 2 {
 			updated, _ = m.Update(smearTickMsg{})
@@ -771,9 +695,7 @@ func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
 
 	firstMove := columns[1] - columns[0]
 	secondMove := columns[2] - columns[1]
-	if firstMove <= secondMove {
-		t.Fatalf("reverse Gooey movement accelerated into the input: columns=%v moves=%d,%d", columns, firstMove, secondMove)
-	}
+	assert.Greater(t, firstMove, secondMove)
 }
 
 func TestTeaModelSmearPresets(t *testing.T) {
@@ -804,18 +726,14 @@ func TestTeaModelSmearPresets(t *testing.T) {
 			}
 			transfer := ansi.Strip(m.View().Content)
 			for _, glyph := range append([]string{tt.head}, tt.transferTrail...) {
-				if !strings.Contains(transfer, glyph) {
-					t.Fatalf("%s transfer missing %q:\n%s", tt.name, glyph, transfer)
-				}
+				require.Contains(t, transfer, glyph)
 			}
 
 			for range 10 {
 				updated, _ = m.Update(smearTickMsg{})
 				m = updated.(teaModel)
 			}
-			if view := ansi.Strip(m.listView(40, 6)); !strings.Contains(view, tt.head) {
-				t.Fatalf("%s settled cursor missing %q:\n%s", tt.name, tt.head, view)
-			}
+			require.Contains(t, ansi.Strip(m.listView(40, 6)), tt.head)
 			for range len(items) - 1 {
 				updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 				m = updated.(teaModel)
@@ -827,9 +745,7 @@ func TestTeaModelSmearPresets(t *testing.T) {
 					trailCells++
 				}
 			}
-			if trailCells != tt.rowTrailCells {
-				t.Fatalf("%s row trail cells=%d, want %d:\n%s", tt.name, trailCells, tt.rowTrailCells, rowView)
-			}
+			assert.Equal(t, tt.rowTrailCells, trailCells)
 		})
 	}
 }
@@ -846,9 +762,7 @@ func TestTeaModelSmearsRapidSelectionMoves(t *testing.T) {
 
 	lines := strings.Split(strings.TrimSuffix(ansi.Strip(m.listView(40, 3)), "\n"), "\n")
 	for i, want := range []string{"╷ ", "│ ", "┃ "} {
-		if !strings.HasPrefix(lines[i], want) {
-			t.Fatalf("row %d = %q, want rail %q\n%s", i, lines[i], want, strings.Join(lines, "\n"))
-		}
+		require.True(t, strings.HasPrefix(lines[i], want))
 	}
 }
 
@@ -863,15 +777,11 @@ func TestTeaModelSmearRetracts(t *testing.T) {
 	m.input.Blur()
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
-	if !strings.HasPrefix(ansi.Strip(m.listView(40, 2)), "╷ ") {
-		t.Fatalf("moving selection did not start the smear:\n%s", ansi.Strip(m.listView(40, 2)))
-	}
+	require.True(t, strings.HasPrefix(ansi.Strip(m.listView(40, 2)), "╷ "))
 
 	msg := cmd()
 	batch, ok := msg.(tea.BatchMsg)
-	if !ok {
-		t.Fatalf("move command = %T, want preview and animation batch", msg)
-	}
+	require.True(t, ok)
 	tickHandled := false
 	for _, child := range batch {
 		msg := child()
@@ -882,12 +792,8 @@ func TestTeaModelSmearRetracts(t *testing.T) {
 		m = updated.(teaModel)
 		tickHandled = true
 	}
-	if !tickHandled {
-		t.Fatal("move batch did not contain an animation tick")
-	}
-	if view := ansi.Strip(m.listView(40, 2)); strings.HasPrefix(view, "╷ ") {
-		t.Fatalf("smear remained after settling:\n%s", view)
-	}
+	require.True(t, tickHandled, "move batch did not contain an animation tick")
+	assert.False(t, strings.HasPrefix(ansi.Strip(m.listView(40, 2)), "╷ "))
 }
 
 func TestTeaModelCapsSmearSettleTime(t *testing.T) {
@@ -905,9 +811,7 @@ func TestTeaModelCapsSmearSettleTime(t *testing.T) {
 	}
 
 	for ticks := 1; m.smearActive; ticks++ {
-		if ticks > 3 {
-			t.Fatalf("smear still active after %d settle ticks", ticks-1)
-		}
+		require.LessOrEqual(t, ticks, 3)
 		updated, _ := m.Update(smearTickMsg{})
 		m = updated.(teaModel)
 	}
@@ -930,9 +834,8 @@ func TestTeaModelQueryChangeClearsSmear(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.listView(40, 4))
-	if strings.Contains(view, "╵ ") || strings.Contains(view, "│ ") {
-		t.Fatalf("query change left a smear on reordered rows:\n%s", view)
-	}
+	require.NotContains(t, view, "╵ ")
+	assert.NotContains(t, view, "│ ")
 }
 
 func TestTeaModelReducedMotionSkipsSmear(t *testing.T) {
@@ -944,25 +847,19 @@ func TestTeaModelReducedMotionSkipsSmear(t *testing.T) {
 	m = updated.(teaModel)
 
 	current, ok := m.list.Current()
-	if !ok || current.Name != "web" {
-		t.Fatalf("current = %#v ok=%v", current, ok)
-	}
+	require.True(t, ok)
+	require.Equal(t, "web", current.Name)
 	view := ansi.Strip(m.listView(40, 2))
-	if strings.Contains(view, "╷ ") || strings.Contains(view, "│ ") {
-		t.Fatalf("reduced motion rendered a smear:\n%s", view)
-	}
+	require.NotContains(t, view, "╷ ")
+	assert.NotContains(t, view, "│ ")
 }
 
 func TestTeaModelForwardsTextInputNonKeyMessages(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
 	updated, cmd := m.Update(cursor.Blink())
 	m = updated.(teaModel)
-	if cmd == nil {
-		t.Fatal("expected textinput to handle non-key cursor message")
-	}
-	if m.list.Query != m.input.Value() {
-		t.Fatalf("query=%q input=%q", m.list.Query, m.input.Value())
-	}
+	require.NotNil(t, cmd)
+	assert.Equal(t, m.input.Value(), m.list.Query)
 }
 
 func TestTeaModelViewRendersStyledShell(t *testing.T) {
@@ -989,16 +886,11 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
 	for _, want := range []string{"herdr / sesh", "3 workspaces", "Find> ", "Search sessions", "LAST WORKSPACE · workspace-api  /tmp/workspace-api", "WORKSPACES", "PREVIEW [ctrl+o] · workspace-api", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview content", "enter select"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("view missing %q:\n%s", want, view)
-		}
+		require.Contains(t, view, want)
 	}
-	if strings.Contains(view, "+-") || strings.Contains(view, "| ") {
-		t.Fatalf("view still contains ASCII box chrome:\n%s", view)
-	}
-	if got, want := maxLineWidth(view), 160; got != want {
-		t.Fatalf("view width=%d, want %d:\n%s", got, want, view)
-	}
+	require.NotContains(t, view, "+-")
+	require.NotContains(t, view, "| ")
+	assert.Equal(t, 160, maxLineWidth(view))
 }
 
 func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
@@ -1045,18 +937,12 @@ func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
 			lastChildLine = i
 		}
 	}
-	if parentLine < 0 || firstChildLine != parentLine+1 || lastChildLine != firstChildLine+1 {
-		t.Fatalf("worktree family is not parent-first with tree branches:\n%s", view)
-	}
-	if !strings.Contains(view, "PREVIEW [ctrl+o] · feature · worktree of project") {
-		t.Fatalf("view missing worktree preview context:\n%s", view)
-	}
-	if got, want := maxLineWidth(view), 160; got != want {
-		t.Fatalf("view width=%d, want %d:\n%s", got, want, view)
-	}
-	if got, want := lipgloss.Height(view), 28; got != want {
-		t.Fatalf("view height=%d, want %d:\n%s", got, want, view)
-	}
+	require.GreaterOrEqual(t, parentLine, 0)
+	require.Equal(t, parentLine+1, firstChildLine)
+	require.Equal(t, firstChildLine+1, lastChildLine)
+	require.Contains(t, view, "PREVIEW [ctrl+o] · feature · worktree of project")
+	require.Equal(t, 160, maxLineWidth(view))
+	assert.Equal(t, 28, lipgloss.Height(view))
 }
 
 func TestWorktreeTreePrefixRequiresContiguousVisibleFamily(t *testing.T) {
@@ -1066,9 +952,7 @@ func TestWorktreeTreePrefixRequiresContiguousVisibleFamily(t *testing.T) {
 		{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
 	}
 
-	if got := worktreeTreePrefix(items, 2); got != "" {
-		t.Fatalf("tree prefix=%q for non-contiguous family, want none", got)
-	}
+	assert.Empty(t, worktreeTreePrefix(items, 2))
 }
 
 func TestListViewKeepsWorktreeBranchWhenParentIsOffScreen(t *testing.T) {
@@ -1079,9 +963,7 @@ func TestListViewKeepsWorktreeBranchWhenParentIsOffScreen(t *testing.T) {
 	m.list.Selected = 1
 
 	view := ansi.Strip(m.listView(80, 1))
-	if !strings.Contains(view, "└─ child") {
-		t.Fatalf("off-screen parent hid the child relationship: %q", view)
-	}
+	assert.Contains(t, view, "└─ child")
 }
 
 func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
@@ -1090,9 +972,7 @@ func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "LAST WORKSPACE · unavailable-workspace") {
-		t.Fatalf("view missing recorded workspace ID:\n%s", view)
-	}
+	assert.Contains(t, view, "LAST WORKSPACE · unavailable-workspace")
 }
 
 func TestTeaModelLastWorkspaceUsesRawHerdrMetadata(t *testing.T) {
@@ -1104,9 +984,7 @@ func TestTeaModelLastWorkspaceUsesRawHerdrMetadata(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "LAST WORKSPACE · api  /live/api") {
-		t.Fatalf("view did not use raw Herdr workspace metadata:\n%s", view)
-	}
+	assert.Contains(t, view, "LAST WORKSPACE · api  /live/api")
 }
 
 func TestTeaModelCanHideLastWorkspacePath(t *testing.T) {
@@ -1119,9 +997,8 @@ func TestTeaModelCanHideLastWorkspacePath(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "LAST WORKSPACE · api") || strings.Contains(view, "/live/api") {
-		t.Fatalf("view did not hide last workspace path:\n%s", view)
-	}
+	require.Contains(t, view, "LAST WORKSPACE · api")
+	assert.NotContains(t, view, "/live/api")
 }
 
 func TestTeaModelCanHideLastWorkspace(t *testing.T) {
@@ -1134,9 +1011,9 @@ func TestTeaModelCanHideLastWorkspace(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	if strings.Contains(view, "LAST WORKSPACE") || strings.Contains(view, "last: api") || strings.Contains(view, "/live/api") {
-		t.Fatalf("view did not hide last workspace feature:\n%s", view)
-	}
+	require.NotContains(t, view, "LAST WORKSPACE")
+	require.NotContains(t, view, "last: api")
+	assert.NotContains(t, view, "/live/api")
 }
 
 func TestTeaModelLastWorkspaceSharesFooterWithKeybinds(t *testing.T) {
@@ -1147,16 +1024,12 @@ func TestTeaModelLastWorkspaceSharesFooterWithKeybinds(t *testing.T) {
 	view := ansi.Strip(m.View().Content)
 	for _, line := range strings.Split(view, "\n") {
 		if strings.Contains(line, "LAST WORKSPACE") {
-			if !strings.Contains(line, "enter select") {
-				t.Fatalf("last workspace is not on keybind row: %q", line)
-			}
-			if want := "LAST WORKSPACE · ws-api"; !strings.HasSuffix(strings.TrimSpace(line), want) {
-				t.Fatalf("last workspace is not right-aligned: %q", line)
-			}
+			require.Contains(t, line, "enter select")
+			require.True(t, strings.HasSuffix(strings.TrimSpace(line), "LAST WORKSPACE · ws-api"))
 			return
 		}
 	}
-	t.Fatalf("view missing last workspace footer:\n%s", view)
+	require.FailNow(t, fmt.Sprintf("view missing last workspace footer:\n%s", view))
 }
 
 func TestFooterLinePrioritizesKeybindHelpAtNarrowWidths(t *testing.T) {
@@ -1167,11 +1040,9 @@ func TestFooterLinePrioritizesKeybindHelpAtNarrowWidths(t *testing.T) {
 	help := helpStyle.Render("enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
 	for _, width := range []int{10, 20, 40, 80, 120} {
 		line := m.footerLine(help, width)
-		if got := lipgloss.Width(line); got != width {
-			t.Fatalf("width %d: footer width=%d:\n%q", width, got, line)
-		}
-		if plain := ansi.Strip(line); width >= lipgloss.Width(help) && !strings.Contains(plain, "esc exit") {
-			t.Fatalf("width %d: keybind help truncated: %q", width, plain)
+		require.Equal(t, width, lipgloss.Width(line))
+		if width >= lipgloss.Width(help) {
+			assert.Contains(t, ansi.Strip(line), "esc exit")
 		}
 	}
 }
@@ -1183,21 +1054,18 @@ func TestFooterLineCompactsLastWorkspaceBeforeDroppingIt(t *testing.T) {
 	})
 	help := helpStyle.Render("enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
 	line := ansi.Strip(m.footerLine(help, 80))
-	if !strings.Contains(line, "last: api") || strings.Contains(line, "LAST WORKSPACE") {
-		t.Fatalf("footer did not compact last workspace: %q", line)
-	}
-	if !strings.Contains(line, "esc exit") {
-		t.Fatalf("compact footer truncated keybind help: %q", line)
-	}
+	require.Contains(t, line, "last: api")
+	require.NotContains(t, line, "LAST WORKSPACE")
+	assert.Contains(t, line, "esc exit")
 }
 
 func TestFooterLineGivesCloseErrorWholeRow(t *testing.T) {
 	m := newTeaModel(nil, Options{LastWorkspaceID: "ws-api"})
 	m.closeError = "Failed to close workspace: herdr workspace close w1: boom"
 	line := ansi.Strip(m.footerLine(emptyStyle.Render(m.closeError), 80))
-	if !strings.Contains(line, "close w1: boom") || strings.Contains(line, "LAST WORKSPACE") || strings.Contains(line, "last:") {
-		t.Fatalf("close error did not get the whole footer row: %q", line)
-	}
+	require.Contains(t, line, "close w1: boom")
+	require.NotContains(t, line, "LAST WORKSPACE")
+	assert.NotContains(t, line, "last:")
 }
 
 func TestTeaModelLastWorkspaceUnavailable(t *testing.T) {
@@ -1205,9 +1073,7 @@ func TestTeaModelLastWorkspaceUnavailable(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "LAST WORKSPACE · Unavailable") {
-		t.Fatalf("view missing unavailable state:\n%s", view)
-	}
+	assert.Contains(t, ansi.Strip(m.View().Content), "LAST WORKSPACE · Unavailable")
 }
 
 func TestTeaModelUnnamedLastWorkspaceDoesNotRepeatCompactedPath(t *testing.T) {
@@ -1220,22 +1086,16 @@ func TestTeaModelUnnamedLastWorkspaceDoesNotRepeatCompactedPath(t *testing.T) {
 	m = updated.(teaModel)
 
 	view := ansi.Strip(m.View().Content)
-	if strings.Count(view, "~/api") != 1 {
-		t.Fatalf("view repeated compacted workspace path:\n%s", view)
-	}
+	assert.Equal(t, 1, strings.Count(view, "~/api"))
 }
 
 func TestTeaModelShowIconsControlsSourceIcons(t *testing.T) {
 	items := []model.Session{{Source: "herdr", Name: "api"}}
 	withoutIcons := ansi.Strip(newTeaModel(items, Options{}).View().Content)
-	if strings.Contains(withoutIcons, herdrSourceIcon) {
-		t.Fatalf("view unexpectedly contains source icon:\n%s", withoutIcons)
-	}
+	require.NotContains(t, withoutIcons, herdrSourceIcon)
 
 	withIcons := ansi.Strip(newTeaModel(items, Options{ShowIcons: true}).View().Content)
-	if !strings.Contains(withIcons, herdrSourceIcon+" herdr") {
-		t.Fatalf("view missing source icon:\n%s", withIcons)
-	}
+	assert.Contains(t, withIcons, herdrSourceIcon+" herdr")
 }
 
 func TestRowUsesSourceCategoryColors(t *testing.T) {
@@ -1250,9 +1110,7 @@ func TestRowUsesSourceCategoryColors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := row(model.Session{Source: tt.source, Name: tt.source}, false, 80, true, "")
-		if !strings.Contains(got, tt.color) {
-			t.Fatalf("row for source %q missing color %s:\n%q", tt.source, tt.color, got)
-		}
+		require.Contains(t, got, tt.color)
 	}
 }
 
@@ -1260,17 +1118,16 @@ func TestChildWorktreeUsesPurpleTypeBadge(t *testing.T) {
 	s := model.Session{Source: "herdr", Name: "feature", Worktree: model.WorktreeRelation{Linked: true}}
 
 	withoutIcons := row(s, false, 80, false, "")
-	if plain := ansi.Strip(withoutIcons); !strings.Contains(plain, "[↳ herdr]") || strings.Contains(plain, "↳ feature") {
-		t.Fatalf("child type badge without icons=%q", plain)
-	}
-	if !strings.Contains(withoutIcons, "38;2;187;154;247") || strings.Contains(withoutIcons, "38;2;125;207;255") {
-		t.Fatalf("child type badge is not exclusively purple:\n%q", withoutIcons)
-	}
+	plain := ansi.Strip(withoutIcons)
+	require.Contains(t, plain, "[↳ herdr]")
+	require.NotContains(t, plain, "↳ feature")
+	require.Contains(t, withoutIcons, "38;2;187;154;247")
+	require.NotContains(t, withoutIcons, "38;2;125;207;255")
 
 	withIcons := ansi.Strip(row(s, false, 80, true, ""))
-	if !strings.Contains(withIcons, "↳ herdr") || strings.Contains(withIcons, herdrSourceIcon) || strings.Contains(withIcons, "↳ feature") {
-		t.Fatalf("child type badge with icons=%q", withIcons)
-	}
+	require.Contains(t, withIcons, "↳ herdr")
+	require.NotContains(t, withIcons, herdrSourceIcon)
+	assert.NotContains(t, withIcons, "↳ feature")
 }
 
 func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
@@ -1281,18 +1138,15 @@ func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
 	m := newTeaModel(items, Options{ShowIcons: true, DisableWorktreeIconReplacement: true})
 	withIcons := m.listView(80, 2)
 	plain := ansi.Strip(withIcons)
-	if !strings.Contains(plain, herdrSourceIcon+" herdr") || !strings.Contains(plain, "└─ feature") || strings.Contains(plain, "↳") {
-		t.Fatalf("child row with replacement disabled=%q", plain)
-	}
-	if !strings.Contains(withIcons, "38;2;187;154;247") {
-		t.Fatalf("child type lost purple styling:\n%q", withIcons)
-	}
+	require.Contains(t, plain, herdrSourceIcon+" herdr")
+	require.Contains(t, plain, "└─ feature")
+	require.NotContains(t, plain, "↳")
+	require.Contains(t, withIcons, "38;2;187;154;247")
 
 	m = newTeaModel(items, Options{DisableWorktreeIconReplacement: true})
 	withoutIcons := ansi.Strip(m.listView(80, 2))
-	if !strings.Contains(withoutIcons, "[herdr]") || strings.Contains(withoutIcons, "↳") {
-		t.Fatalf("child row without source icons=%q", withoutIcons)
-	}
+	require.Contains(t, withoutIcons, "[herdr]")
+	assert.NotContains(t, withoutIcons, "↳")
 }
 
 func TestRowUsesAgentStatusIndicators(t *testing.T) {
@@ -1308,15 +1162,12 @@ func TestRowUsesAgentStatusIndicators(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := row(model.Session{Source: "herdr", Name: "api", AgentStatus: tt.status}, false, 80, true, "")
-		if !strings.Contains(ansi.Strip(got), tt.glyph) || !strings.Contains(got, tt.color) {
-			t.Fatalf("row for status %q missing glyph/color:\n%q", tt.status, got)
-		}
+		require.Contains(t, ansi.Strip(got), tt.glyph)
+		require.Contains(t, got, tt.color)
 	}
 	for _, status := range []string{"", "unknown", "future"} {
 		got := ansi.Strip(row(model.Session{Source: "herdr", Name: "api", AgentStatus: status}, false, 80, true, ""))
-		if strings.ContainsAny(got, "⢄◉✓●") {
-			t.Fatalf("row for status %q unexpectedly contains indicator: %q", status, got)
-		}
+		require.False(t, strings.ContainsAny(got, "⢄◉✓●"))
 	}
 }
 
@@ -1328,23 +1179,17 @@ func TestTeaModelAnimatesWorkingAgentStatusIndicator(t *testing.T) {
 	m = updated.(teaModel)
 	after := ansi.Strip(m.listView(80, 1))
 
-	if !strings.Contains(before, "⢄") || !strings.Contains(after, "⢂") {
-		t.Fatalf("working indicator did not advance jump frame:\nbefore: %q\nafter:  %q", before, after)
-	}
-	if cmd == nil {
-		t.Fatal("working indicator did not schedule its next jump frame")
-	}
+	require.Contains(t, before, "⢄")
+	require.Contains(t, after, "⢂")
+	require.NotNil(t, cmd)
 }
 
 func TestTeaModelStartsAgentStatusSpinner(t *testing.T) {
 	m := newTeaModel(nil, Options{RefreshAgentStatuses: func() (map[string]string, error) { return nil, nil }})
 	batch, ok := m.Init()().(tea.BatchMsg)
-	if !ok || len(batch) == 0 {
-		t.Fatalf("init command = %#v, want batch", batch)
-	}
-	if msg := batch[len(batch)-1](); reflect.TypeOf(msg) != reflect.TypeOf(spinner.TickMsg{}) {
-		t.Fatalf("last init message = %T, want spinner.TickMsg", msg)
-	}
+	require.True(t, ok)
+	require.NotEmpty(t, batch)
+	assert.Equal(t, reflect.TypeOf(spinner.TickMsg{}), reflect.TypeOf(batch[len(batch)-1]()))
 }
 
 func TestRowCompactsHomeAndNeverWraps(t *testing.T) {
@@ -1356,19 +1201,15 @@ func TestRowCompactsHomeAndNeverWraps(t *testing.T) {
 		AgentStatus: "working",
 	}
 	wide := ansi.Strip(strings.TrimSuffix(row(s, true, 76, true, ""), "\n"))
-	if strings.Contains(wide, "\n") || lipgloss.Width(wide) != 76 {
-		t.Fatalf("wide row width=%d or wrapped:\n%q", lipgloss.Width(wide), wide)
-	}
-	if !strings.Contains(wide, "~/Code/Go/") || strings.Contains(wide, "/Users/picker") {
-		t.Fatalf("wide row did not compact home path: %q", wide)
-	}
+	require.NotContains(t, wide, "\n")
+	require.Equal(t, 76, lipgloss.Width(wide))
+	require.Contains(t, wide, "~/Code/Go/")
+	require.NotContains(t, wide, "/Users/picker")
 	narrow := ansi.Strip(strings.TrimSuffix(row(s, false, 48, true, ""), "\n"))
-	if strings.Contains(narrow, "~/") || strings.Contains(narrow, "/Users/picker") {
-		t.Fatalf("narrow row should omit its path: %q", narrow)
-	}
-	if strings.Contains(narrow, "\n") || lipgloss.Width(narrow) != 48 {
-		t.Fatalf("narrow row width=%d or wrapped: %q", lipgloss.Width(narrow), narrow)
-	}
+	require.NotContains(t, narrow, "~/")
+	require.NotContains(t, narrow, "/Users/picker")
+	require.NotContains(t, narrow, "\n")
+	assert.Equal(t, 48, lipgloss.Width(narrow))
 }
 
 func TestRowShowsWorktreePathWithoutParentDescription(t *testing.T) {
@@ -1387,31 +1228,22 @@ func TestRowShowsWorktreePathWithoutParentDescription(t *testing.T) {
 	wide := row(s, true, 100, true, "")
 	widePlain := ansi.Strip(strings.TrimSuffix(wide, "\n"))
 	for _, want := range []string{"┃", "◉", "↳ herdr", "feature", "/tmp/project-feature"} {
-		if !strings.Contains(widePlain, want) {
-			t.Fatalf("wide worktree row missing %q:\n%q", want, wide)
-		}
+		require.Contains(t, widePlain, want)
 	}
-	if strings.Contains(widePlain, "worktree of") {
-		t.Fatalf("wide child row obscures its path with parent description:\n%q", widePlain)
-	}
-	if strings.Contains(widePlain, herdrSourceIcon) {
-		t.Fatalf("wide child row kept Herdr icon alongside worktree arrow:\n%q", widePlain)
-	}
-	if lipgloss.Width(widePlain) != 100 || strings.Contains(widePlain, "\n") {
-		t.Fatalf("wide row width=%d or wrapped:\n%q", lipgloss.Width(widePlain), widePlain)
-	}
+	require.NotContains(t, widePlain, "worktree of")
+	require.NotContains(t, widePlain, herdrSourceIcon)
+	require.Equal(t, 100, lipgloss.Width(widePlain))
+	require.NotContains(t, widePlain, "\n")
 
 	narrow := row(s, false, 48, false, "")
 	narrowPlain := ansi.Strip(strings.TrimSuffix(narrow, "\n"))
-	if !strings.Contains(narrowPlain, "[↳ herdr]") || !strings.Contains(narrowPlain, "feature") || strings.Contains(narrowPlain, "↳ feature") {
-		t.Fatalf("narrow worktree row missing child type badge: %q", narrowPlain)
-	}
-	if strings.Contains(narrowPlain, "worktree of") || strings.Contains(narrowPlain, "/tmp/project-feature") {
-		t.Fatalf("narrow worktree row kept secondary context: %q", narrowPlain)
-	}
-	if lipgloss.Width(narrowPlain) != 48 || strings.Contains(narrowPlain, "\n") {
-		t.Fatalf("narrow row width=%d or wrapped: %q", lipgloss.Width(narrowPlain), narrowPlain)
-	}
+	require.Contains(t, narrowPlain, "[↳ herdr]")
+	require.Contains(t, narrowPlain, "feature")
+	require.NotContains(t, narrowPlain, "↳ feature")
+	require.NotContains(t, narrowPlain, "worktree of")
+	require.NotContains(t, narrowPlain, "/tmp/project-feature")
+	require.Equal(t, 48, lipgloss.Width(narrowPlain))
+	assert.NotContains(t, narrowPlain, "\n")
 }
 
 func TestRowPreservesWorktreeMarkerAtCompactBoundary(t *testing.T) {
@@ -1424,12 +1256,9 @@ func TestRowPreservesWorktreeMarkerAtCompactBoundary(t *testing.T) {
 	for _, showIcons := range []bool{false, true} {
 		for _, width := range []int{1, 4, 5, 6, 10, 14, 15, 16} {
 			got := ansi.Strip(strings.TrimSuffix(row(s, true, width, showIcons, ""), "\n"))
-			if !strings.Contains(got, "↳") {
-				t.Fatalf("icons=%v width=%d missing marker: %q", showIcons, width, got)
-			}
-			if lipgloss.Width(got) != width || strings.Contains(got, "\n") {
-				t.Fatalf("icons=%v width=%d got width=%d or wrapped: %q", showIcons, width, lipgloss.Width(got), got)
-			}
+			require.Contains(t, got, "↳")
+			require.Equal(t, width, lipgloss.Width(got))
+			require.NotContains(t, got, "\n")
 		}
 	}
 }
@@ -1440,16 +1269,17 @@ func TestRowUsesBadgeWithoutDescriptionWhenWorktreeParentIsUnresolved(t *testing
 		Name:     "feature",
 		Worktree: model.WorktreeRelation{Linked: true},
 	}, false, 80, false, ""))
-	if !strings.Contains(got, "[↳ herdr]") || !strings.Contains(got, "feature") || strings.Contains(got, "linked worktree") || strings.Contains(got, "worktree of") || strings.Contains(got, "↳ feature") {
-		t.Fatalf("unresolved worktree row=%q", got)
-	}
+	require.Contains(t, got, "[↳ herdr]")
+	require.Contains(t, got, "feature")
+	require.NotContains(t, got, "linked worktree")
+	require.NotContains(t, got, "worktree of")
+	assert.NotContains(t, got, "↳ feature")
 }
 
 func TestRowDoesNotMarkNormalWorkspace(t *testing.T) {
 	got := ansi.Strip(row(model.Session{Source: "herdr", Name: "project", Path: "/tmp/project"}, false, 80, false, ""))
-	if strings.Contains(got, "↳") || strings.Contains(got, "worktree") {
-		t.Fatalf("normal workspace row has worktree indicator: %q", got)
-	}
+	require.NotContains(t, got, "↳")
+	assert.NotContains(t, got, "worktree")
 }
 
 func TestPreviewTitleShowsUnresolvedLinkedWorktree(t *testing.T) {
@@ -1460,9 +1290,8 @@ func TestPreviewTitleShowsUnresolvedLinkedWorktree(t *testing.T) {
 	}}, Options{})
 
 	got := ansi.Strip(m.previewTitle())
-	if !strings.Contains(got, "PREVIEW [ctrl+o] · feature · linked worktree") || strings.Contains(got, "worktree of") {
-		t.Fatalf("preview title=%q", got)
-	}
+	require.Contains(t, got, "PREVIEW [ctrl+o] · feature · linked worktree")
+	assert.NotContains(t, got, "worktree of")
 }
 
 func TestPreviewTitleShowsWorktreeParentBeforeAgentStatus(t *testing.T) {
@@ -1483,18 +1312,14 @@ func TestPreviewTitleShowsWorktreeParentBeforeAgentStatus(t *testing.T) {
 	m.list.Selected = 1
 
 	got := ansi.Strip(m.previewTitle())
-	if !strings.Contains(got, "PREVIEW [ctrl+o] · feature · worktree of parent · working") {
-		t.Fatalf("preview title=%q", got)
-	}
+	assert.Contains(t, got, "PREVIEW [ctrl+o] · feature · worktree of parent · working")
 }
 
 func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
 	msg := previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand, false)()
 	preview := msg.(previewMsg)
-	if got := strings.TrimSpace(preview.text); got != "preview:/tmp/api" {
-		t.Fatalf("preview=%q", preview.text)
-	}
+	assert.Equal(t, "preview:/tmp/api", strings.TrimSpace(preview.text))
 }
 
 func TestTeaModelHidePreviewDoesNotRunInitialPreview(t *testing.T) {
@@ -1505,9 +1330,8 @@ func TestTeaModelHidePreviewDoesNotRunInitialPreview(t *testing.T) {
 	})
 
 	executeTeaCommand(m.Init())
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("preview command ran while hidden: %v", err)
-	}
+	_, err := os.Stat(marker)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestTeaModelHidePreviewDoesNotRefreshAfterSelection(t *testing.T) {
@@ -1522,9 +1346,8 @@ func TestTeaModelHidePreviewDoesNotRefreshAfterSelection(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	executeTeaCommand(cmd)
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("preview command refreshed while hidden: %v", err)
-	}
+	_, err := os.Stat(marker)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func executeTeaCommand(cmd tea.Cmd) {
@@ -1549,13 +1372,12 @@ func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	m = updated.(teaModel)
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
-	if cmd == nil || !strings.Contains(m.preview, "Loading preview") {
-		t.Fatalf("cmd=%v preview=%q", cmd, m.preview)
-	}
+	require.NotNil(t, cmd)
+	require.Contains(t, m.preview, "Loading preview")
 	current, ok := m.list.Current()
-	if !ok || current.Name != "web" || m.previewKey != model.Key(current) {
-		t.Fatalf("current=%#v ok=%v previewKey=%q", current, ok, m.previewKey)
-	}
+	require.True(t, ok)
+	require.Equal(t, "web", current.Name)
+	assert.Equal(t, model.Key(current), m.previewKey)
 }
 
 func TestTeaModelCancelsSupersededPreview(t *testing.T) {
@@ -1592,9 +1414,9 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	select {
 	case <-firstStarted:
 	case err := <-previewErr:
-		t.Fatal(err)
+		require.FailNow(t, fmt.Sprint(err))
 	case <-time.After(time.Second):
-		t.Fatal("first preview did not start")
+		require.FailNow(t, "first preview did not start")
 	}
 
 	m.list.Move(1)
@@ -1604,22 +1426,20 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	select {
 	case <-secondStarted:
 	case err := <-previewErr:
-		t.Fatal(err)
+		require.FailNow(t, fmt.Sprint(err))
 	case <-time.After(time.Second):
-		t.Fatal("replacement preview did not start")
+		require.FailNow(t, "replacement preview did not start")
 	}
 	select {
 	case <-firstCanceled:
 	case <-time.After(time.Second):
-		t.Fatal("superseded preview did not observe cancellation")
+		require.FailNow(t, "superseded preview did not observe cancellation")
 	}
 
 	close(releaseSecond)
 	updated, _ := m.Update(<-secondResult)
 	m = updated.(teaModel)
-	if m.preview != "web preview" {
-		t.Fatalf("preview=%q, want replacement result", m.preview)
-	}
+	require.Equal(t, "web preview", m.preview)
 	<-firstResult
 }
 
@@ -1640,9 +1460,7 @@ func TestTeaModelRejectsObsoleteSameKeyPreview(t *testing.T) {
 
 	updated, _ := m.Update(firstCmd())
 	m = updated.(teaModel)
-	if m.preview != "Loading preview..." {
-		t.Fatalf("preview=%q, want active request loading text", m.preview)
-	}
+	assert.Equal(t, "Loading preview...", m.preview)
 }
 
 func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
@@ -1684,14 +1502,14 @@ func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
 			select {
 			case <-started:
 			case <-time.After(time.Second):
-				t.Fatal("preview did not start")
+				require.FailNow(t, "preview did not start")
 			}
 
 			_, _ = tt.advance(m)
 			select {
 			case <-canceled:
 			case <-time.After(time.Second):
-				t.Fatal("preview did not observe cancellation")
+				require.FailNow(t, "preview did not observe cancellation")
 			}
 		})
 	}
@@ -1730,7 +1548,7 @@ func TestTeaModelCancelsRestartedPreviewWhenQuittingPendingClose(t *testing.T) {
 	select {
 	case <-closeStarted:
 	case <-time.After(time.Second):
-		t.Fatal("workspace close did not start")
+		require.FailNow(t, "workspace close did not start")
 	}
 
 	updated, moveCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -1739,25 +1557,24 @@ func TestTeaModelCancelsRestartedPreviewWhenQuittingPendingClose(t *testing.T) {
 	select {
 	case <-previewStarted:
 	case <-time.After(time.Second):
-		t.Fatal("navigation did not restart preview during close")
+		require.FailNow(t, "navigation did not restart preview during close")
 	}
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(teaModel)
 	updated, quitCmd := m.Update(<-closeResult)
 	m = updated.(teaModel)
-	if quitCmd == nil {
-		t.Fatal("pending close did not quit after cancellation")
-	}
+	require.NotNil(t, quitCmd)
 	if quitMsg := quitCmd(); quitMsg == nil {
-		t.Fatal("quit command returned nil")
-	} else if _, ok := quitMsg.(tea.QuitMsg); !ok {
-		t.Fatalf("quit command returned %T", quitMsg)
+		require.FailNow(t, "quit command returned nil")
+	} else {
+		_, ok := quitMsg.(tea.QuitMsg)
+		require.True(t, ok)
 	}
 	select {
 	case <-previewCanceled:
 	case <-time.After(time.Second):
-		t.Fatal("restarted preview did not observe cancellation before quit")
+		require.FailNow(t, "restarted preview did not observe cancellation before quit")
 	}
 }
 
@@ -1772,22 +1589,16 @@ func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
 
 	updated, cmd := m.Update(statusRefreshTickMsg{})
 	m = updated.(teaModel)
-	if cmd == nil {
-		t.Fatal("status refresh tick did not fetch statuses")
-	}
+	require.NotNil(t, cmd)
 
 	updated, next := m.Update(cmd())
 	m = updated.(teaModel)
 	current, ok := m.list.Current()
-	if !ok || current.AgentStatus != "blocked" {
-		t.Fatalf("current=%#v ok=%v", current, ok)
-	}
-	if m.list.Query != "api" || len(m.list.Filtered) != 1 {
-		t.Fatalf("query=%q filtered=%#v", m.list.Query, m.list.Filtered)
-	}
-	if next == nil {
-		t.Fatal("status refresh did not schedule the next tick")
-	}
+	require.True(t, ok)
+	require.Equal(t, "blocked", current.AgentStatus)
+	require.Equal(t, "api", m.list.Query)
+	require.Len(t, m.list.Filtered, 1)
+	require.NotNil(t, next)
 }
 
 func TestTeaModelAgentSortRefreshPreservesSelectionAndPreview(t *testing.T) {
@@ -1799,9 +1610,8 @@ func TestTeaModelAgentSortRefreshPreservesSelectionAndPreview(t *testing.T) {
 	m.list.Filter("api")
 	m.list.Selected = 1
 	selected, ok := m.list.Current()
-	if !ok || selected.WorkspaceID != "w1" {
-		t.Fatalf("selected=%#v ok=%v", selected, ok)
-	}
+	require.True(t, ok)
+	require.Equal(t, "w1", selected.WorkspaceID)
 	selectedKey := model.Key(selected)
 	m.previewKey = selectedKey
 	previewRequestID := m.previewRequestID
@@ -1815,28 +1625,17 @@ func TestTeaModelAgentSortRefreshPreservesSelectionAndPreview(t *testing.T) {
 	}})
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"api-two", "api-three", "api-one"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("all order=%v want %v", got, want)
-	}
-	if got, want := sessionNames(m.list.Filtered), []string{"api-two", "api-three", "api-one"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("filtered order=%v want %v", got, want)
-	}
+	require.Equal(t, []string{"api-two", "api-three", "api-one"}, sessionNames(m.list.All))
+	require.Equal(t, []string{"api-two", "api-three", "api-one"}, sessionNames(m.list.Filtered))
 	current, ok := m.list.Current()
-	if !ok || model.Key(current) != selectedKey {
-		t.Fatalf("current=%#v ok=%v, want key %q", current, ok, selectedKey)
-	}
-	if m.list.Query != "api" {
-		t.Fatalf("query=%q, want api", m.list.Query)
-	}
-	if m.previewKey != selectedKey || m.previewRequestID != previewRequestID {
-		t.Fatalf("preview changed: key=%q request=%d, want key=%q request=%d", m.previewKey, m.previewRequestID, selectedKey, previewRequestID)
-	}
-	if m.smearActive || m.focusSmearActive {
-		t.Fatal("status reorder kept stale smear animation")
-	}
-	if next == nil {
-		t.Fatal("status refresh did not schedule the next tick")
-	}
+	require.True(t, ok)
+	require.Equal(t, selectedKey, model.Key(current))
+	require.Equal(t, "api", m.list.Query)
+	require.Equal(t, selectedKey, m.previewKey)
+	require.Equal(t, previewRequestID, m.previewRequestID)
+	require.False(t, m.smearActive)
+	require.False(t, m.focusSmearActive)
+	require.NotNil(t, next)
 }
 
 func TestTeaModelAgentSortRefreshDemotesMissingStatus(t *testing.T) {
@@ -1848,12 +1647,8 @@ func TestTeaModelAgentSortRefreshDemotesMissingStatus(t *testing.T) {
 	updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w2": "idle"}})
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"idle", "blocked"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent order=%v want %v", got, want)
-	}
-	if got := m.list.All[1].AgentStatus; got != "" {
-		t.Fatalf("missing workspace status=%q, want empty", got)
-	}
+	require.Equal(t, []string{"idle", "blocked"}, sessionNames(m.list.All))
+	assert.Empty(t, m.list.All[1].AgentStatus)
 }
 
 func TestTeaModelAgentSortRefreshErrorKeepsState(t *testing.T) {
@@ -1870,22 +1665,15 @@ func TestTeaModelAgentSortRefreshErrorKeepsState(t *testing.T) {
 	updated, next := m.Update(agentStatusesMsg{statuses: map[string]string{"w1": "idle", "w2": "blocked"}, err: errors.New("offline")})
 	m = updated.(teaModel)
 
-	if got, want := sessionNames(m.list.All), []string{"blocked", "idle"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent order=%v want %v", got, want)
-	}
-	if m.list.All[0].AgentStatus != "blocked" || m.list.All[1].AgentStatus != "idle" {
-		t.Fatalf("statuses changed after error: %#v", m.list.All)
-	}
+	require.Equal(t, []string{"blocked", "idle"}, sessionNames(m.list.All))
+	require.Equal(t, "blocked", m.list.All[0].AgentStatus)
+	require.Equal(t, "idle", m.list.All[1].AgentStatus)
 	current, ok := m.list.Current()
-	if !ok || model.Key(current) != selectedKey {
-		t.Fatalf("current=%#v ok=%v, want key %q", current, ok, selectedKey)
-	}
-	if m.previewKey != selectedKey || m.previewRequestID != previewRequestID {
-		t.Fatal("preview changed after refresh error")
-	}
-	if next == nil {
-		t.Fatal("refresh error did not schedule the next tick")
-	}
+	require.True(t, ok)
+	require.Equal(t, selectedKey, model.Key(current))
+	require.Equal(t, selectedKey, m.previewKey)
+	require.Equal(t, previewRequestID, m.previewRequestID)
+	require.NotNil(t, next)
 }
 
 func TestTeaModelAgentStatusRefreshKeepsNonAgentSortOrder(t *testing.T) {
@@ -1905,16 +1693,12 @@ func TestTeaModelAgentStatusRefreshKeepsNonAgentSortOrder(t *testing.T) {
 			updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w1": "idle", "w2": "blocked"}})
 			m = updated.(teaModel)
 
-			if got := sessionNames(m.list.All); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("order=%v want %v", got, tc.want)
-			}
+			require.Equal(t, tc.want, sessionNames(m.list.All))
 			statuses := map[string]string{}
 			for _, item := range m.list.All {
 				statuses[item.WorkspaceID] = item.AgentStatus
 			}
-			if !reflect.DeepEqual(statuses, map[string]string{"w1": "idle", "w2": "blocked"}) {
-				t.Fatalf("statuses=%v", statuses)
-			}
+			assert.Equal(t, map[string]string{"w1": "idle", "w2": "blocked"}, statuses)
 		})
 	}
 }
@@ -1925,18 +1709,10 @@ func TestPreviewViewUsesConstantHeight(t *testing.T) {
 	short := m.previewView(40, 4)
 	m.preview = strings.Repeat("wrapped preview content ", 20)
 	long := m.previewView(40, 4)
-	if lipgloss.Height(short) != lipgloss.Height(long) {
-		t.Fatalf("preview heights changed: short=%d long=%d\nshort:\n%s\nlong:\n%s", lipgloss.Height(short), lipgloss.Height(long), short, long)
-	}
-	if got, want := lipgloss.Height(short), 4+previewTitleRows; got != want {
-		t.Fatalf("preview height=%d, want %d\n%s", got, want, short)
-	}
-	if !strings.Contains(long, "...") {
-		t.Fatalf("long preview missing truncation marker:\n%s", long)
-	}
-	if strings.Contains(ansi.Strip(long), "+-") {
-		t.Fatalf("preview still contains box chrome:\n%s", long)
-	}
+	require.Equal(t, lipgloss.Height(long), lipgloss.Height(short))
+	require.Equal(t, 4+previewTitleRows, lipgloss.Height(short))
+	require.Contains(t, long, "...")
+	assert.NotContains(t, ansi.Strip(long), "+-")
 }
 
 func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
@@ -1947,42 +1723,25 @@ func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 	m := newTeaModel(items, Options{})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated.(teaModel)
-	if got := m.previewBodyLines(); got <= defaultVisibleRows {
-		t.Fatalf("preview body lines=%d, want more than fallback %d", got, defaultVisibleRows)
-	}
+	require.Greater(t, m.previewBodyLines(), defaultVisibleRows)
 	view := ansi.Strip(m.View().Content)
-	if got, want := lipgloss.Height(view), 40; got != want {
-		t.Fatalf("view height=%d, want %d", got, want)
-	}
+	require.Equal(t, 40, lipgloss.Height(view))
 	lines := strings.Split(view, "\n")
-	if lines[0] != "" {
-		t.Fatalf("expected top padding row, got %q\n%s", lines[0], view)
-	}
-	if header := lines[1]; !strings.Contains(header, "herdr / sesh") {
-		t.Fatalf("expected navigator header after padding, got %q\n%s", header, view)
-	}
-	if got, want := maxLineWidth(view), 120; got != want {
-		t.Fatalf("view width=%d, want %d:\n%s", got, want, view)
-	}
-	if last := lines[len(lines)-1]; strings.TrimSpace(last) != "" {
-		t.Fatalf("expected bottom breathing room, got %q\n%s", last, view)
-	}
+	require.Empty(t, lines[0])
+	require.Contains(t, lines[1], "herdr / sesh")
+	require.Equal(t, 120, maxLineWidth(view))
+	assert.Empty(t, strings.TrimSpace(lines[len(lines)-1]))
 }
 
 func TestSelectedRowUsesRailAndPreservesSourceColor(t *testing.T) {
 	got := row(model.Session{Source: "herdr", Name: "herdr-plugin-sesh", Path: "/tmp/herdr-plugin-sesh", AgentStatus: "working"}, true, 80, true, "")
 	plain := ansi.Strip(got)
-	if !strings.Contains(plain, "┃") {
-		t.Fatalf("selected row missing navigation rail:\n%q", got)
-	}
+	require.Contains(t, plain, "┃")
 	for _, want := range []string{"38;2;125;207;255", "38;2;224;175;104", herdrSourceIcon + " herdr", "herdr-plugin-sesh", "/tmp/herdr-plugin-sesh"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("selected row missing %q:\n%q", want, got)
-		}
+		require.Contains(t, got, want)
 	}
-	if strings.Contains(got, "48;2;") || strings.Contains(got, "48;5;") {
-		t.Fatalf("selected row should not use a background fill:\n%q", got)
-	}
+	require.NotContains(t, got, "48;2;")
+	assert.NotContains(t, got, "48;5;")
 }
 
 func TestListViewHighlightsCaseInsensitiveQueryMatches(t *testing.T) {
@@ -1995,9 +1754,7 @@ func TestListViewHighlightsCaseInsensitiveQueryMatches(t *testing.T) {
 
 	got := m.listView(80, 1)
 	want := lipgloss.NewStyle().Foreground(violetColor).Bold(true).Render("API")
-	if matches := strings.Count(got, want); matches != 2 {
-		t.Fatalf("highlighted matches=%d, want 2:\n%q", matches, got)
-	}
+	assert.Equal(t, 2, strings.Count(got, want))
 }
 
 func TestListViewPreservesUnicodeWhenHighlightingFoldedMatch(t *testing.T) {
@@ -2006,12 +1763,8 @@ func TestListViewPreservesUnicodeWhenHighlightingFoldedMatch(t *testing.T) {
 
 	got := m.listView(80, 1)
 	want := matchStyle.Render("Ⱥ")
-	if !utf8.ValidString(got) {
-		t.Fatalf("highlighted row is invalid UTF-8: %q", got)
-	}
-	if matches := strings.Count(got, want); matches != 2 {
-		t.Fatalf("highlighted matches=%d, want 2:\n%q", matches, got)
-	}
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, 2, strings.Count(got, want))
 }
 
 func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
@@ -2020,15 +1773,10 @@ func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 28})
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
-	if got, want := lipgloss.Height(view), 28; got != want {
-		t.Fatalf("view height=%d, want %d:\n%s", got, want, view)
-	}
-	if !strings.Contains(view, "WORKSPACES") || !strings.Contains(view, "PREVIEW [ctrl+o] · api · blocked") {
-		t.Fatalf("narrow view missing stacked sections:\n%s", view)
-	}
-	if strings.Contains(view, "│") {
-		t.Fatalf("narrow view should not contain a vertical pane divider:\n%s", view)
-	}
+	require.Equal(t, 28, lipgloss.Height(view))
+	require.Contains(t, view, "WORKSPACES")
+	require.Contains(t, view, "PREVIEW [ctrl+o] · api · blocked")
+	assert.NotContains(t, view, "│")
 }
 
 func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
@@ -2047,20 +1795,15 @@ func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
 			m = updated.(teaModel)
 			view := ansi.Strip(m.View().Content)
 
-			if strings.Contains(view, "PREVIEW") || strings.Contains(view, "│") {
-				t.Fatalf("hidden preview still rendered at width %d:\n%s", width, view)
+			require.NotContains(t, view, "PREVIEW")
+			require.NotContains(t, view, "│")
+			require.Equal(t, 28, lipgloss.Height(view))
+			require.Equal(t, width, maxLineWidth(view))
+			if width == 70 {
+				assert.Contains(t, view, "workspace-17")
 			}
-			if got := lipgloss.Height(view); got != 28 {
-				t.Fatalf("view height=%d, want 28:\n%s", got, view)
-			}
-			if got := maxLineWidth(view); got != width {
-				t.Fatalf("view width=%d, want %d:\n%s", got, width, view)
-			}
-			if width == 70 && !strings.Contains(view, "workspace-17") {
-				t.Fatalf("narrow list did not reclaim preview rows:\n%s", view)
-			}
-			if width == 120 && !strings.Contains(view, items[0].Path) {
-				t.Fatalf("wide list did not give reclaimed width to the path column:\n%s", view)
+			if width == 120 {
+				assert.Contains(t, view, items[0].Path)
 			}
 		})
 	}
@@ -2072,9 +1815,7 @@ func TestTeaModelHidePreviewFitsShortNarrowTerminal(t *testing.T) {
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
 
-	if got := lipgloss.Height(view); got != 14 {
-		t.Fatalf("view height=%d, want 14:\n%s", got, view)
-	}
+	assert.Equal(t, 14, lipgloss.Height(view))
 }
 
 func TestTeaModelHidePreviewShowsWorkspaceCloseProgressInFooter(t *testing.T) {
@@ -2091,14 +1832,10 @@ func TestTeaModelHidePreviewShowsWorkspaceCloseProgressInFooter(t *testing.T) {
 		}
 	})
 
-	if footer := renderedFooter(m); !strings.Contains(footer, "Closing workspace...") {
-		t.Fatalf("closing footer=%q", footer)
-	}
+	require.Contains(t, renderedFooter(m), "Closing workspace...")
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(teaModel)
-	if footer := renderedFooter(m); !strings.Contains(footer, "Cancelling workspace close...") {
-		t.Fatalf("cancelling footer=%q", footer)
-	}
+	assert.Contains(t, renderedFooter(m), "Cancelling workspace close...")
 }
 
 func renderedFooter(m teaModel) string {
@@ -2110,17 +1847,13 @@ func TestTeaModelSplitsPreviewAtTerminalThreshold(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: previewSplitWidth, Height: 28})
 	m = updated.(teaModel)
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "│") {
-		t.Fatalf("preview should split at width %d:\n%s", previewSplitWidth, view)
-	}
+	assert.Contains(t, ansi.Strip(m.View().Content), "│")
 }
 
 func TestTeaModelHeaderShowsFilteredCountWhenAllRowsMatch(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
 	m.list.Filter("workspace")
-	if got := ansi.Strip(m.header(80)); !strings.Contains(got, "2/2 workspaces") {
-		t.Fatalf("filtered header=%q, want total-aware count", got)
-	}
+	assert.Contains(t, ansi.Strip(m.header(80)), "2/2 workspaces")
 }
 
 func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
@@ -2132,36 +1865,22 @@ func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
 		{Source: "herdr", Name: "third", WorkspaceID: "w3", AgentStatus: "idle"},
 	}
 	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w3", "w1"}})
-	if got, want := sessionNames(m.list.All), []string{"configured", "first", "recent-directory", "second", "third"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("workspace order=%v want %v", got, want)
-	}
+	require.Equal(t, []string{"configured", "first", "recent-directory", "second", "third"}, sessionNames(m.list.All))
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"configured", "third", "recent-directory", "first", "second"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("recent order=%v want %v", got, want)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r recent") {
-		t.Fatalf("view missing recent sort mode:\n%s", view)
-	}
+	require.Equal(t, []string{"configured", "third", "recent-directory", "first", "second"}, sessionNames(m.list.All))
+	require.Contains(t, ansi.Strip(m.View().Content), "ctrl+r recent")
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"configured", "second", "recent-directory", "first", "third"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent order=%v want %v", got, want)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r agent") {
-		t.Fatalf("view missing agent sort mode:\n%s", view)
-	}
+	require.Equal(t, []string{"configured", "second", "recent-directory", "first", "third"}, sessionNames(m.list.All))
+	require.Contains(t, ansi.Strip(m.View().Content), "ctrl+r agent")
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"configured", "first", "recent-directory", "second", "third"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("restored workspace order=%v want %v", got, want)
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r workspace") {
-		t.Fatalf("view missing workspace sort mode:\n%s", view)
-	}
+	require.Equal(t, []string{"configured", "first", "recent-directory", "second", "third"}, sessionNames(m.list.All))
+	assert.Contains(t, ansi.Strip(m.View().Content), "ctrl+r workspace")
 }
 
 func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
@@ -2184,16 +1903,12 @@ func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w2", "w1", "w3"}, WorkspaceSort: tc.mode})
-			if got := sessionNames(m.list.All); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("initial order=%v want %v", got, tc.want)
-			}
+			require.Equal(t, tc.want, sessionNames(m.list.All))
 			wantMode := tc.mode
 			if wantMode == "" || wantMode == "future" {
 				wantMode = "workspace"
 			}
-			if view := ansi.Strip(m.View().Content); !strings.Contains(view, "ctrl+r "+wantMode) {
-				t.Fatalf("view missing %s sort mode:\n%s", wantMode, view)
-			}
+			assert.Contains(t, ansi.Strip(m.View().Content), "ctrl+r "+wantMode)
 		})
 	}
 }
@@ -2215,9 +1930,7 @@ func TestTeaModelAgentSortRanksStatusesAndPreservesSourceSlots(t *testing.T) {
 	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
 
 	want := []string{"configured", "blocked", "directory", "done", "working-a", "working-b", "idle", "unknown", "agentless", "future"}
-	if got := sessionNames(m.list.All); !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent order=%v want %v", got, want)
-	}
+	assert.Equal(t, want, sessionNames(m.list.All))
 }
 
 func TestTeaModelAgentSortPromotesWorktreeFamilyByBestMember(t *testing.T) {
@@ -2232,9 +1945,7 @@ func TestTeaModelAgentSortPromotesWorktreeFamilyByBestMember(t *testing.T) {
 	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
 
 	want := []string{"parent", "child-blocked", "child-idle", "other", "unresolved"}
-	if got := sessionNames(m.list.All); !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent family order=%v want %v", got, want)
-	}
+	assert.Equal(t, want, sessionNames(m.list.All))
 }
 
 func TestSortHerdrWorkspacesGroupsChildrenBelowParent(t *testing.T) {
@@ -2249,9 +1960,7 @@ func TestSortHerdrWorkspacesGroupsChildrenBelowParent(t *testing.T) {
 
 	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent", "w-child-a"})
 
-	if got, want := sessionNames(items), []string{"configured", "parent", "directory", "child-b", "child-a", "unrelated"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("grouped order=%v want %v", got, want)
-	}
+	assert.Equal(t, []string{"configured", "parent", "directory", "child-b", "child-a", "unrelated"}, sessionNames(items))
 }
 
 func TestSortHerdrWorkspacesRanksFamilyByMostRecentMember(t *testing.T) {
@@ -2264,9 +1973,7 @@ func TestSortHerdrWorkspacesRanksFamilyByMostRecentMember(t *testing.T) {
 
 	sortHerdrWorkspaces(items, []string{"w-child-b", "w-unrelated", "w-parent"})
 
-	if got, want := sessionNames(items), []string{"parent", "child-b", "child-a", "unrelated"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("recent grouped order=%v want %v", got, want)
-	}
+	assert.Equal(t, []string{"parent", "child-b", "child-a", "unrelated"}, sessionNames(items))
 }
 
 func TestSortHerdrWorkspacesLeavesUnresolvedChildIndependent(t *testing.T) {
@@ -2277,9 +1984,7 @@ func TestSortHerdrWorkspacesLeavesUnresolvedChildIndependent(t *testing.T) {
 
 	sortHerdrWorkspaces(items, []string{"w-other", "w-child"})
 
-	if got, want := sessionNames(items), []string{"other", "unresolved"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("unresolved order=%v want %v", got, want)
-	}
+	assert.Equal(t, []string{"other", "unresolved"}, sessionNames(items))
 }
 
 func TestTeaModelGroupsWorktreeFamilyWithoutMutatingInput(t *testing.T) {
@@ -2290,12 +1995,8 @@ func TestTeaModelGroupsWorktreeFamilyWithoutMutatingInput(t *testing.T) {
 
 	m := newTeaModel(items, Options{})
 
-	if got, want := sessionNames(m.list.All), []string{"parent", "child"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("model order=%v want %v", got, want)
-	}
-	if got, want := sessionNames(items), []string{"child", "parent"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("input mutated: got %v want %v", got, want)
-	}
+	require.Equal(t, []string{"parent", "child"}, sessionNames(m.list.All))
+	assert.Equal(t, []string{"child", "parent"}, sessionNames(items))
 }
 
 func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
@@ -2305,27 +2006,19 @@ func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
 		{Source: "herdr", Name: "other", WorkspaceID: "w-other", AgentStatus: "done"},
 	}
 	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w-other", "w-child"}})
-	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("workspace order=%v want %v", got, want)
-	}
+	require.Equal(t, []string{"parent", "child", "other"}, sessionNames(m.list.All))
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"other", "parent", "child"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("recent order=%v want %v", got, want)
-	}
+	require.Equal(t, []string{"other", "parent", "child"}, sessionNames(m.list.All))
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("agent order=%v want %v", got, want)
-	}
+	require.Equal(t, []string{"parent", "child", "other"}, sessionNames(m.list.All))
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if got, want := sessionNames(m.list.All), []string{"parent", "child", "other"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("restored workspace order=%v want %v", got, want)
-	}
+	assert.Equal(t, []string{"parent", "child", "other"}, sessionNames(m.list.All))
 }
 
 func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
@@ -2336,12 +2029,14 @@ func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
 
 	m.list.Filter("feature")
 
-	if got, want := sessionNames(m.list.Filtered), []string{"feature"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("filtered sessions=%v want %v", got, want)
-	}
-	if rowText := ansi.Strip(m.listView(80, 1)); !strings.Contains(rowText, "[↳ herdr]") || !strings.Contains(rowText, "feature") || !strings.Contains(rowText, "/tmp/feature") || strings.Contains(rowText, "worktree of parent") || strings.Contains(rowText, "├─") || strings.Contains(rowText, "└─") {
-		t.Fatalf("filtered child lost standalone path or kept parent-only context: %q", rowText)
-	}
+	require.Equal(t, []string{"feature"}, sessionNames(m.list.Filtered))
+	rowText := ansi.Strip(m.listView(80, 1))
+	require.Contains(t, rowText, "[↳ herdr]")
+	require.Contains(t, rowText, "feature")
+	require.Contains(t, rowText, "/tmp/feature")
+	require.NotContains(t, rowText, "worktree of parent")
+	require.NotContains(t, rowText, "├─")
+	assert.NotContains(t, rowText, "└─")
 }
 
 func TestTeaModelSearchRailDoesNotTruncateAtWindowEdge(t *testing.T) {
@@ -2349,8 +2044,8 @@ func TestTeaModelSearchRailDoesNotTruncateAtWindowEdge(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 28})
 	m = updated.(teaModel)
 	for _, line := range strings.Split(ansi.Strip(m.View().Content), "\n") {
-		if strings.Contains(line, defaultPrompt) && strings.Contains(line, "…") {
-			t.Fatalf("search rail was truncated at the window edge: %q", line)
+		if strings.Contains(line, defaultPrompt) {
+			assert.NotContains(t, line, "…")
 		}
 	}
 }
@@ -2363,18 +2058,16 @@ func TestListViewUsesDirectionalOverflowMarkers(t *testing.T) {
 	m := newTeaModel(items, Options{})
 	m.list.Selected = 10
 	view := ansi.Strip(m.listView(60, 6))
-	if !strings.Contains(view, "↑ 7 more") || !strings.Contains(view, "↓ 9 more") || strings.Contains(view, "...") {
-		t.Fatalf("list view missing directional overflow markers:\n%s", view)
-	}
+	require.Contains(t, view, "↑ 7 more")
+	require.Contains(t, view, "↓ 9 more")
+	assert.NotContains(t, view, "...")
 }
 
 func TestListViewKeepsSelectionVisibleWithTwoRows(t *testing.T) {
 	items := []model.Session{{Name: "workspace-0"}, {Name: "workspace-1"}, {Name: "workspace-2"}, {Name: "workspace-3"}, {Name: "workspace-4"}}
 	m := newTeaModel(items, Options{})
 	m.list.Selected = 2
-	if view := ansi.Strip(m.listView(60, 2)); !strings.Contains(view, "workspace-2") {
-		t.Fatalf("two-row list hid the selected workspace:\n%s", view)
-	}
+	assert.Contains(t, ansi.Strip(m.listView(60, 2)), "workspace-2")
 }
 
 func maxLineWidth(s string) int {

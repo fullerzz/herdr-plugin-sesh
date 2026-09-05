@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type staticSource struct {
@@ -23,17 +25,16 @@ func (s staticSource) List(context.Context) (model.Sessions, error) {
 func TestMergeOrderBlacklistDedupe(t *testing.T) {
 	srcs := []Source{staticSource{"zoxide", []model.Session{{Source: "zoxide", Name: "api", Path: "/z"}}}, staticSource{"config", []model.Session{{Source: "config", Name: "api", Path: "/c"}, {Source: "config", Name: "scratch", Path: "/s"}}}}
 	got, err := Merge(context.Background(), srcs, []string{"config", "zoxide"}, []string{"scratch"}, false, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	os := got.Ordered()
-	if len(os) != 1 || os[0].Source != "config" || os[0].Name != "api" {
-		t.Fatalf("bad merge %#v", os)
-	}
+	require.Len(t, os, 1)
+	require.Equal(t, "config", os[0].Source)
+	assert.Equal(t, "api", os[0].Name)
 }
 func TestParseZoxideLine(t *testing.T) {
 	s, ok := ParseZoxideLine("42.5 /tmp/my app")
-	if !ok || s.Score != 42.5 || s.Path != "/tmp/my app" || s.Name != "my app" {
-		t.Fatalf("bad parse %#v %v", s, ok)
-	}
+	require.True(t, ok)
+	require.InDelta(t, 42.5, s.Score, 0)
+	require.Equal(t, "/tmp/my app", s.Path)
+	assert.Equal(t, "my app", s.Name)
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type countingHerdrClient struct {
@@ -25,16 +27,12 @@ func TestHerdrWorkspacesSkipsPaneListWhenWorkspaceHasPath(t *testing.T) {
 	}}}
 
 	got, err := (HerdrWorkspaces{Client: client}).List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if client.paneListCalls != 0 {
-		t.Fatalf("PaneList calls=%d, want 0", client.paneListCalls)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 0, client.paneListCalls)
 	paths := got.Ordered()
-	if len(paths) != 2 || paths[0].Path != "/tmp/foreground" || paths[1].Path != "/tmp/cwd" {
-		t.Fatalf("sessions=%#v", paths)
-	}
+	require.Len(t, paths, 2)
+	require.Equal(t, "/tmp/foreground", paths[0].Path)
+	assert.Equal(t, "/tmp/cwd", paths[1].Path)
 }
 
 func TestHerdrWorkspacesRelatesLinkedWorktreeToUniqueParent(t *testing.T) {
@@ -46,21 +44,17 @@ func TestHerdrWorkspacesRelatesLinkedWorktreeToUniqueParent(t *testing.T) {
 	}}}
 
 	got, err := src.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sessions := got.Ordered()
-	if len(sessions) != 3 {
-		t.Fatalf("sessions=%#v", sessions)
-	}
+	require.Len(t, sessions, 3)
 	child := sessions[0]
-	if !child.Worktree.Linked || child.Worktree.ParentWorkspaceID != "w-parent" || child.Worktree.ParentWorkspaceName != "project" {
-		t.Fatalf("child relation=%#v", child.Worktree)
-	}
+	require.True(t, child.Worktree.Linked)
+	require.Equal(t, "w-parent", child.Worktree.ParentWorkspaceID)
+	require.Equal(t, "project", child.Worktree.ParentWorkspaceName)
 	for _, normal := range sessions[1:] {
-		if normal.Worktree.Linked || normal.Worktree.ParentWorkspaceID != "" || normal.Worktree.ParentWorkspaceName != "" {
-			t.Fatalf("normal workspace %q has relation %#v", normal.Name, normal.Worktree)
-		}
+		require.False(t, normal.Worktree.Linked)
+		require.Empty(t, normal.Worktree.ParentWorkspaceID)
+		require.Empty(t, normal.Worktree.ParentWorkspaceName)
 	}
 }
 
@@ -96,13 +90,11 @@ func TestHerdrWorkspacesFallsBackForUnresolvedLinkedWorktree(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			src := HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: tt.workspaces}}
 			got, err := src.List(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			child := got.Ordered()[0]
-			if !child.Worktree.Linked || child.Worktree.ParentWorkspaceID != "" || child.Worktree.ParentWorkspaceName != "" {
-				t.Fatalf("child relation=%#v", child.Worktree)
-			}
+			require.True(t, child.Worktree.Linked)
+			require.Empty(t, child.Worktree.ParentWorkspaceID)
+			assert.Empty(t, child.Worktree.ParentWorkspaceName)
 		})
 	}
 }
@@ -114,13 +106,9 @@ func TestHerdrWorkspacesUsesParentIDWhenLabelIsEmpty(t *testing.T) {
 		{ID: "w-child", Label: "feature", Worktree: &herdr.Worktree{IsLinkedWorktree: true, RepoKey: repo}},
 	}}}
 	got, err := src.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	child := got.Ordered()[1]
-	if child.Worktree.ParentWorkspaceName != "w-parent" {
-		t.Fatalf("child relation=%#v", child.Worktree)
-	}
+	assert.Equal(t, "w-parent", child.Worktree.ParentWorkspaceName)
 }
 
 func TestHerdrWorkspacesUsesLinkedWorktreeCheckoutPathAsFallback(t *testing.T) {
@@ -134,13 +122,10 @@ func TestHerdrWorkspacesUsesLinkedWorktreeCheckoutPathAsFallback(t *testing.T) {
 	}}}}
 
 	got, err := src.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sessions := got.Ordered()
-	if len(sessions) != 1 || sessions[0].Path != "/worktrees/feature" {
-		t.Fatalf("sessions=%#v", sessions)
-	}
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "/worktrees/feature", sessions[0].Path)
 }
 
 func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {
@@ -152,11 +137,9 @@ func TestHerdrWorkspacesUsesPaneCWDWhenWorkspaceListOmitsPath(t *testing.T) {
 		},
 	}}
 	got, err := src.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sessions := got.Ordered()
-	if len(sessions) != 1 || sessions[0].Path != "/tmp/api" || sessions[0].AgentStatus != "working" {
-		t.Fatalf("sessions=%#v", sessions)
-	}
+	require.Len(t, sessions, 1)
+	require.Equal(t, "/tmp/api", sessions[0].Path)
+	assert.Equal(t, "working", sessions[0].AgentStatus)
 }

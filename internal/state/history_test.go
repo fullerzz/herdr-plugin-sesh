@@ -2,116 +2,71 @@ package state
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSessionHistoryDirIsolatesSockets(t *testing.T) {
 	stateDir := t.TempDir()
 	firstDir, err := SessionHistoryDir(stateDir, "/tmp/herdr-a.sock")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	secondDir, err := SessionHistoryDir(stateDir, "/tmp/herdr-b.sock")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstDir == secondDir {
-		t.Fatalf("session history dirs are shared: %q", firstDir)
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, secondDir, firstDir)
 
-	if err := SaveHistory(firstDir, History{Workspaces: []string{"w1", "first-only"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := SaveHistory(secondDir, History{Workspaces: []string{"w1", "second-only"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSwitch(firstDir, "w1", "first-only"); err != nil {
-		t.Fatal(err)
-	}
-	if err := RemoveWorkspace(secondDir, "w1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(firstDir, History{Workspaces: []string{"w1", "first-only"}}))
+	require.NoError(t, SaveHistory(secondDir, History{Workspaces: []string{"w1", "second-only"}}))
+	require.NoError(t, RecordSwitch(firstDir, "w1", "first-only"))
+	require.NoError(t, RemoveWorkspace(secondDir, "w1"))
 
 	first, err := LoadHistory(firstDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	second, err := LoadHistory(secondDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"first-only", "w1"}; !reflect.DeepEqual(first.Workspaces, want) {
-		t.Fatalf("first workspaces=%#v want %#v", first.Workspaces, want)
-	}
-	if want := []string{"second-only"}; !reflect.DeepEqual(second.Workspaces, want) {
-		t.Fatalf("second workspaces=%#v want %#v", second.Workspaces, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, []string{"first-only", "w1"}, first.Workspaces)
+	assert.Equal(t, []string{"second-only"}, second.Workspaces)
 }
 
 func TestSessionHistoryDirMigratesOnlyDefaultSessionHistory(t *testing.T) {
 	stateDir := t.TempDir()
 	legacy := History{Workspaces: []string{"current", "previous"}}
-	if err := SaveHistory(stateDir, legacy); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(stateDir, legacy))
 
 	namedDir, err := SessionHistoryDir(stateDir, filepath.Join("/config", "herdr", "sessions", "work", "herdr.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	named, err := LoadHistory(namedDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(named.Workspaces) != 0 {
-		t.Fatalf("named session imported legacy history: %#v", named.Workspaces)
-	}
+	require.NoError(t, err)
+	require.Empty(t, named.Workspaces)
 
 	defaultDir, err := SessionHistoryDir(stateDir, filepath.Join("/config", "herdr", "herdr.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	migrated, err := LoadHistory(defaultDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(migrated, legacy) {
-		t.Fatalf("migrated history=%#v want %#v", migrated, legacy)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, legacy, migrated)
 }
 
 func TestSessionHistoryDirMigrationWaitsForDestinationLock(t *testing.T) {
 	stateDir := t.TempDir()
 	socketPath := filepath.Join(t.TempDir(), "herdr", "herdr.sock")
 	sessionDir, err := SessionHistoryDir(stateDir, socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	legacy := History{Workspaces: []string{"legacy"}}
-	if err := SaveHistory(stateDir, legacy); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(sessionDir, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(stateDir, legacy))
+	require.NoError(t, os.MkdirAll(sessionDir, 0700))
 
 	//nolint:gosec // Test lock path is derived from t.TempDir().
 	lock, err := os.OpenFile(filepath.Join(sessionDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
 	locked := true
 	defer func() {
 		if locked {
@@ -126,72 +81,43 @@ func TestSessionHistoryDirMigrationWaitsForDestinationLock(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		t.Fatalf("migration bypassed destination lock: %v", err)
+		require.FailNow(t, fmt.Sprintf("migration bypassed destination lock: %v", err))
 	case <-time.After(100 * time.Millisecond):
 	}
 
 	concurrent := History{Workspaces: []string{"concurrent"}}
-	if err := writeJSONFile(Path(sessionDir), concurrent); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, writeJSONFile(Path(sessionDir), concurrent))
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
 	locked = false
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, <-done)
 
 	got, err := LoadHistory(sessionDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got, concurrent) {
-		t.Fatalf("migrated history=%#v want concurrent history %#v", got, concurrent)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, concurrent, got)
 }
 
 func TestHistoryRecordsMostRecentWithoutDuplicates(t *testing.T) {
 	d := t.TempDir()
-	if err := Record(d, "a"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Record(d, "b"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Record(d, "b"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, Record(d, "a"))
+	require.NoError(t, Record(d, "b"))
+	require.NoError(t, Record(d, "b"))
 	last, ok, err := Last(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || last != "a" {
-		t.Fatalf("last=%q ok=%v", last, ok)
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "a", last)
 }
 
 func TestRecordKeepsCurrentHistoryFile(t *testing.T) {
 	d := t.TempDir()
-	if err := SaveHistory(d, History{Workspaces: []string{"current", "older"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"current", "older"}}))
 	before, err := os.Stat(Path(d))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if err := Record(d, "current"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, Record(d, "current"))
 
 	after, err := os.Stat(Path(d))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !os.SameFile(before, after) {
-		t.Fatal("Record rewrote history.json for the current workspace")
-	}
+	require.NoError(t, err)
+	assert.True(t, os.SameFile(before, after), "Record rewrote history.json for the current workspace")
 }
 
 func TestHistoryMutationsWaitForProcessLock(t *testing.T) {
@@ -228,9 +154,7 @@ func TestHistoryMutationsWaitForProcessLock(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			d := t.TempDir()
 			if tc.setup != nil {
-				if err := tc.setup(d); err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, tc.setup(d))
 			}
 			assertHistoryMutationWaitsForLock(t, d, tc.action)
 		})
@@ -241,13 +165,9 @@ func TestHistoryMutationTimesOutWaitingForProcessLock(t *testing.T) {
 	d := t.TempDir()
 	//nolint:gosec // Test lock path is derived from t.TempDir().
 	lock, err := os.OpenFile(filepath.Join(d, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
 	locked := true
 	defer func() {
 		if locked {
@@ -259,16 +179,12 @@ func TestHistoryMutationTimesOutWaitingForProcessLock(t *testing.T) {
 	go func() { done <- Record(d, "blocked") }()
 	select {
 	case err := <-done:
-		if !errors.Is(err, ErrHistoryLockTimeout) {
-			t.Fatalf("err=%v, want history lock timeout", err)
-		}
+		require.ErrorIs(t, err, ErrHistoryLockTimeout)
 	case <-time.After(2 * time.Second):
-		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
 		locked = false
 		<-done
-		t.Fatal("history mutation remained blocked for two seconds")
+		require.FailNow(t, "history mutation remained blocked for two seconds")
 	}
 }
 
@@ -276,17 +192,11 @@ func assertHistoryMutationWaitsForLock(t *testing.T, dir, action string) {
 	t.Helper()
 	//nolint:gosec // Test lock path is derived from t.TempDir().
 	lock, err := os.OpenFile(filepath.Join(dir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		if err := lock.Close(); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, lock.Close())
 	})
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
 	locked := true
 	defer func() {
 		if locked {
@@ -298,12 +208,8 @@ func assertHistoryMutationWaitsForLock(t *testing.T, dir, action string) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHistoryMutationsWaitForProcessLock$")
 	cmd.Env = append(os.Environ(), "HERDR_SESH_HISTORY_LOCK_HELPER=1", "HERDR_SESH_HISTORY_LOCK_DIR="+dir, "HERDR_SESH_HISTORY_LOCK_ACTION="+action)
 	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
 	waitDone := make(chan struct{})
 	var waitErr error
 	go func() {
@@ -320,7 +226,7 @@ func assertHistoryMutationWaitsForLock(t *testing.T, dir, action string) {
 		select {
 		case <-waitDone:
 		case <-time.After(time.Second):
-			t.Error("history mutation helper did not exit after being killed")
+			assert.Fail(t, "history mutation helper did not exit after being killed")
 		}
 	})
 
@@ -333,34 +239,28 @@ func assertHistoryMutationWaitsForLock(t *testing.T, dir, action string) {
 	}()
 	select {
 	case line := <-lines:
-		if line != "ready" {
-			t.Fatalf("helper readiness = %q", line)
-		}
+		require.Equal(t, "ready", line)
 	case <-time.After(time.Second):
-		t.Fatal("history mutation helper did not start")
+		require.FailNow(t, "history mutation helper did not start")
 	}
 
 	select {
 	case line := <-lines:
-		t.Fatalf("history mutation bypassed held process lock: %q", line)
+		require.FailNow(t, fmt.Sprintf("history mutation bypassed held process lock: %q", line))
 	case <-time.After(100 * time.Millisecond):
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
 	locked = false
 	select {
 	case <-waitDone:
-		if waitErr != nil {
-			t.Fatal(waitErr)
-		}
+		require.NoError(t, waitErr)
 	case <-time.After(2 * time.Second):
 		_ = cmd.Process.Kill()
 		select {
 		case <-waitDone:
-			t.Fatalf("history mutation helper did not exit after lock release: %v", waitErr)
+			require.FailNow(t, fmt.Sprintf("history mutation helper did not exit after lock release: %v", waitErr))
 		case <-time.After(time.Second):
-			t.Fatal("history mutation helper did not exit after being killed")
+			require.FailNow(t, "history mutation helper did not exit after being killed")
 		}
 	}
 }
@@ -381,102 +281,62 @@ func runHistoryLockHelper(t *testing.T) {
 	case "save-history":
 		mutateErr = SaveHistory(dir, History{Workspaces: []string{"saved"}})
 	default:
-		t.Fatalf("unknown helper action %q", action)
+		require.FailNow(t, fmt.Sprintf("unknown helper action %q", action))
 	}
-	if mutateErr != nil {
-		t.Fatal(mutateErr)
-	}
+	require.NoError(t, mutateErr)
 	fmt.Println("done")
 }
 
 func TestHistoryNoopsWithoutStateDir(t *testing.T) {
-	if err := Record("", "ws1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSwitch("", "ws1", "ws2"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, Record("", "ws1"))
+	require.NoError(t, RecordSwitch("", "ws1", "ws2"))
 	last, ok, err := Last("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok || last != "" {
-		t.Fatalf("last=%q ok=%v", last, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, last)
 	previous, ok, err := Previous("", "ws1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok || previous != "" {
-		t.Fatalf("previous=%q ok=%v", previous, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+	assert.Empty(t, previous)
 }
 
 func TestRecordRecoversCorruptHistory(t *testing.T) {
 	d := t.TempDir()
-	if err := os.WriteFile(filepath.Join(d, "history.json"), []byte("{"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := Record(d, "ws1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(d, "history.json"), []byte("{"), 0600))
+	require.NoError(t, Record(d, "ws1"))
 	h, err := LoadHistory(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(h.Workspaces) != 1 || h.Workspaces[0] != "ws1" {
-		t.Fatalf("history=%#v", h)
-	}
+	require.NoError(t, err)
+	require.Len(t, h.Workspaces, 1)
+	assert.Equal(t, "ws1", h.Workspaces[0])
 }
 
 func TestPreviousSkipsCurrentWorkspace(t *testing.T) {
 	d := t.TempDir()
-	if err := SaveHistory(d, History{Workspaces: []string{"current", "previous", "older"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"current", "previous", "older"}}))
 	previous, ok, err := Previous(d, "current")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || previous != "previous" {
-		t.Fatalf("previous=%q ok=%v", previous, ok)
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "previous", previous)
 }
 
 func TestRecordSwitchRotatesPreviousWorkspace(t *testing.T) {
 	d := t.TempDir()
-	if err := SaveHistory(d, History{Workspaces: []string{"current", "previous", "older"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSwitch(d, "current", "previous"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"current", "previous", "older"}}))
+	require.NoError(t, RecordSwitch(d, "current", "previous"))
 	h, err := LoadHistory(d)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []string{"previous", "current", "older"}
-	if !reflect.DeepEqual(h.Workspaces, want) {
-		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
-	}
+	assert.Equal(t, want, h.Workspaces)
 }
 
 func TestRemoveWorkspacePrunesHistory(t *testing.T) {
 	d := t.TempDir()
-	if err := SaveHistory(d, History{Workspaces: []string{"current", "closed", "older"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := RemoveWorkspace(d, "closed"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"current", "closed", "older"}}))
+	require.NoError(t, RemoveWorkspace(d, "closed"))
 	h, err := LoadHistory(d)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []string{"current", "older"}
-	if !reflect.DeepEqual(h.Workspaces, want) {
-		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
-	}
+	assert.Equal(t, want, h.Workspaces)
 }
 
 func TestRecordSwitchDeduplicatesAndCapsHistory(t *testing.T) {
@@ -485,27 +345,16 @@ func TestRecordSwitchDeduplicatesAndCapsHistory(t *testing.T) {
 	for i := 0; i < maxWorkspaces+20; i++ {
 		workspaces = append(workspaces, fmt.Sprintf("ws-%02d", i))
 	}
-	if err := SaveHistory(d, History{Workspaces: workspaces}); err != nil {
-		t.Fatal(err)
-	}
-	if err := RecordSwitch(d, "from", "target"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveHistory(d, History{Workspaces: workspaces}))
+	require.NoError(t, RecordSwitch(d, "from", "target"))
 	h, err := LoadHistory(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(h.Workspaces) != maxWorkspaces {
-		t.Fatalf("len=%d want %d", len(h.Workspaces), maxWorkspaces)
-	}
-	if h.Workspaces[0] != "target" || h.Workspaces[1] != "from" {
-		t.Fatalf("workspaces start=%#v", h.Workspaces[:2])
-	}
+	require.NoError(t, err)
+	require.Len(t, h.Workspaces, maxWorkspaces)
+	require.Equal(t, "target", h.Workspaces[0])
+	require.Equal(t, "from", h.Workspaces[1])
 	seen := map[string]bool{}
 	for _, id := range h.Workspaces {
-		if seen[id] {
-			t.Fatalf("duplicate workspace %q in %#v", id, h.Workspaces)
-		}
+		require.False(t, seen[id])
 		seen[id] = true
 	}
 }

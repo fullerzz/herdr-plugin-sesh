@@ -9,49 +9,37 @@ import (
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunFZFSelectsSessionByHiddenIndex(t *testing.T) {
 	fzf := filepath.Join(t.TempDir(), "fzf")
-	if err := os.WriteFile(fzf, []byte("#!/bin/sh\ncat >/dev/null\nprintf '1\\tzoxide\\t"+zoxideSourceIcon+" zoxide\\tweb\\t/tmp/web\\tweb\\n'\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(fzf, []byte("#!/bin/sh\ncat >/dev/null\nprintf '1\\tzoxide\\t"+zoxideSourceIcon+" zoxide\\tweb\\t/tmp/web\\tweb\\n'\n"), 0600))
 	//nolint:gosec // the fake fzf binary must be executable for this test.
-	if err := os.Chmod(fzf, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chmod(fzf, 0700))
 	selected, ok, err := RunFZF(context.Background(), []model.Session{
 		{Source: "config", Name: "api", Path: "/tmp/api"},
 		{Source: "zoxide", Name: "web", Path: "/tmp/web"},
 	}, Options{FZFCommand: fzf})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || selected.Name != "web" {
-		t.Fatalf("selected=%#v ok=%v", selected, ok)
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "web", selected.Name)
 }
 
 func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 	got := fzfInput([]model.Session{{Source: "config", Name: "api-service", Path: "/tmp/api.service"}}, true)
-	if !strings.HasPrefix(got, "0\tconfig\t\x1b[1;38;5;214m"+configSourceIcon+" config\x1b[0m\tapi-service\t/tmp/api.service\t") {
-		t.Fatalf("input = %q", got)
-	}
-	if !strings.Contains(got, "api service") || !strings.Contains(got, "tmp api service") {
-		t.Fatalf("missing normalized search field: %q", got)
-	}
+	require.True(t, strings.HasPrefix(got, "0\tconfig\t\x1b[1;38;5;214m"+configSourceIcon+" config\x1b[0m\tapi-service\t/tmp/api.service\t"))
+	require.Contains(t, got, "api service")
+	assert.Contains(t, got, "tmp api service")
 }
 
 func TestFZFInputAddsHomeAliasSearchToken(t *testing.T) {
 	t.Setenv("HOME", "/Users/zach")
 	got := fzfInput([]model.Session{{Source: "herdr", Name: "zach", Path: "/Users/zach"}}, false)
-	if !strings.HasSuffix(got, "\thome\n") {
-		t.Fatalf("missing home alias search token: %q", got)
-	}
+	require.True(t, strings.HasSuffix(got, "\thome\n"))
 	args := strings.Join(fzfArgs(Options{}), "\n")
-	if !strings.Contains(args, "--nth=3..6") {
-		t.Fatalf("home alias search field is not searchable:\n%s", args)
-	}
+	assert.Contains(t, args, "--nth=3..6")
 }
 
 func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
@@ -67,42 +55,28 @@ func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
 		"\x1b[1;38;5;114m" + zoxideSourceIcon + " zoxide\x1b[0m",
 		"\x1b[1;38;5;176m[dir]\x1b[0m",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("input missing %q:\n%q", want, got)
-		}
+		require.Contains(t, got, want)
 	}
 }
 
 func TestFZFArgsPreviewAllItemsWithBat(t *testing.T) {
 	args := strings.Join(fzfArgs(Options{}), "\n")
 	for _, want := range []string{"--ansi", "--with-nth=3,4,5", "--preview=", "export PATH", "source={2}", "label={4}", "item_path={5}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$item_path\""} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("args missing %q:\n%s", want, args)
-		}
+		require.Contains(t, args, want)
 	}
-	if strings.Contains(args, "\npath=") {
-		t.Fatalf("preview should not assign zsh's special path variable:\n%s", args)
-	}
-	if strings.Contains(args, "{2} != herdr") {
-		t.Fatalf("preview should not be limited to herdr rows:\n%s", args)
-	}
+	require.NotContains(t, args, "\npath=")
+	assert.NotContains(t, args, "{2} != herdr")
 }
 
 func TestFZFPreviewCommandFindsSystemToolsWithMinimalPath(t *testing.T) {
 	fakeBin := t.TempDir()
 	bat := filepath.Join(fakeBin, "bat")
-	if err := os.WriteFile(bat, []byte("#!/bin/sh\ncat\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(bat, []byte("#!/bin/sh\ncat\n"), 0600))
 	//nolint:gosec // the fake bat binary must be executable for this test.
-	if err := os.Chmod(bat, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chmod(bat, 0700))
 
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "note.txt"), []byte("preview\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(project, "note.txt"), []byte("preview\n"), 0600))
 	script := strings.NewReplacer(
 		"{2}", "zoxide",
 		"{4}", "project",
@@ -112,16 +86,11 @@ func TestFZFPreviewCommandFindsSystemToolsWithMinimalPath(t *testing.T) {
 		t.Helper()
 		cmd.Env = []string{"PATH=" + fakeBin, "HOME=" + t.TempDir()}
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("preview command failed: %v\n%s", err, out)
-		}
+		require.NoError(t, err)
 		got := string(out)
-		if strings.Contains(got, "not found") {
-			t.Fatalf("preview command could not find system tools:\n%s", got)
-		}
-		if !strings.Contains(got, "session: project") || !strings.Contains(got, "note.txt") {
-			t.Fatalf("preview output missing expected content:\n%s", got)
-		}
+		require.NotContains(t, got, "not found")
+		require.Contains(t, got, "session: project")
+		require.Contains(t, got, "note.txt")
 	}
 	previewShellCommand := func(shell string) *exec.Cmd {
 		//nolint:gosec // The shell and script are fixed by this regression test.
@@ -144,8 +113,7 @@ func TestFZFPreviewCommandFindsSystemToolsWithMinimalPath(t *testing.T) {
 
 func TestFZFSelectionIndexRejectsInvalidOutput(t *testing.T) {
 	for _, out := range []string{"", "abc\tconfig\tapi", "5\tconfig\tapi"} {
-		if idx, ok := fzfSelectionIndex(out, 2); ok {
-			t.Fatalf("idx=%d ok=true for %q", idx, out)
-		}
+		idx, ok := fzfSelectionIndex(out, 2)
+		require.Falsef(t, ok, "idx=%d for %q", idx, out)
 	}
 }

@@ -2,6 +2,8 @@
 version: "2"
 linters:
   settings:
+    testifylint:
+      enable-all: true
     revive:
       rules:
         - name: exported

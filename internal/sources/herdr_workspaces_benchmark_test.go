@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -60,9 +61,7 @@ func BenchmarkHerdrWorkspacesList(b *testing.B) {
 	for _, missingPath := range []bool{false, true} {
 		b.Run(benchmarkPathCase(missingPath), func(b *testing.B) {
 			workspaceJSON, paneJSON, err := benchmarkHerdrPayloads(missingPath)
-			if err != nil {
-				b.Fatal(err)
-			}
+			require.NoError(b, err)
 			runner := &benchmarkHerdrRunner{workspaces: workspaceJSON, panes: paneJSON}
 			source := HerdrWorkspaces{Client: &herdr.CLIClient{Bin: "herdr", Runner: runner, Timeout: time.Second}}
 			runHerdrWorkspacesBenchmark(b, source, &runner.calls)
@@ -87,11 +86,12 @@ func runHerdrWorkspacesBenchmark(b *testing.B, source HerdrWorkspaces, calls *in
 	b.ReportAllocs()
 	for b.Loop() {
 		sessions, err := source.List(context.Background())
+		// Keep assertion overhead off the measured success path.
 		if err != nil {
-			b.Fatal(err)
+			require.NoError(b, err)
 		}
 		if len(sessions.OrderedIndex) != benchmarkWorkspaceCount {
-			b.Fatalf("sessions=%d, want %d", len(sessions.OrderedIndex), benchmarkWorkspaceCount)
+			require.Len(b, sessions.OrderedIndex, benchmarkWorkspaceCount)
 		}
 	}
 	b.ReportMetric(float64(*calls)/float64(b.N), "commands/op")

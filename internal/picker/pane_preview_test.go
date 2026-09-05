@@ -2,8 +2,10 @@ package picker
 
 import (
 	"context"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -22,57 +24,46 @@ func TestPanePreviewToggleRefreshAndSelection(t *testing.T) {
 	initialContext, initialID, initialKey := m.previewContext, m.previewRequestID, m.previewKey
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
-	if !m.panePreview || initialContext.Err() == nil || cmd == nil {
-		t.Fatal("toggle must cancel the old preview and start pane mode")
-	}
+	require.True(t, m.panePreview)
+	require.Error(t, initialContext.Err())
+	require.NotNil(t, cmd)
 	updated, tick := m.Update(cmd())
 	m = updated.(teaModel)
-	if m.preview != "pane w1" || tick == nil || !strings.Contains(ansi.Strip(m.previewTitle()), "PANE [ctrl+o]") {
-		t.Fatalf("preview=%q tick=%v title=%q", m.preview, tick, m.previewTitle())
-	}
+	require.Equal(t, "pane w1", m.preview)
+	require.NotNil(t, tick)
+	require.Contains(t, ansi.Strip(m.previewTitle()), "PANE [ctrl+o]")
 	// A completed read schedules one refresh; refreshing preserves the visible text.
 	refreshID := m.previewRequestID
 	refreshTick := tick().(panePreviewTickMsg)
-	if refreshTick.requestID != refreshID {
-		t.Fatal("refresh tick did not retain the completed request ID")
-	}
+	require.Equal(t, refreshID, refreshTick.requestID)
 	updated, cmd = m.Update(refreshTick)
 	m = updated.(teaModel)
-	if cmd == nil || m.preview != "pane w1" {
-		t.Fatal("refresh should retain pane contents")
-	}
+	require.NotNil(t, cmd)
+	require.Equal(t, "pane w1", m.preview)
 	staleResult := cmd()
 	refreshContext := m.previewContext
 	m.list.Move(1)
 	m, cmd = m.refreshPreview()
-	if refreshContext.Err() == nil {
-		t.Fatal("selection change must cancel refresh")
-	}
-	if m.preview != "Loading preview..." {
-		t.Fatal("selection change must replace the previous pane snapshot with a loading message")
-	}
+	require.Error(t, refreshContext.Err())
+	require.Equal(t, "Loading preview...", m.preview)
 	updated, _ = m.Update(cmd())
 	m = updated.(teaModel)
 	for _, stale := range []tea.Msg{staleResult, previewMsg{key: initialKey, requestID: initialID, text: "stale command"}, panePreviewTickMsg{requestID: refreshID}} {
 		updated, cmd = m.Update(stale)
 		m = updated.(teaModel)
-		if m.preview != "pane w2" || cmd != nil {
-			t.Fatal("stale preview changed selection or scheduled work")
-		}
+		require.Equal(t, "pane w2", m.preview)
+		require.Nil(t, cmd)
 	}
 	paneID := m.previewRequestID
 	updated, cmd = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	updated, _ = m.Update(cmd())
 	m = updated.(teaModel)
-	if m.panePreview || m.preview != "configured preview" {
-		t.Fatalf("toggle back: %q", m.preview)
-	}
+	require.False(t, m.panePreview)
+	require.Equal(t, "configured preview", m.preview)
 	updated, cmd = m.Update(panePreviewTickMsg{requestID: paneID})
 	m = updated.(teaModel)
-	if cmd != nil {
-		t.Fatal("pane timer survived mode switch")
-	}
+	require.Nil(t, cmd)
 	m = m.cancelActivePreview()
 }
 
@@ -81,8 +72,9 @@ func TestPanePreviewHiddenAndEmptyPicker(t *testing.T) {
 		m := newTeaModel(nil, opts)
 		updated, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 		m = updated.(teaModel)
-		if cmd != nil || opts.HidePreview && m.panePreview {
-			t.Fatal("unexpected pane preview work")
+		require.Nil(t, cmd)
+		if opts.HidePreview {
+			assert.False(t, m.panePreview)
 		}
 	}
 }
@@ -101,9 +93,8 @@ func TestCtrlVPastesWithoutChangingPreviewMode(t *testing.T) {
 			m.panePreview = tc.pane
 			updated, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
 			m = updated.(teaModel)
-			if cmd == nil || m.panePreview != tc.pane {
-				t.Fatal("Ctrl+V must request clipboard paste without changing the preview")
-			}
+			require.NotNil(t, cmd)
+			require.Equal(t, tc.pane, m.panePreview)
 			m = m.cancelActivePreview()
 		})
 	}
@@ -133,17 +124,14 @@ func TestInitialPreviewMode(t *testing.T) {
 			}
 			m := newTeaModel([]model.Session{{Source: "herdr", WorkspaceID: "w1"}}, Options{PreviewMode: tc.mode, HidePreview: tc.hidden})
 			executeTeaCommand(m.Init())
-			if rendered != tc.want {
-				t.Fatalf("initial renderer = %q, want %q", rendered, tc.want)
-			}
+			require.Equal(t, tc.want, rendered)
 			if !tc.hidden {
 				rendered = ""
 				updated, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 				m = updated.(teaModel)
 				executeTeaCommand(cmd)
-				if rendered == "" || rendered == tc.want {
-					t.Fatalf("Ctrl+O did not change renderer: %q", rendered)
-				}
+				require.NotEmpty(t, rendered)
+				require.NotEqual(t, tc.want, rendered)
 			}
 			_ = m.cancelActivePreview()
 		})

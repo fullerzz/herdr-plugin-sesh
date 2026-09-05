@@ -2,8 +2,10 @@ package model
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
@@ -18,23 +20,16 @@ func TestSessionJSONOmitsInternalPickerFields(t *testing.T) {
 		Worktree: WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"},
 	}
 	b, err := json.Marshal(s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	got := string(b)
-	if !strings.Contains(got, `"source":"config"`) || !strings.Contains(got, `"name":"api"`) {
-		t.Fatalf("json missing public fields: %s", got)
-	}
-	if strings.Contains(got, "WindowConfigs") || strings.Contains(got, "window_configs") {
-		t.Fatalf("json leaked internal window configs: %s", got)
-	}
-	if strings.Contains(got, "AgentStatus") || strings.Contains(got, "agent_status") {
-		t.Fatalf("json leaked internal agent status: %s", got)
-	}
+	require.Contains(t, got, `"source":"config"`)
+	require.Contains(t, got, `"name":"api"`)
+	require.NotContains(t, got, "WindowConfigs")
+	require.NotContains(t, got, "window_configs")
+	require.NotContains(t, got, "AgentStatus")
+	require.NotContains(t, got, "agent_status")
 	for _, internal := range []string{"Worktree", "worktree", "w-parent", "parent"} {
-		if strings.Contains(got, internal) {
-			t.Fatalf("json leaked internal worktree relation %q: %s", internal, got)
-		}
+		require.NotContains(t, got, internal)
 	}
 }
 
@@ -42,18 +37,10 @@ func TestKeyIsStableAndSourceScoped(t *testing.T) {
 	a := Session{Source: "config", Name: "api", Path: "/tmp/api"}
 	b := Session{Source: "config", Name: "api", Path: "/tmp/api"}
 	c := Session{Source: "zoxide", Name: "api", Path: "/tmp/api"}
-	if Key(a) != Key(b) {
-		t.Fatalf("expected stable key, got %q and %q", Key(a), Key(b))
-	}
-	if Key(a) == Key(c) {
-		t.Fatalf("expected source-scoped key, got %q", Key(a))
-	}
+	require.Equal(t, Key(b), Key(a))
+	require.NotEqual(t, Key(c), Key(a))
 	b.AgentStatus = "working"
-	if Key(a) != Key(b) {
-		t.Fatalf("expected status-independent key, got %q and %q", Key(a), Key(b))
-	}
+	require.Equal(t, Key(b), Key(a))
 	b.Worktree = WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}
-	if Key(a) != Key(b) {
-		t.Fatalf("expected worktree-independent key, got %q and %q", Key(a), Key(b))
-	}
+	assert.Equal(t, Key(b), Key(a))
 }
