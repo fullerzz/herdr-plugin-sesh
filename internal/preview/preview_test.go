@@ -13,6 +13,38 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
+func TestRenderPaneWithoutRunningWorkspace(t *testing.T) {
+	t.Setenv("HERDR_BIN_PATH", "/does-not-exist")
+	for _, s := range []model.Session{{Source: "config", Path: "/tmp"}, {Source: "herdr"}} {
+		text, err := RenderPane(context.Background(), s)
+		if err != nil || !strings.Contains(text, "only available for running Herdr workspaces") {
+			t.Fatalf("text=%q err=%v", text, err)
+		}
+	}
+}
+
+func TestRenderPaneUsesHerdrWithoutSessionPath(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "herdr")
+	script := `#!/bin/sh
+case "$*" in
+  'api snapshot')
+    printf '%s' '{"result":{"snapshot":{"workspaces":[{"workspace_id":"w2","active_tab_id":"w2:t1"}],"layouts":[{"workspace_id":"w2","tab_id":"w2:t1","focused_pane_id":"w2:p2"}]}}}' ;;
+  'pane read w2:p2 --source visible --format ansi')
+    printf '\033[32mterminal output\033[0m\n' ;;
+  *) exit 1 ;;
+esac
+`
+	//nolint:gosec // the fake Herdr binary must be executable for this test.
+	if err := os.WriteFile(bin, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_BIN_PATH", bin)
+	text, err := RenderPane(context.Background(), model.Session{Source: "herdr", WorkspaceID: "w2", PreviewCommand: "exit 1"})
+	if err != nil || text != "\x1b[32mterminal output\x1b[0m\n" {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+}
+
 func TestRenderUsesPreviewCommand(t *testing.T) {
 	out, err := Render(context.Background(), model.Session{Path: "/tmp/has space", PreviewCommand: "printf %s {}"}, "")
 	if err != nil {

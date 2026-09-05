@@ -125,6 +125,7 @@ var (
 )
 
 var renderPreview = previewpkg.Render
+var renderPanePreview = previewpkg.RenderPane
 
 type Options struct {
 	Context                        context.Context
@@ -139,6 +140,7 @@ type Options struct {
 	SeparatorAware                 bool
 	DisableHomePrioritization      bool
 	HidePreview                    bool
+	PreviewMode                    string
 	DefaultPreviewCommand          string
 	FZFCommand                     string
 	RefreshAgentStatuses           func() (map[string]string, error)
@@ -207,6 +209,7 @@ type teaModel struct {
 	previewContext       context.Context
 	cancelPreview        context.CancelFunc
 	previewRequestID     uint64
+	panePreview          bool
 
 	defaultPreviewCommand   string
 	hidePreview             bool
@@ -235,6 +238,8 @@ type previewMsg struct {
 	requestID uint64
 	text      string
 }
+
+type panePreviewTickMsg struct{ requestID uint64 }
 
 type statusRefreshTickMsg struct{}
 
@@ -304,6 +309,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		hidePreview:           opts.HidePreview,
+		panePreview:           opts.PreviewMode == "pane",
 		showIcons:             opts.ShowIcons,
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
@@ -331,7 +337,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 func (m teaModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
-		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand))
+		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview))
 	}
 	if m.refreshAgentStatuses != nil {
 		cmds = append(cmds, scheduleStatusRefresh(), m.agentSpinner.Tick)
@@ -475,6 +481,23 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if preview, ok := msg.(previewMsg); ok {
 		if preview.requestID == m.previewRequestID && preview.key == m.previewKey {
 			m.preview = preview.text
+			if current, ok := m.list.Current(); ok && m.panePreview && !m.hidePreview && current.Source == "herdr" && current.WorkspaceID != "" {
+				return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
+					return panePreviewTickMsg{requestID: preview.requestID}
+				})
+			}
+		}
+		return m, nil
+	}
+	if tick, ok := msg.(panePreviewTickMsg); ok {
+		if tick.requestID != m.previewRequestID || !m.panePreview || m.hidePreview {
+			return m, nil
+		}
+		if current, ok := m.list.Current(); ok {
+			previous := m.preview
+			m, cmd := m.startPreview(current)
+			m.preview = previous
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -600,6 +623,13 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(focusCmd, previewCmd)
 	case "ctrl+r":
 		return m.toggleWorkspaceSort()
+	case "ctrl+o":
+		if m.hidePreview || m.closingWorkspaceID != "" {
+			return m, nil
+		}
+		m.panePreview = !m.panePreview
+		m.previewKey = ""
+		return m.refreshPreview()
 	case "ctrl+x":
 		return m.closeSelectedWorkspace()
 	case "right":
@@ -1053,6 +1083,10 @@ func (m teaModel) previewView(width, maxLines int) string {
 
 func (m teaModel) previewTitle() string {
 	title := sectionStyle.Render("PREVIEW")
+	if m.panePreview {
+		title = sectionStyle.Render("PANE")
+	}
+	title += countStyle.Render(" [ctrl+o]")
 	current, ok := m.list.Current()
 	if !ok {
 		return title
@@ -1111,7 +1145,7 @@ func (m teaModel) startPreview(s sessionmodel.Session) (teaModel, tea.Cmd) {
 	m.cancelPreview = cancel
 	m.previewKey = sessionmodel.Key(s)
 	m.preview = "Loading preview..."
-	return m, previewCommand(ctx, m.previewKey, m.previewRequestID, s, m.defaultPreviewCommand)
+	return m, previewCommand(ctx, m.previewKey, m.previewRequestID, s, m.defaultPreviewCommand, m.panePreview)
 }
 
 func (m teaModel) focusList() (teaModel, tea.Cmd) {
@@ -1290,9 +1324,15 @@ func overlayCell(line string, column int, cell string, width int) string {
 	return fitLine(ansi.Cut(line, 0, column)+cell+ansi.Cut(line, column+1, width), width)
 }
 
-func previewCommand(ctx context.Context, key string, requestID uint64, s sessionmodel.Session, defaultPreviewCommand string) tea.Cmd {
+func previewCommand(ctx context.Context, key string, requestID uint64, s sessionmodel.Session, defaultPreviewCommand string, pane bool) tea.Cmd {
 	return func() tea.Msg {
-		text, err := renderPreview(ctx, s, defaultPreviewCommand)
+		var text string
+		var err error
+		if pane {
+			text, err = renderPanePreview(ctx, s)
+		} else {
+			text, err = renderPreview(ctx, s, defaultPreviewCommand)
+		}
 		if err != nil {
 			text = err.Error()
 		}

@@ -14,8 +14,18 @@ import (
 	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
+
+func RenderPane(ctx context.Context, s model.Session) (string, error) {
+	if s.Source != "herdr" || s.WorkspaceID == "" {
+		return "Pane preview is only available for running Herdr workspaces\n", nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return herdr.NewCLIClient().WorkspacePaneRead(ctx, s.WorkspaceID)
+}
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
 	if s.Path == "" {

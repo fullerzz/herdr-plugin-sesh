@@ -901,10 +901,10 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	m = updated.(teaModel)
-	updated, _ = m.Update(previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)())
+	updated, _ = m.Update(previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand, false)())
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
-	for _, want := range []string{"herdr / sesh", "3 workspaces", "Find> ", "Search sessions", "LAST WORKSPACE · workspace-api  /tmp/workspace-api", "WORKSPACES", "PREVIEW · workspace-api · working", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview content", "enter select"} {
+	for _, want := range []string{"herdr / sesh", "3 workspaces", "Find> ", "Search sessions", "LAST WORKSPACE · workspace-api  /tmp/workspace-api", "WORKSPACES", "PREVIEW [ctrl+o] · workspace-api", herdrSourceIcon + " herdr", zoxideSourceIcon + " zoxide", configSourceIcon + " config", "api", "preview content", "enter select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -964,7 +964,7 @@ func TestTeaModelViewGroupsAndDescribesWorktreeFamily(t *testing.T) {
 	if parentLine < 0 || firstChildLine != parentLine+1 || lastChildLine != firstChildLine+1 {
 		t.Fatalf("worktree family is not parent-first with tree branches:\n%s", view)
 	}
-	if !strings.Contains(view, "PREVIEW · feature · worktree of project") {
+	if !strings.Contains(view, "PREVIEW [ctrl+o] · feature · worktree of project") {
 		t.Fatalf("view missing worktree preview context:\n%s", view)
 	}
 	if got, want := maxLineWidth(view), 160; got != want {
@@ -1376,7 +1376,7 @@ func TestPreviewTitleShowsUnresolvedLinkedWorktree(t *testing.T) {
 	}}, Options{})
 
 	got := ansi.Strip(m.previewTitle())
-	if !strings.Contains(got, "PREVIEW · feature · linked worktree") || strings.Contains(got, "worktree of") {
+	if !strings.Contains(got, "PREVIEW [ctrl+o] · feature · linked worktree") || strings.Contains(got, "worktree of") {
 		t.Fatalf("preview title=%q", got)
 	}
 }
@@ -1399,14 +1399,14 @@ func TestPreviewTitleShowsWorktreeParentBeforeAgentStatus(t *testing.T) {
 	m.list.Selected = 1
 
 	got := ansi.Strip(m.previewTitle())
-	if !strings.Contains(got, "PREVIEW · feature · worktree of parent · working") {
+	if !strings.Contains(got, "PREVIEW [ctrl+o] · feature · worktree of parent · working") {
 		t.Fatalf("preview title=%q", got)
 	}
 }
 
 func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
-	msg := previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand)()
+	msg := previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand, false)()
 	preview := msg.(previewMsg)
 	if got := strings.TrimSpace(preview.text); got != "preview:/tmp/api" {
 		t.Fatalf("preview=%q", preview.text)
@@ -1939,7 +1939,7 @@ func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
 	if got, want := lipgloss.Height(view), 28; got != want {
 		t.Fatalf("view height=%d, want %d:\n%s", got, want, view)
 	}
-	if !strings.Contains(view, "WORKSPACES") || !strings.Contains(view, "PREVIEW · api · blocked") {
+	if !strings.Contains(view, "WORKSPACES") || !strings.Contains(view, "PREVIEW [ctrl+o] · api · blocked") {
 		t.Fatalf("narrow view missing stacked sections:\n%s", view)
 	}
 	if strings.Contains(view, "│") {
