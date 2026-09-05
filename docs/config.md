@@ -208,6 +208,11 @@ equivalent; native decoding rejects them like any other unknown key.
 | `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to disable the feature. |
 | `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
 
+When the native picker shows the preview beside the workspace list, click and
+drag the vertical divider with the left mouse button to resize it. Both panels
+keep a minimum width. The chosen width lasts until the picker closes; narrow
+terminals continue to show the preview below the list.
+
 Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
 
 | Preset | Effect |
