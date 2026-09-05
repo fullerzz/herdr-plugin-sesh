@@ -7,6 +7,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -136,6 +140,9 @@ func (n nativeConfig) validate(path string) error {
 	if mode := n.Picker.PreviewMode; mode != "" && mode != "command" && mode != "pane" {
 		return fail("picker.preview_mode", "must be \"command\" or \"pane\", got %q", mode)
 	}
+	if binding := n.Keys.CyclePreviewMode; !validCyclePreviewKey(binding) {
+		return fail("keys.cycle_preview_mode", "unsupported key %q; use Bubble Tea key names such as ctrl+o, alt+p, or f2, or an empty string to disable", *binding)
+	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {
 		if !knownSources[s] {
@@ -263,4 +270,46 @@ func (n nativeConfig) apply(cfg *Config) {
 			Windows:             r.Tabs,
 		})
 	}
+}
+
+// validCyclePreviewKey checks the exact spelling emitted by Bubble Tea without
+// maintaining a separate list of its named keys.
+func validCyclePreviewKey(configured *string) bool {
+	if configured == nil || *configured == "" {
+		return true
+	}
+	binding := *configured
+	name := binding
+	var mod tea.KeyMod
+	for _, modifier := range []struct {
+		name string
+		mod  tea.KeyMod
+	}{
+		{"ctrl", tea.ModCtrl}, {"alt", tea.ModAlt}, {"shift", tea.ModShift},
+		{"meta", tea.ModMeta}, {"hyper", tea.ModHyper}, {"super", tea.ModSuper},
+	} {
+		if rest, ok := strings.CutPrefix(name, modifier.name+"+"); ok {
+			name = rest
+			mod |= modifier.mod
+		}
+	}
+	matches := func(code rune) bool {
+		return (tea.Key{Code: code, Mod: mod}).String() == binding
+	}
+	if code, size := utf8.DecodeRuneInString(name); size == len(name) && unicode.IsPrint(code) {
+		return matches(code)
+	}
+	for _, code := range []rune{tea.KeyEnter, tea.KeyTab, tea.KeyBackspace, tea.KeyEscape, tea.KeySpace} {
+		if matches(code) {
+			return true
+		}
+	}
+	// Bubble Tea's extended key constants are contiguous, from arrows through
+	// function, keypad, media, and modifier keys.
+	for code := tea.KeyUp; code <= tea.KeyIsoLevel5Shift; code++ {
+		if matches(code) {
+			return true
+		}
+	}
+	return false
 }

@@ -201,7 +201,10 @@ cycle_preview_mode = "ctrl+o"
 `cycle_preview_mode` changes the native picker's preview-mode shortcut. Omit it
 for `"ctrl+o"`, choose a key such as `"alt+p"` or `"f2"`, or set it to `""` to
 disable cycling and hide the shortcut hint. Key names use Bubble Tea's exact,
-case-sensitive spelling, with modifiers joined by `+`. The configured shortcut
+case-sensitive spelling: a single printable character or a named key, with
+modifiers joined by `+` in `ctrl`, `alt`, `shift`, `meta`, `hyper`, `super` order.
+Unsupported names, duplicate modifiers, and incorrect modifier order are rejected
+as configuration errors. The configured shortcut
 takes precedence over other native picker bindings, so choose an unused key.
 Disabling cycling leaves the initial `[picker].preview_mode` in effect and
 returns keys to their normal picker/input handling. This does not affect fzf or

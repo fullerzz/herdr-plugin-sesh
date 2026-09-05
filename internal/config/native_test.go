@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 
@@ -463,6 +464,23 @@ func TestNativeCyclePreviewModeKey(t *testing.T) {
 			cfg, err := loadNative(t, "version = 1\n[keys]\n"+tc.setting+"\n")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, cfg.Keys.CyclePreviewMode)
+		})
+	}
+}
+
+func TestNativeCyclePreviewModeKeyValidation(t *testing.T) {
+	for _, binding := range []string{"ctrl-o", "Ctrl+o", "ctrl+", "ctrl+ctrl+o", "alt+ctrl+o", "ctrl+unknown", "f64", "escape", "ctrl+o ", "\n"} {
+		t.Run(binding, func(t *testing.T) {
+			_, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "keys.cycle_preview_mode")
+		})
+	}
+	for _, binding := range []string{"", "ctrl+o", "alt+p", "f2", "ctrl+alt+shift+f12", "enter", "space", "esc", "+", "ctrl++", "é", "A", "?"} {
+		t.Run("valid "+binding, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
+			require.NoError(t, err)
+			assert.Equal(t, binding, cfg.Keys.CyclePreviewMode)
 		})
 	}
 }
