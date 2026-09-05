@@ -55,14 +55,14 @@ func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
 		"\x1b[1;38;5;114m" + zoxideSourceIcon + " zoxide\x1b[0m",
 		"\x1b[1;38;5;176m[dir]\x1b[0m",
 	} {
-		require.Contains(t, got, want)
+		assert.Contains(t, got, want)
 	}
 }
 
 func TestFZFArgsPreviewAllItemsWithBat(t *testing.T) {
 	args := strings.Join(fzfArgs(Options{}), "\n")
 	for _, want := range []string{"--ansi", "--with-nth=3,4,5", "--preview=", "export PATH", "source={2}", "label={4}", "item_path={5}", "command -v bat", "/opt/homebrew/bin/bat", "--file-name \"$item_path\""} {
-		require.Contains(t, args, want)
+		assert.Contains(t, args, want)
 	}
 	require.NotContains(t, args, "\npath=")
 	assert.NotContains(t, args, "{2} != herdr")
@@ -114,6 +114,6 @@ func TestFZFPreviewCommandFindsSystemToolsWithMinimalPath(t *testing.T) {
 func TestFZFSelectionIndexRejectsInvalidOutput(t *testing.T) {
 	for _, out := range []string{"", "abc\tconfig\tapi", "5\tconfig\tapi"} {
 		idx, ok := fzfSelectionIndex(out, 2)
-		require.Falsef(t, ok, "idx=%d for %q", idx, out)
+		assert.Falsef(t, ok, "idx=%d for %q", idx, out)
 	}
 }

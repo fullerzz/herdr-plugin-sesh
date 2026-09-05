@@ -159,7 +159,7 @@ func TestSeparatorAwareMatchIsAdditive(t *testing.T) {
 		{"my-api.service", "service api", false},
 		{"my-api.service", "", true},
 	} {
-		require.Equal(t, tc.want, Match(tc.hay, tc.query, true))
+		assert.Equalf(t, tc.want, Match(tc.hay, tc.query, true), "Match(%q, %q, true)", tc.hay, tc.query)
 	}
 }
 

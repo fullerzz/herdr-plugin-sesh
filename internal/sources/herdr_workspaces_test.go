@@ -28,7 +28,7 @@ func TestHerdrWorkspacesSkipsPaneListWhenWorkspaceHasPath(t *testing.T) {
 
 	got, err := (HerdrWorkspaces{Client: client}).List(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 0, client.paneListCalls)
+	require.Zero(t, client.paneListCalls)
 	paths := got.Ordered()
 	require.Len(t, paths, 2)
 	require.Equal(t, "/tmp/foreground", paths[0].Path)

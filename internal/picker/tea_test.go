@@ -109,7 +109,7 @@ func TestTeaModelIgnoresMouseOutsidePreviewDivider(t *testing.T) {
 			m.width, m.height = tc.width, 28
 			before := m.View()
 			if tc.hidden || tc.width < previewSplitWidth {
-				assert.Equal(t, tea.MouseModeNone, before.MouseMode, "mouse reporting enabled without a divider")
+				require.Equal(t, tea.MouseModeNone, before.MouseMode, "mouse reporting enabled without a divider")
 			}
 			updated, _ := m.Update(tc.click)
 			m = updated.(teaModel)
@@ -161,13 +161,13 @@ func TestTeaModelCtrlJKMovesSelection(t *testing.T) {
 	m = updated.(teaModel)
 	current, ok := m.list.Current()
 	require.True(t, ok)
-	assert.Equal(t, "web", current.Name)
+	require.Equal(t, "web", current.Name)
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
 	current, ok = m.list.Current()
 	require.True(t, ok)
-	assert.Equal(t, "api", current.Name)
+	require.Equal(t, "api", current.Name)
 	updated, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
