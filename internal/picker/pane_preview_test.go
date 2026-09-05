@@ -32,7 +32,11 @@ func TestPanePreviewToggleRefreshAndSelection(t *testing.T) {
 	}
 	// A completed read schedules one refresh; refreshing preserves the visible text.
 	refreshID := m.previewRequestID
-	updated, cmd = m.Update(panePreviewTickMsg{requestID: refreshID})
+	refreshTick := tick().(panePreviewTickMsg)
+	if refreshTick.requestID != refreshID {
+		t.Fatal("refresh tick did not retain the completed request ID")
+	}
+	updated, cmd = m.Update(refreshTick)
 	m = updated.(teaModel)
 	if cmd == nil || m.preview != "pane w1" {
 		t.Fatal("refresh should retain pane contents")
@@ -43,6 +47,9 @@ func TestPanePreviewToggleRefreshAndSelection(t *testing.T) {
 	m, cmd = m.refreshPreview()
 	if refreshContext.Err() == nil {
 		t.Fatal("selection change must cancel refresh")
+	}
+	if m.preview != "Loading preview..." {
+		t.Fatal("selection change must replace the previous pane snapshot with a loading message")
 	}
 	updated, _ = m.Update(cmd())
 	m = updated.(teaModel)

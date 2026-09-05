@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	defaultVisibleRows    = 12
-	statusRefreshInterval = time.Second
+	defaultVisibleRows         = 12
+	statusRefreshInterval      = time.Second
+	panePreviewRefreshInterval = time.Second
 
 	workspaceSortWorkspace = "workspace"
 	workspaceSortRecent    = "recent"
@@ -479,27 +480,10 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.smearTick()
 	}
 	if preview, ok := msg.(previewMsg); ok {
-		if preview.requestID == m.previewRequestID && preview.key == m.previewKey {
-			m.preview = preview.text
-			if current, ok := m.list.Current(); ok && m.panePreview && !m.hidePreview && current.Source == "herdr" && current.WorkspaceID != "" {
-				return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
-					return panePreviewTickMsg{requestID: preview.requestID}
-				})
-			}
-		}
-		return m, nil
+		return m.receivePreview(preview)
 	}
 	if tick, ok := msg.(panePreviewTickMsg); ok {
-		if tick.requestID != m.previewRequestID || !m.panePreview || m.hidePreview {
-			return m, nil
-		}
-		if current, ok := m.list.Current(); ok {
-			previous := m.preview
-			m, cmd := m.startPreview(current)
-			m.preview = previous
-			return m, cmd
-		}
-		return m, nil
+		return m.refreshPanePreview(tick)
 	}
 	if closed, ok := msg.(workspaceCloseMsg); ok {
 		if closed.workspaceID != m.closingWorkspaceID {
@@ -1107,6 +1091,30 @@ func (m teaModel) previewTitle() string {
 	return title
 }
 
+func (m teaModel) receivePreview(preview previewMsg) (teaModel, tea.Cmd) {
+	if preview.requestID != m.previewRequestID || preview.key != m.previewKey {
+		return m, nil
+	}
+	m.preview = preview.text
+	if current, ok := m.list.Current(); ok && m.panePreview && !m.hidePreview && current.Source == "herdr" && current.WorkspaceID != "" {
+		return m, tea.Tick(panePreviewRefreshInterval, func(time.Time) tea.Msg {
+			return panePreviewTickMsg{requestID: preview.requestID}
+		})
+	}
+	return m, nil
+}
+
+func (m teaModel) refreshPanePreview(tick panePreviewTickMsg) (teaModel, tea.Cmd) {
+	if tick.requestID != m.previewRequestID || !m.panePreview || m.hidePreview {
+		return m, nil
+	}
+	if current, ok := m.list.Current(); ok {
+		// Keep the last snapshot visible while the next read is in flight.
+		return m.requestPreview(current)
+	}
+	return m, nil
+}
+
 func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 	if m.hidePreview {
 		m = m.cancelActivePreview()
@@ -1137,14 +1145,18 @@ func (m teaModel) cancelActivePreview() teaModel {
 	return m
 }
 
-//nolint:contextcheck // Bubble Tea persists the caller context on the model between messages.
 func (m teaModel) startPreview(s sessionmodel.Session) (teaModel, tea.Cmd) {
+	m.preview = "Loading preview..."
+	return m.requestPreview(s)
+}
+
+//nolint:contextcheck // Bubble Tea persists the caller context on the model between messages.
+func (m teaModel) requestPreview(s sessionmodel.Session) (teaModel, tea.Cmd) {
 	m = m.cancelActivePreview()
 	ctx, cancel := context.WithCancel(m.previewParentContext)
 	m.previewContext = ctx
 	m.cancelPreview = cancel
 	m.previewKey = sessionmodel.Key(s)
-	m.preview = "Loading preview..."
 	return m, previewCommand(ctx, m.previewKey, m.previewRequestID, s, m.defaultPreviewCommand, m.panePreview)
 }
 

@@ -58,8 +58,12 @@ func TestWorkspacePaneReadRejectsMissingTargetsAndErrors(t *testing.T) {
 			if _, err := c.WorkspacePaneRead(context.Background(), tc.id); err == nil {
 				t.Fatal("expected error")
 			}
-			if len(r.calls) > 1 || tc.id == "" && len(r.calls) != 0 {
-				t.Fatalf("unexpected calls: %v", r.calls)
+			var wantCalls [][]string
+			if tc.id != "" {
+				wantCalls = [][]string{{"api", "snapshot"}}
+			}
+			if !reflect.DeepEqual(r.calls, wantCalls) {
+				t.Fatalf("calls=%v, want %v", r.calls, wantCalls)
 			}
 		})
 	}
