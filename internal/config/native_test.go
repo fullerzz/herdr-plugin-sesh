@@ -474,14 +474,14 @@ func TestNativeCyclePreviewModeKey(t *testing.T) {
 }
 
 func TestNativeCyclePreviewModeKeyValidation(t *testing.T) {
-	for _, binding := range []string{"shift+p", "shift+/", "shift+1", "f01", "ctrl+leftctrl", "ctrl+alt+rightctrl", " ", "ctrl+ ", "ctrl-o", "Ctrl+o", "ctrl+", "ctrl+ctrl+o", "alt+ctrl+o", "ctrl+unknown", "f64", "escape", "ctrl+o ", "\n"} {
+	for _, binding := range []string{"ctrl+shift+P", "alt+shift+?", "ctrl+alt+shift+!", "shift+super+P", "shift+p", "shift+/", "shift+1", "f01", "ctrl+leftctrl", "ctrl+alt+rightctrl", " ", "ctrl+ ", "ctrl-o", "Ctrl+o", "ctrl+", "ctrl+ctrl+o", "alt+ctrl+o", "ctrl+unknown", "f64", "escape", "ctrl+o ", "\n"} {
 		t.Run(binding, func(t *testing.T) {
 			_, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "keys.cycle_preview_mode")
 		})
 	}
-	for _, binding := range []string{"", "ctrl+o", "alt+p", "ctrl+shift+p", "f2", "ctrl+alt+shift+f12", "enter", "space", "esc", "+", "ctrl++", "é", "A", "P", "?"} {
+	for _, binding := range []string{"", "ctrl+o", "alt+p", "ctrl+shift+p", "alt+shift+/", "ctrl+alt+shift+1", "shift+super+p", "f2", "ctrl+alt+shift+f12", "enter", "space", "esc", "+", "ctrl++", "é", "A", "P", "?"} {
 		t.Run("valid "+binding, func(t *testing.T) {
 			cfg, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
 			require.NoError(t, err)

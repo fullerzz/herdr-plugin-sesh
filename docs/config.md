@@ -207,7 +207,9 @@ Unsupported names, duplicate modifiers, and incorrect modifier order are rejecte
 as configuration errors. For shifted printable keys, configure the resulting
 character (`"P"` rather than `"shift+p"`, or `"?"` rather than `"shift+/"`).
 Shift-only printable spellings are rejected because key events report the text;
-combinations such as `"ctrl+shift+p"` and `"shift+f2"` remain valid.
+combinations such as `"ctrl+shift+p"` and `"shift+f2"` remain valid. When Shift is
+combined with other modifiers, use the unshifted base key: `"ctrl+shift+p"`, not
+`"ctrl+shift+P"`, and `"alt+shift+/"`, not `"alt+shift+?"`.
 The configured shortcut
 takes precedence over other native picker bindings, so choose an unused key.
 Disabling cycling leaves the initial `[picker].preview_mode` in effect and

@@ -172,3 +172,17 @@ func TestCyclePreviewModeShiftedPrintableText(t *testing.T) {
 		assert.True(t, updated.(teaModel).panePreview, "binding %q", binding)
 	}
 }
+
+func TestCyclePreviewModeModifiedShiftUsesBaseKey(t *testing.T) {
+	for _, tc := range []struct {
+		binding string
+		key     tea.KeyPressMsg
+	}{
+		{"ctrl+shift+p", tea.KeyPressMsg{Code: 'p', ShiftedCode: 'P', Mod: tea.ModCtrl | tea.ModShift}},
+		{"alt+shift+/", tea.KeyPressMsg{Code: '/', ShiftedCode: '?', Mod: tea.ModAlt | tea.ModShift}},
+	} {
+		m := newTeaModel(nil, Options{CyclePreviewModeKey: &tc.binding})
+		updated, _ := m.Update(tc.key)
+		assert.True(t, updated.(teaModel).panePreview, "binding %q", tc.binding)
+	}
+}

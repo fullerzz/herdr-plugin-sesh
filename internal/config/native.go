@@ -140,7 +140,7 @@ func (n nativeConfig) validate(path string) error {
 		return fail("picker.preview_mode", "must be \"command\" or \"pane\", got %q", mode)
 	}
 	if binding := n.Keys.CyclePreviewMode; !validCyclePreviewKey(binding) {
-		return fail("keys.cycle_preview_mode", "unsupported key %q; use Bubble Tea key names such as ctrl+o, alt+p, or f2, or an empty string to disable; for shifted printable keys use the resulting character (e.g. P instead of shift+p)", *binding)
+		return fail("keys.cycle_preview_mode", "unsupported key %q; use Bubble Tea key names such as ctrl+o, alt+p, or f2, or an empty string to disable; for shifted printable keys use the resulting character (e.g. P instead of shift+p), and with other modifiers use the unshifted base key (e.g. ctrl+shift+p or alt+shift+/)", *binding)
 	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {
@@ -286,9 +286,11 @@ func validCyclePreviewKey(configured *string) bool {
 		return true
 	}
 	name := *configured
+	shifted := false
 	for _, modifier := range []string{"ctrl", "alt", "shift", "meta", "hyper", "super"} {
 		if rest, ok := strings.CutPrefix(name, modifier+"+"); ok {
 			name = rest
+			shifted = shifted || modifier == "shift"
 			// Bubble Tea omits the modifier when it is itself the pressed key.
 			if strings.HasSuffix(name, "+left"+modifier) || strings.HasSuffix(name, "+right"+modifier) || name == "left"+modifier || name == "right"+modifier {
 				return false
@@ -296,6 +298,10 @@ func validCyclePreviewKey(configured *string) bool {
 		}
 	}
 	if code, size := utf8.DecodeRuneInString(name); size == len(name) && unicode.IsPrint(code) {
+		// Explicit Shift combinations use the unshifted PC-101 base key.
+		if shifted && (unicode.IsUpper(code) || strings.ContainsRune("~!@#$%^&*()_+{}|:\"<>?", code)) {
+			return false
+		}
 		// Shift-only printable events carry their resulting text, not shift+key.
 		return size > 0 && code != ' ' && *configured != "shift+"+name
 	}
