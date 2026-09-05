@@ -48,6 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           cp CHANGELOG.md "$RUNNER_TEMP/CHANGELOG.md"
+          git restore -- CHANGELOG.md
           git fetch origin main
           git switch -C main origin/main
           cp "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md

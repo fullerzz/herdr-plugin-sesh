@@ -277,6 +277,30 @@ if ! cmp -s "$success_repo/CHANGELOG.md" "$tmp/post-tag-CHANGELOG.md"; then
   exit 1
 fi
 
+# Exercise the actual workflow step from a dirty tag checkout while main already
+# contains the release recipe's changelog commit.
+awk '
+  /- name: Prepare main branch update/ { step = 1; next }
+  step && /run: \|/ { script = 1; next }
+  script && /^      - name:/ { exit }
+  script { sub(/^          /, ""); print }
+' "$changelog_workflow" >"$tmp/prepare-changelog.sh"
+git -C "$success_repo" checkout -q --detach refs/tags/v1.2.3
+cp "$tmp/post-tag-CHANGELOG.md" "$success_repo/CHANGELOG.md"
+printf '\nUpdated GitHub metadata\n' >>"$success_repo/CHANGELOG.md"
+cp "$success_repo/CHANGELOG.md" "$tmp/expected-changelog.md"
+mkdir "$tmp/changelog-runner"
+(
+  cd "$success_repo"
+  RUNNER_TEMP="$tmp/changelog-runner" bash "$tmp/prepare-changelog.sh"
+)
+if [ "$(git -C "$success_repo" branch --show-current)" != main ] ||
+  [ "$(git -C "$success_repo" rev-parse HEAD)" != "$success_head" ] ||
+  ! cmp -s "$success_repo/CHANGELOG.md" "$tmp/expected-changelog.md"; then
+  echo 'changelog workflow must preserve generated content when switching from the tag to main' >&2
+  exit 1
+fi
+
 branch_repo="$tmp/release-branch"
 branch_remote="$tmp/release-branch.git"
 setup_release_repo "$branch_repo" "$branch_remote"
