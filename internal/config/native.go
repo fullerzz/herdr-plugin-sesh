@@ -140,7 +140,7 @@ func (n nativeConfig) validate(path string) error {
 		return fail("picker.preview_mode", "must be \"command\" or \"pane\", got %q", mode)
 	}
 	if binding := n.Keys.CyclePreviewMode; !validCyclePreviewKey(binding) {
-		return fail("keys.cycle_preview_mode", "unsupported key %q; use Bubble Tea key names such as ctrl+o, alt+p, or f2, or an empty string to disable", *binding)
+		return fail("keys.cycle_preview_mode", "unsupported key %q; use Bubble Tea key names such as ctrl+o, alt+p, or f2, or an empty string to disable; for shifted printable keys use the resulting character (e.g. P instead of shift+p)", *binding)
 	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {
@@ -296,7 +296,8 @@ func validCyclePreviewKey(configured *string) bool {
 		}
 	}
 	if code, size := utf8.DecodeRuneInString(name); size == len(name) && unicode.IsPrint(code) {
-		return size > 0 && code != ' '
+		// Shift-only printable events carry their resulting text, not shift+key.
+		return size > 0 && code != ' ' && *configured != "shift+"+name
 	}
 	if number, ok := strings.CutPrefix(name, "f"); ok {
 		n, err := strconv.Atoi(number)

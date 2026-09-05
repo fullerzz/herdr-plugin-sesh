@@ -204,7 +204,11 @@ disable cycling and hide the shortcut hint. Key names use Bubble Tea's exact,
 case-sensitive spelling: a single printable character or a named key, with
 modifiers joined by `+` in `ctrl`, `alt`, `shift`, `meta`, `hyper`, `super` order.
 Unsupported names, duplicate modifiers, and incorrect modifier order are rejected
-as configuration errors. The configured shortcut
+as configuration errors. For shifted printable keys, configure the resulting
+character (`"P"` rather than `"shift+p"`, or `"?"` rather than `"shift+/"`).
+Shift-only printable spellings are rejected because key events report the text;
+combinations such as `"ctrl+shift+p"` and `"shift+f2"` remain valid.
+The configured shortcut
 takes precedence over other native picker bindings, so choose an unused key.
 Disabling cycling leaves the initial `[picker].preview_mode` in effect and
 returns keys to their normal picker/input handling. This does not affect fzf or

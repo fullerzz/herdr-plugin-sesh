@@ -474,14 +474,14 @@ func TestNativeCyclePreviewModeKey(t *testing.T) {
 }
 
 func TestNativeCyclePreviewModeKeyValidation(t *testing.T) {
-	for _, binding := range []string{"f01", "ctrl+leftctrl", "ctrl+alt+rightctrl", " ", "ctrl+ ", "ctrl-o", "Ctrl+o", "ctrl+", "ctrl+ctrl+o", "alt+ctrl+o", "ctrl+unknown", "f64", "escape", "ctrl+o ", "\n"} {
+	for _, binding := range []string{"shift+p", "shift+/", "shift+1", "f01", "ctrl+leftctrl", "ctrl+alt+rightctrl", " ", "ctrl+ ", "ctrl-o", "Ctrl+o", "ctrl+", "ctrl+ctrl+o", "alt+ctrl+o", "ctrl+unknown", "f64", "escape", "ctrl+o ", "\n"} {
 		t.Run(binding, func(t *testing.T) {
 			_, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "keys.cycle_preview_mode")
 		})
 	}
-	for _, binding := range []string{"", "ctrl+o", "alt+p", "f2", "ctrl+alt+shift+f12", "enter", "space", "esc", "+", "ctrl++", "é", "A", "?"} {
+	for _, binding := range []string{"", "ctrl+o", "alt+p", "ctrl+shift+p", "f2", "ctrl+alt+shift+f12", "enter", "space", "esc", "+", "ctrl++", "é", "A", "P", "?"} {
 		t.Run("valid "+binding, func(t *testing.T) {
 			cfg, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
 			require.NoError(t, err)
@@ -500,7 +500,10 @@ func TestCyclePreviewKeyNamesMatchBubbleTea(t *testing.T) {
 		names[(tea.Key{Code: code}).String()] = true
 		for mod := tea.KeyMod(0); mod < tea.ModSuper*2; mod++ {
 			binding := (tea.Key{Code: code, Mod: mod}).String()
-			require.True(t, validCyclePreviewKey(&binding), "rejected Bubble Tea key %q", binding)
+			// Shift-only printable spellings also arise from keypad events,
+			// but are rejected because ordinary typing reports the resulting text.
+			shiftedPrintable := mod == tea.ModShift && len([]rune(strings.TrimPrefix(binding, "shift+"))) == 1
+			require.Equal(t, !shiftedPrintable, validCyclePreviewKey(&binding), "Bubble Tea key %q", binding)
 		}
 	}
 	configuredNames := strings.Fields(cyclePreviewKeyNames)
