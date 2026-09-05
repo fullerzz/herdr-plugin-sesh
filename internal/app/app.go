@@ -212,6 +212,7 @@ func pickerOptionsFromConfig(ctx context.Context, output io.Writer, cfg config.C
 		SeparatorAware:                 cfg.SeparatorAware,
 		DisableHomePrioritization:      !cfg.TUI.PrioritizeHome,
 		HidePreview:                    !cfg.TUI.ShowPreview,
+		PreviewMode:                    cfg.TUI.PreviewMode,
 		DefaultPreviewCommand:          cfg.DefaultSessionConfig.PreviewCommand,
 		WorkspaceSort:                  cfg.TUI.DefaultSort,
 	}

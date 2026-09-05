@@ -621,6 +621,17 @@ func TestPickerOptionsPropagatePreviewVisibility(t *testing.T) {
 	}
 }
 
+func TestPickerOptionsPropagatePreviewMode(t *testing.T) {
+	cfg := config.Default()
+	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode; got != "command" {
+		t.Fatalf("default preview mode = %q, want command", got)
+	}
+	cfg.TUI.PreviewMode = "pane"
+	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode; got != "pane" {
+		t.Fatalf("preview mode = %q, want pane", got)
+	}
+}
+
 func TestPickerOptionsPropagateHomePrioritization(t *testing.T) {
 	cfg := config.Default()
 	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.DisableHomePrioritization {

@@ -43,6 +43,7 @@ type nativePicker struct {
 	// an always-present value keeps icon behavior self-documenting.
 	ShowIcons             bool   `toml:"show_icons"`
 	ShowPreview           *bool  `toml:"show_preview,omitempty"`
+	PreviewMode           string `toml:"preview_mode,omitempty"`
 	PrioritizeHome        *bool  `toml:"prioritize_home,omitempty"`
 	HerdrThemeInherit     *bool  `toml:"herdr_theme_inherit,omitempty"`
 	ReplaceWorktreeIcon   *bool  `toml:"replace_worktree_icon,omitempty"`
@@ -126,6 +127,9 @@ func (n nativeConfig) validate(path string) error {
 	if s := n.Picker.WorkspaceSort; s != "" && s != "workspace" && s != "recent" && s != "agent" {
 		return fail("picker.workspace_sort", "must be \"workspace\" or \"recent\" or \"agent\", got %q", s)
 	}
+	if mode := n.Picker.PreviewMode; mode != "" && mode != "command" && mode != "pane" {
+		return fail("picker.preview_mode", "must be \"command\" or \"pane\", got %q", mode)
+	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {
 		if !knownSources[s] {
@@ -201,6 +205,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	cfg.TUI.ShowIcons = n.Picker.ShowIcons
 	if n.Picker.ShowPreview != nil {
 		cfg.TUI.ShowPreview = *n.Picker.ShowPreview
+	}
+	if n.Picker.PreviewMode != "" {
+		cfg.TUI.PreviewMode = n.Picker.PreviewMode
 	}
 	if n.Picker.PrioritizeHome != nil {
 		cfg.TUI.PrioritizeHome = *n.Picker.PrioritizeHome

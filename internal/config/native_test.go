@@ -35,6 +35,7 @@ path_components = 2
 [picker]
 show_icons = true
 show_preview = false
+preview_mode = "pane"
 prioritize_home = false
 herdr_theme_inherit = true
 show_last_workspace = true
@@ -78,7 +79,7 @@ tabs = ["git"]
 		SeparatorAware: true,
 		SortOrder:      []string{"config", "herdr"},
 		Blacklist:      []string{"^scratch$"},
-		TUI:            TUIConfig{ShowIcons: true, PrioritizeHome: false, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
+		TUI:            TUIConfig{ShowIcons: true, PreviewMode: "pane", PrioritizeHome: false, HerdrThemeInherit: true, ReplaceWorktreeIcon: true, ShowLastWorkspace: true, ShowLastWorkspacePath: true, Prompt: "P> ", Placeholder: "find", DefaultSort: "recent"},
 		DefaultSessionConfig: DefaultSessionConfig{
 			StartupCommand: "make dev",
 			PreviewCommand: "ls {}",
@@ -181,6 +182,31 @@ show_preview = false
 	}
 	if !defaults.TUI.ShowPreview {
 		t.Fatal("show_preview=false by default, want true")
+	}
+}
+
+func TestNativePickerPreviewMode(t *testing.T) {
+	for _, tc := range []struct {
+		name, setting, want string
+	}{
+		{name: "omitted", want: "command"},
+		{name: "command", setting: `preview_mode = "command"`, want: "command"},
+		{name: "pane", setting: `preview_mode = "pane"`, want: "pane"},
+		{name: "empty", setting: `preview_mode = ""`, want: "command"},
+		{name: "invalid", setting: `preview_mode = "terminal"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[picker]\n"+tc.setting+"\n")
+			if tc.want == "" {
+				if err == nil || !strings.Contains(err.Error(), "picker.preview_mode") {
+					t.Fatalf("expected preview_mode validation error, got %v", err)
+				}
+				return
+			}
+			if err != nil || cfg.TUI.PreviewMode != tc.want {
+				t.Fatalf("mode=%q err=%v, want %q", cfg.TUI.PreviewMode, err, tc.want)
+			}
+		})
 	}
 }
 
