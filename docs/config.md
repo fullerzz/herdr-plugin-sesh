@@ -54,6 +54,7 @@ path_components = 1
 
 [picker]
 show_icons = true
+show_path = true
 show_preview = true
 preview_mode = "command"
 prioritize_home = false
@@ -221,6 +222,7 @@ configure shortcuts in Herdr itself.
 | Field | Runtime effect |
 | --- | --- |
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
+| `show_path` | Shows the path column in the native picker when space permits (default `true`). Set it to `false` to hide the column and give the side-by-side preview 50% of the available width initially. The divider remains draggable; narrow terminals keep stacked previews. This does not affect path matching, the last-workspace footer, or fzf. |
 | `show_preview` | Shows the preview panel in the native picker. The default is `true`; set it to `false` to give the workspace list the full available width and height without running preview commands. This does not change fzf preview behavior. |
 | `preview_mode` | Sets the native picker's initial preview to `command` (the configured preview command or built-in fallback, the default) or `pane` (the active pane of the selected Herdr workspace, refreshed once per second). Press ++ctrl+o++ (or `keys.cycle_preview_mode`) to switch modes while the picker is open. `show_preview = false` still disables previews. This does not affect fzf or `herdr-sesh preview`. |
 | `prioritize_home` | Controls exact case-insensitive `home` searches in the native picker. The default is `true`, which promotes the actual home-directory session ahead of real-name and ordinary path matches. Set it to `false` to keep real-name matches first, then path matches in their existing order; the actual home-directory session remains searchable through the exact `home` alias. |

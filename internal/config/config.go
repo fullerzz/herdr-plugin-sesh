@@ -46,7 +46,8 @@ type SessionConfig struct {
 
 type TUIConfig struct {
 	ShowIcons bool `toml:"show_icons"`
-	// ShowPreview is native-only; the legacy Sesh schema has no equivalent setting.
+	// ShowPath and ShowPreview are native-only; the legacy Sesh schema has no equivalents.
+	ShowPath              bool   `toml:"-"`
 	ShowPreview           bool   `toml:"-"`
 	PreviewMode           string `toml:"-"`
 	PrioritizeHome        bool   `toml:"-"`
@@ -75,6 +76,7 @@ func Default() Config {
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},
 		TUI: TUIConfig{
 			DefaultSort:           DefaultWorkspaceSort,
+			ShowPath:              true,
 			ShowPreview:           true,
 			PreviewMode:           DefaultPreviewMode,
 			PrioritizeHome:        true,
