@@ -21,17 +21,15 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 	"github.com/pelletier/go-toml/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVersionCommand(t *testing.T) {
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"--version"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != "herdr-sesh dev" {
-		t.Fatalf("got %q", out.String())
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"--version"}))
+	assert.Equal(t, "herdr-sesh dev", strings.TrimSpace(out.String()))
 }
 
 func TestConfigPathCommand(t *testing.T) {
@@ -42,25 +40,15 @@ func TestConfigPathCommand(t *testing.T) {
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"config", "path"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "path"}))
 	want := filepath.Join(d, "config.toml")
-	if strings.TrimSpace(out.String()) != want {
-		t.Fatalf("no-candidate path = %q, want %q", out.String(), want)
-	}
+	require.Equal(t, want, strings.TrimSpace(out.String()))
 
 	legacy := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
 	out.Reset()
-	if err := a.Run(context.Background(), []string{"config", "path"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != legacy {
-		t.Fatalf("legacy path = %q, want %q", out.String(), legacy)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "path"}))
+	assert.Equal(t, legacy, strings.TrimSpace(out.String()))
 }
 
 func TestConfigValidatePrintsResolvedNativePath(t *testing.T) {
@@ -69,80 +57,52 @@ func TestConfigValidatePrintsResolvedNativePath(t *testing.T) {
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", d)
 	native := filepath.Join(d, config.NativeFileName)
-	if err := os.WriteFile(native, []byte("version = 1\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(native, []byte("version = 1\n"), 0600))
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"config", "validate"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != native {
-		t.Fatalf("stdout = %q, want %q", out.String(), native)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "validate"}))
+	assert.Equal(t, native, strings.TrimSpace(out.String()))
 }
 
 func TestConfigValidateWarnsForLegacyConfig(t *testing.T) {
 	legacy := filepath.Join(t.TempDir(), config.LegacyFileName)
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
 
 	var out, errb bytes.Buffer
 	a := &App{Out: &out, Err: &errb}
-	if err := a.Run(context.Background(), []string{"config", "validate", legacy}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != legacy {
-		t.Fatalf("stdout = %q, want %q", out.String(), legacy)
-	}
-	if !strings.Contains(errb.String(), "deprecated Sesh-compatible schema") {
-		t.Fatalf("stderr = %q, want legacy deprecation warning", errb.String())
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "validate", legacy}))
+	require.Equal(t, legacy, strings.TrimSpace(out.String()))
+	assert.Contains(t, errb.String(), "deprecated Sesh-compatible schema")
 }
 
 func TestConfigValidateRejectsUnknownLegacyKey(t *testing.T) {
 	legacy := filepath.Join(t.TempDir(), config.LegacyFileName)
-	if err := os.WriteFile(legacy, []byte("cahe = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cahe = true\n"), 0600))
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "validate", legacy})
-	if err == nil || !strings.Contains(err.Error(), "cahe") {
-		t.Fatalf("err = %v, want unknown legacy key", err)
-	}
+	require.ErrorContains(t, err, "cahe")
 }
 
 func TestConfigValidateRejectsUnknownLegacyKeyInImport(t *testing.T) {
 	d := t.TempDir()
-	if err := os.WriteFile(filepath.Join(d, "extra.toml"), []byte("cahe = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(d, "extra.toml"), []byte("cahe = true\n"), 0600))
 	legacy := filepath.Join(d, config.LegacyFileName)
-	if err := os.WriteFile(legacy, []byte("import = [\"extra.toml\"]\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("import = [\"extra.toml\"]\n"), 0600))
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "validate", legacy})
-	if err == nil || !strings.Contains(err.Error(), "cahe") {
-		t.Fatalf("err = %v, want unknown imported legacy key", err)
-	}
+	require.ErrorContains(t, err, "cahe")
 }
 
 func TestConfigValidateRejectsInvalidNativeConfig(t *testing.T) {
 	native := filepath.Join(t.TempDir(), config.NativeFileName)
-	if err := os.WriteFile(native, []byte("version = 1\nunknown = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(native, []byte("version = 1\nunknown = true\n"), 0600))
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "validate", native})
-	if err == nil || !strings.Contains(err.Error(), "unknown keys") {
-		t.Fatalf("err = %v, want native validation error", err)
-	}
+	require.ErrorContains(t, err, "unknown keys")
 }
 
 func TestConfigValidateRequiresExistingConfig(t *testing.T) {
@@ -153,17 +113,13 @@ func TestConfigValidateRequiresExistingConfig(t *testing.T) {
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "validate"})
-	if err == nil || !strings.Contains(err.Error(), "no config file found") {
-		t.Fatalf("err = %v, want missing config error", err)
-	}
+	require.ErrorContains(t, err, "no config file found")
 }
 
 func TestConfigValidateAcceptsAtMostOnePath(t *testing.T) {
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "validate", "first.toml", "second.toml"})
-	if err == nil || !strings.Contains(err.Error(), "accepts at most one path") {
-		t.Fatalf("err = %v, want extra path error", err)
-	}
+	require.ErrorContains(t, err, "accepts at most one path")
 }
 
 func TestConfigValidateRejectsEmptyPath(t *testing.T) {
@@ -174,9 +130,7 @@ func TestConfigValidateRejectsEmptyPath(t *testing.T) {
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "validate", ""})
-	if err == nil || !strings.Contains(err.Error(), "path must not be empty") {
-		t.Fatalf("err = %v, want empty path error", err)
-	}
+	require.ErrorContains(t, err, "path must not be empty")
 }
 
 func TestConfigInitDoesNotShadowActiveLegacyConfig(t *testing.T) {
@@ -185,21 +139,14 @@ func TestConfigInitDoesNotShadowActiveLegacyConfig(t *testing.T) {
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", d)
 	legacy := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"config", "init"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != legacy {
-		t.Fatalf("init printed %q, want existing legacy %q", out.String(), legacy)
-	}
-	if _, err := os.Stat(filepath.Join(d, "config.toml")); !os.IsNotExist(err) {
-		t.Fatalf("init created shadowing config.toml: %v", err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "init"}))
+	require.Equal(t, legacy, strings.TrimSpace(out.String()))
+	_, err := os.Stat(filepath.Join(d, "config.toml"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestConfigInitHonorsEnvTarget(t *testing.T) {
@@ -211,19 +158,11 @@ func TestConfigInitHonorsEnvTarget(t *testing.T) {
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"config", "init"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != target {
-		t.Fatalf("init printed %q, want env target %q", out.String(), target)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "init"}))
+	require.Equal(t, target, strings.TrimSpace(out.String()))
 	cfg, _, err := config.Load(config.LoadOptions{Path: target, Warn: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DefaultSessionConfig.PreviewCommand != config.DefaultPreviewCommand {
-		t.Fatalf("starter preview = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, config.DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 }
 
 func TestConfigInitRejectsDirectoryCandidate(t *testing.T) {
@@ -231,15 +170,11 @@ func TestConfigInitRejectsDirectoryCandidate(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", d)
-	if err := os.Mkdir(filepath.Join(d, config.NativeFileName), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(filepath.Join(d, config.NativeFileName), 0700))
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "init"})
-	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("err = %v, want non-regular config path error", err)
-	}
+	require.ErrorContains(t, err, "not a regular file")
 }
 
 func TestConfigInitPropagatesResolveError(t *testing.T) {
@@ -247,21 +182,14 @@ func TestConfigInitPropagatesResolveError(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".config"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".config", "sesh"), []byte("blocked\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".config"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".config", "sesh"), []byte("blocked\n"), 0600))
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
 	err := a.Run(context.Background(), []string{"config", "init"})
-	if !errors.Is(err, syscall.ENOTDIR) {
-		t.Fatalf("err = %v, want higher-priority filesystem error", err)
-	}
-	if _, statErr := os.Stat(filepath.Join(home, ".config", "herdr-sesh", config.NativeFileName)); !os.IsNotExist(statErr) {
-		t.Fatalf("init created config after resolver error: %v", statErr)
-	}
+	require.ErrorIs(t, err, syscall.ENOTDIR)
+	_, statErr := os.Stat(filepath.Join(home, ".config", "herdr-sesh", config.NativeFileName))
+	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func TestConfigMigrateCommand(t *testing.T) {
@@ -270,34 +198,23 @@ func TestConfigMigrateCommand(t *testing.T) {
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", d)
 	legacy := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(legacy, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
 
 	var out, errb bytes.Buffer
 	a := &App{Out: &out, Err: &errb}
-	if err := a.Run(context.Background(), []string{"config", "migrate"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "migrate"}))
 	native := filepath.Join(d, "config.toml")
-	if strings.TrimSpace(out.String()) != native {
-		t.Fatalf("stdout = %q, want %q", out.String(), native)
-	}
-	if !strings.Contains(errb.String(), "delete the legacy file") {
-		t.Fatalf("stderr = %q", errb.String())
-	}
+	require.Equal(t, native, strings.TrimSpace(out.String()))
+	require.Contains(t, errb.String(), "delete the legacy file")
 	cfg, _, err := config.Load(config.LoadOptions{Path: native, Warn: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.Cache || len(cfg.SessionConfigs) != 1 || cfg.SessionConfigs[0].Name != "api" {
-		t.Fatalf("migrated cfg = %#v", cfg)
-	}
+	require.NoError(t, err)
+	require.True(t, cfg.Cache)
+	require.Len(t, cfg.SessionConfigs, 1)
+	require.Equal(t, "api", cfg.SessionConfigs[0].Name)
 	// The native file now wins discovery over the untouched legacy file.
 	got, err := config.ResolvePath(config.LoadOptions{})
-	if err != nil || got != native {
-		t.Fatalf("resolved %q err %v, want %q", got, err, native)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, native, got)
 }
 
 func TestConfigMigrateForceOverwritesExistingNativeConfig(t *testing.T) {
@@ -306,29 +223,17 @@ func TestConfigMigrateForceOverwritesExistingNativeConfig(t *testing.T) {
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", d)
 	legacy := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
 	native := filepath.Join(d, config.NativeFileName)
-	if err := os.WriteFile(native, []byte("version = 1\n[list]\ncache = false\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(native, []byte("version = 1\n[list]\ncache = false\n"), 0600))
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"config", "migrate", legacy, "--force"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(out.String()) != native {
-		t.Fatalf("stdout = %q, want %q", out.String(), native)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "migrate", legacy, "--force"}))
+	require.Equal(t, native, strings.TrimSpace(out.String()))
 	cfg, _, err := config.Load(config.LoadOptions{Path: native, Warn: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.Cache {
-		t.Fatal("forced migration did not replace existing native config")
-	}
+	require.NoError(t, err)
+	assert.True(t, cfg.Cache, "forced migration did not replace existing native config")
 }
 
 func TestConfigMigrateWarnsToRepointEnvBeforeDeletingLegacy(t *testing.T) {
@@ -338,19 +243,13 @@ func TestConfigMigrateWarnsToRepointEnvBeforeDeletingLegacy(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", d)
 	t.Setenv("HERDR_SESH_CONFIG", legacy)
 	t.Setenv("HOME", d)
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
 
 	var errb bytes.Buffer
 	a := &App{Out: &bytes.Buffer{}, Err: &errb}
-	if err := a.Run(context.Background(), []string{"config", "migrate"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "migrate"}))
 	warning := errb.String()
-	if !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy) {
-		t.Fatalf("stderr = %q", warning)
-	}
+	assert.Contains(t, warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy)
 }
 
 func TestConfigMigrateKeepsUnrelatedEnvSelection(t *testing.T) {
@@ -361,23 +260,16 @@ func TestConfigMigrateKeepsUnrelatedEnvSelection(t *testing.T) {
 	t.Setenv("HERDR_SESH_CONFIG", active)
 	t.Setenv("HOME", d)
 	for _, p := range []string{active, legacy} {
-		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte("cache = true\n"), 0600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0700))
+		require.NoError(t, os.WriteFile(p, []byte("cache = true\n"), 0600))
 	}
 
 	var errb bytes.Buffer
 	a := &App{Out: &bytes.Buffer{}, Err: &errb}
-	if err := a.Run(context.Background(), []string{"config", "migrate", "--config", legacy}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "migrate", "--config", legacy}))
 	warning := errb.String()
-	if strings.Contains(warning, "set HERDR_SESH_CONFIG=") || !strings.Contains(warning, "HERDR_SESH_CONFIG continues to select "+active) {
-		t.Fatalf("stderr = %q", warning)
-	}
+	require.NotContains(t, warning, "set HERDR_SESH_CONFIG=")
+	assert.Contains(t, warning, "HERDR_SESH_CONFIG continues to select "+active)
 }
 
 func TestConfigMigrateExplicitPathWarnsWhenNativeIsNotDiscovered(t *testing.T) {
@@ -388,19 +280,14 @@ func TestConfigMigrateExplicitPathWarnsWhenNativeIsNotDiscovered(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", filepath.Join(home, "plugin-config"))
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", home)
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
 
 	var errb bytes.Buffer
 	a := &App{Out: &bytes.Buffer{}, Err: &errb}
-	if err := a.Run(context.Background(), []string{"config", "migrate", legacy}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "migrate", legacy}))
 	warning := errb.String()
-	if strings.Contains(warning, "now takes precedence") || !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy) {
-		t.Fatalf("stderr = %q", warning)
-	}
+	require.NotContains(t, warning, "now takes precedence")
+	assert.Contains(t, warning, "set HERDR_SESH_CONFIG="+native+" before deleting "+legacy)
 }
 
 func TestConfigMigrateLegacySymlinkDoesNotClaimNativePrecedence(t *testing.T) {
@@ -413,91 +300,58 @@ func TestConfigMigrateLegacySymlinkDoesNotClaimNativePrecedence(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", pluginDir)
 	t.Setenv("HERDR_SESH_CONFIG", "")
 	t.Setenv("HOME", home)
-	if err := os.MkdirAll(pluginDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacy, []byte("cache = true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(native, legacyLink); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(pluginDir, 0700))
+	require.NoError(t, os.WriteFile(legacy, []byte("cache = true\n"), 0600))
+	require.NoError(t, os.Symlink(native, legacyLink))
 
 	var errb bytes.Buffer
 	a := &App{Out: &bytes.Buffer{}, Err: &errb}
-	if err := a.Run(context.Background(), []string{"config", "migrate", legacy}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"config", "migrate", legacy}))
 	cfg, resolved, err := config.Load(config.LoadOptions{Warn: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved != legacyLink || cfg.Cache {
-		t.Fatalf("resolved %q with cache=%t, want legacy decoding through %q", resolved, cfg.Cache, legacyLink)
-	}
+	require.NoError(t, err)
+	require.Equal(t, legacyLink, resolved)
+	require.False(t, cfg.Cache)
 	warning := errb.String()
-	if strings.Contains(warning, "now takes precedence") || !strings.Contains(warning, "set HERDR_SESH_CONFIG="+native) {
-		t.Fatalf("stderr = %q", warning)
-	}
+	require.NotContains(t, warning, "now takes precedence")
+	assert.Contains(t, warning, "set HERDR_SESH_CONFIG="+native)
 }
 
 func TestListIgnoresCorruptSessionCache(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
 	stateDir := filepath.Join(d, "state")
-	if err := os.MkdirAll(stateDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(stateDir, "sessions.json"), []byte("{"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(stateDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "sessions.json"), []byte("{"), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
 
 	var out, errb bytes.Buffer
 	a := &App{Out: &out, Err: &errb}
-	if err := a.Run(context.Background(), []string{"list", "--json", "--config", cfgPath}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), `"name": "api"`) {
-		t.Fatalf("output = %q", out.String())
-	}
-	if !strings.Contains(errb.String(), "warning: ignoring session cache") {
-		t.Fatalf("stderr = %q", errb.String())
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"list", "--json", "--config", cfgPath}))
+	require.Contains(t, out.String(), `"name": "api"`)
+	assert.Contains(t, errb.String(), "warning: ignoring session cache")
 }
 
 func TestListWarnsWhenSessionCacheCannotBeSaved(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
 	statePath := filepath.Join(d, "state-file")
-	if err := os.WriteFile(statePath, []byte("not a directory"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(statePath, []byte("not a directory"), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", statePath)
 
 	var out, errb bytes.Buffer
 	a := &App{Out: &out, Err: &errb}
-	if err := a.Run(context.Background(), []string{"list", "--json", "--config", cfgPath}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), `"name": "api"`) {
-		t.Fatalf("output = %q", out.String())
-	}
-	if !strings.Contains(errb.String(), "warning: ignoring session cache") || !strings.Contains(errb.String(), "warning: could not save session cache") {
-		t.Fatalf("stderr = %q", errb.String())
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"list", "--json", "--config", cfgPath}))
+	require.Contains(t, out.String(), `"name": "api"`)
+	require.Contains(t, errb.String(), "warning: ignoring session cache")
+	assert.Contains(t, errb.String(), "warning: could not save session cache")
 }
 
 func TestListCacheDoesNotMaskBlacklistedResults(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte(`cache = true
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`cache = true
 blacklist = ["^scratch$"]
 
 [[session]]
@@ -507,60 +361,48 @@ path = "/tmp/api"
 [[session]]
 name = "scratch"
 path = "/tmp/scratch"
-`), 0600); err != nil {
-		t.Fatal(err)
-	}
+`), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(d, "state"))
 
-	if got := runListJSON(t, cfgPath, ""); len(got) != 1 || got[0].Name != "api" {
-		t.Fatalf("normal sessions = %#v", got)
-	}
-	if got := runListJSON(t, cfgPath, "", "--blacklisted"); len(got) != 1 || got[0].Name != "scratch" {
-		t.Fatalf("blacklisted sessions = %#v", got)
-	}
+	got := runListJSON(t, cfgPath, "")
+	require.Len(t, got, 1)
+	assert.Equal(t, "api", got[0].Name)
+	got = runListJSON(t, cfgPath, "", "--blacklisted")
+	require.Len(t, got, 1)
+	assert.Equal(t, "scratch", got[0].Name)
 }
 
 func TestListCacheDoesNotMaskDuplicateResults(t *testing.T) {
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte(`cache = true
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`cache = true
 sort_order = ["config", "zoxide"]
 
 [[session]]
 name = "api"
 path = "/configured/api"
-`), 0600); err != nil {
-		t.Fatal(err)
-	}
+`), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(d, "state"))
 	zoxideOutput := "42 /discovered/api\n"
 
-	if got := runListJSON(t, cfgPath, zoxideOutput); len(got) != 1 {
-		t.Fatalf("deduplicated sessions = %#v", got)
-	}
-	if got := runListJSON(t, cfgPath, zoxideOutput, "--hide-duplicates=false"); len(got) != 2 {
-		t.Fatalf("duplicate sessions = %#v", got)
-	}
+	require.Len(t, runListJSON(t, cfgPath, zoxideOutput), 1)
+	require.Len(t, runListJSON(t, cfgPath, zoxideOutput, "--hide-duplicates=false"), 2)
 }
 
 func TestListCacheDoesNotCrossConfigFiles(t *testing.T) {
 	d := t.TempDir()
 	firstConfig := filepath.Join(d, "first.toml")
 	secondConfig := filepath.Join(d, "second.toml")
-	if err := os.WriteFile(firstConfig, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(secondConfig, []byte("cache = true\n[[session]]\nname = \"web\"\npath = \"/tmp/web\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(firstConfig, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
+	require.NoError(t, os.WriteFile(secondConfig, []byte("cache = true\n[[session]]\nname = \"web\"\npath = \"/tmp/web\"\n"), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(d, "state"))
 
-	if got := runListJSON(t, firstConfig, ""); len(got) != 1 || got[0].Name != "api" {
-		t.Fatalf("first config sessions = %#v", got)
-	}
-	if got := runListJSON(t, secondConfig, ""); len(got) != 1 || got[0].Name != "web" {
-		t.Fatalf("second config sessions = %#v", got)
-	}
+	got := runListJSON(t, firstConfig, "")
+	require.Len(t, got, 1)
+	assert.Equal(t, "api", got[0].Name)
+	got = runListJSON(t, secondConfig, "")
+	require.Len(t, got, 1)
+	assert.Equal(t, "web", got[0].Name)
 }
 
 func TestListCacheDistinguishesRelativeConfigsAcrossWorkingDirectories(t *testing.T) {
@@ -568,98 +410,68 @@ func TestListCacheDistinguishesRelativeConfigsAcrossWorkingDirectories(t *testin
 	firstDir := filepath.Join(d, "first")
 	secondDir := filepath.Join(d, "second")
 	for dir, name := range map[string]string{firstDir: "api", secondDir: "web"} {
-		if err := os.Mkdir(dir, 0700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.Mkdir(dir, 0700))
 		body := fmt.Sprintf("cache = true\n[[session]]\nname = %q\npath = %q\n", name, filepath.Join("/tmp", name))
-		if err := os.WriteFile(filepath.Join(dir, "sesh.toml"), []byte(body), 0600); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "sesh.toml"), []byte(body), 0600))
 	}
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(d, "state"))
 
 	t.Chdir(firstDir)
-	if got := runListJSON(t, "sesh.toml", ""); len(got) != 1 || got[0].Name != "api" {
-		t.Fatalf("first config sessions = %#v", got)
-	}
+	got := runListJSON(t, "sesh.toml", "")
+	require.Len(t, got, 1)
+	assert.Equal(t, "api", got[0].Name)
 	t.Chdir(secondDir)
-	if got := runListJSON(t, "sesh.toml", ""); len(got) != 1 || got[0].Name != "web" {
-		t.Fatalf("second config sessions = %#v", got)
-	}
+	got = runListJSON(t, "sesh.toml", "")
+	require.Len(t, got, 1)
+	assert.Equal(t, "web", got[0].Name)
 }
 
 func TestPickerOptionsPropagateWorkspaceSort(t *testing.T) {
 	cfg := config.Default()
-	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).WorkspaceSort; got != "workspace" {
-		t.Fatalf("default workspace sort = %q, want workspace", got)
-	}
+	require.Equal(t, "workspace", pickerOptionsFromConfig(context.Background(), io.Discard, cfg).WorkspaceSort)
 	cfg.TUI.DefaultSort = "agent"
-	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).WorkspaceSort; got != "agent" {
-		t.Fatalf("workspace sort = %q, want agent", got)
-	}
+	assert.Equal(t, "agent", pickerOptionsFromConfig(context.Background(), io.Discard, cfg).WorkspaceSort)
 }
 
 func TestPickerOptionsPropagateWorktreeIconReplacement(t *testing.T) {
 	cfg := config.Default()
-	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.DisableWorktreeIconReplacement {
-		t.Fatal("default config disabled worktree icon replacement")
-	}
+	require.False(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).DisableWorktreeIconReplacement, "default config disabled worktree icon replacement")
 	cfg.TUI.ReplaceWorktreeIcon = false
-	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); !opts.DisableWorktreeIconReplacement {
-		t.Fatal("disabled worktree icon replacement was not propagated")
-	}
+	assert.True(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).DisableWorktreeIconReplacement, "disabled worktree icon replacement was not propagated")
 }
 
 func TestPickerOptionsPropagatePreviewVisibility(t *testing.T) {
 	cfg := config.Default()
-	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.HidePreview {
-		t.Fatal("default config hid native picker preview")
-	}
+	require.False(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HidePreview, "default config hid native picker preview")
 	cfg.TUI.ShowPreview = false
-	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); !opts.HidePreview {
-		t.Fatal("show_preview=false was not propagated")
-	}
+	assert.True(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HidePreview, "show_preview=false was not propagated")
 }
 
 func TestPickerOptionsPropagatePreviewMode(t *testing.T) {
 	cfg := config.Default()
-	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode; got != "command" {
-		t.Fatalf("default preview mode = %q, want command", got)
-	}
+	require.Equal(t, "command", pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode)
 	cfg.TUI.PreviewMode = "pane"
-	if got := pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode; got != "pane" {
-		t.Fatalf("preview mode = %q, want pane", got)
-	}
+	assert.Equal(t, "pane", pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode)
 }
 
 func TestPickerOptionsPropagateHomePrioritization(t *testing.T) {
 	cfg := config.Default()
-	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); opts.DisableHomePrioritization {
-		t.Fatal("default config disabled home prioritization")
-	}
+	require.False(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).DisableHomePrioritization, "default config disabled home prioritization")
 	cfg.TUI.PrioritizeHome = false
-	if opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg); !opts.DisableHomePrioritization {
-		t.Fatal("prioritize_home=false was not propagated")
-	}
+	assert.True(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).DisableHomePrioritization, "prioritize_home=false was not propagated")
 }
 
 func TestPickerJSONCommand(t *testing.T) {
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"picker", "--json", "--config", filepath.Join("..", "..", "testdata", "sesh.toml")}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), `"name": "sesh"`) {
-		t.Fatalf("output = %q", out.String())
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"picker", "--json", "--config", filepath.Join("..", "..", "testdata", "sesh.toml")}))
+	assert.Contains(t, out.String(), `"name": "sesh"`)
 }
 
 func TestNativePickerFailsWhenWorkspaceHistoryCannotResolve(t *testing.T) {
 	configureFakeSources(t, "")
 	statePath := filepath.Join(t.TempDir(), "state")
-	if err := os.WriteFile(statePath, []byte("not a directory"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(statePath, []byte("not a directory"), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", statePath)
 	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "herdr", "herdr.sock"))
 
@@ -667,36 +479,29 @@ func TestNativePickerFailsWhenWorkspaceHistoryCannotResolve(t *testing.T) {
 		context.Background(),
 		[]string{"picker", "--config", filepath.Join("..", "..", "testdata", "sesh.toml")},
 	)
-	if err == nil || !strings.Contains(err.Error(), "resolve workspace history") {
-		t.Fatalf("picker error=%v, want workspace history resolution failure", err)
-	}
+	require.ErrorContains(t, err, "resolve workspace history")
 }
 
 func TestPickerJSONAppliesDefaultStartupCommand(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte(`[default_session]
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`[default_session]
 startup_command = "printf default:{}"
 
 [[session]]
 name = "api"
 path = "/tmp/api"
-`), 0600); err != nil {
-		t.Fatal(err)
-	}
+`), 0600))
 
 	sessions := runPickerJSON(t, cfgPath, "")
-	if len(sessions) != 1 || sessions[0].StartupCommand != "printf default:{}" {
-		t.Fatalf("sessions = %#v", sessions)
-	}
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "printf default:{}", sessions[0].StartupCommand)
 }
 
 func TestPickerJSONAppliesWildcardSettings(t *testing.T) {
 	project := filepath.Join(t.TempDir(), "project")
-	if err := os.Mkdir(project, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(project, 0700))
 	cfgPath := filepath.Join(t.TempDir(), "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte(`strict_mode = true
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`strict_mode = true
 
 [[wildcard]]
 pattern = "`+project+`"
@@ -708,30 +513,23 @@ windows = ["git"]
 [[window]]
 name = "git"
 startup_script = "git status"
-`), 0600); err != nil {
-		t.Fatal(err)
-	}
+`), 0600))
 
 	sessions := runPickerJSON(t, cfgPath, "42 "+project+"\n")
-	if len(sessions) != 1 {
-		t.Fatalf("sessions = %#v", sessions)
-	}
+	require.Len(t, sessions, 1)
 	s := sessions[0]
-	if s.StartupCommand != "" || s.PreviewCommand != "printf preview:{}" || !s.DisableStartupCommand || !reflect.DeepEqual(s.WindowNames, []string{"git"}) {
-		t.Fatalf("wildcard session = %#v", s)
-	}
-	if len(s.WindowConfigs) != 0 {
-		t.Fatalf("window configs leaked into JSON: %#v", s.WindowConfigs)
-	}
+	require.Empty(t, s.StartupCommand)
+	require.Equal(t, "printf preview:{}", s.PreviewCommand)
+	require.True(t, s.DisableStartupCommand)
+	require.Equal(t, []string{"git"}, s.WindowNames)
+	assert.Empty(t, s.WindowConfigs)
 }
 
 func TestPickerJSONExplicitFalseOverridesWildcardDisable(t *testing.T) {
 	project := filepath.Join(t.TempDir(), "project")
-	if err := os.Mkdir(project, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(project, 0700))
 	cfgPath := filepath.Join(t.TempDir(), "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte(`[default_session]
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`[default_session]
 startup_command = "printf default:{}"
 
 [[session]]
@@ -743,59 +541,43 @@ disable_startup_command = false
 pattern = "`+project+`"
 startup_command = "printf wildcard:{}"
 disable_startup_command = true
-`), 0600); err != nil {
-		t.Fatal(err)
-	}
+`), 0600))
 
 	sessions := runPickerJSON(t, cfgPath, "")
-	if len(sessions) != 1 {
-		t.Fatalf("sessions = %#v", sessions)
-	}
-	if sessions[0].DisableStartupCommand || sessions[0].StartupCommand != "printf wildcard:{}" {
-		t.Fatalf("session = %#v", sessions[0])
-	}
+	require.Len(t, sessions, 1)
+	require.False(t, sessions[0].DisableStartupCommand)
+	assert.Equal(t, "printf wildcard:{}", sessions[0].StartupCommand)
 }
 
 func TestCollectDirectPathUsesConfiguredDirLength(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "parent")
 	target := filepath.Join(parent, "child")
-	if err := os.MkdirAll(target, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(target, 0700))
 	configureFakeSources(t, "")
 	cfg := config.Default()
 	cfg.DirLength = 2
 
 	sessions, err := (&App{}).collectAllowUnavailableHerdr(context.Background(), cfg, target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sessions) != 1 || sessions[0].Name != filepath.Join("parent", "child") {
-		t.Fatalf("sessions = %#v", sessions)
-	}
+	require.NoError(t, err)
+	require.Len(t, sessions, 1)
+	assert.Equal(t, filepath.Join("parent", "child"), sessions[0].Name)
 }
 
 func TestCollectPropagatesHerdrErrors(t *testing.T) {
 	configureFakeSources(t, "")
 
-	if _, err := (&App{}).collect(context.Background(), config.Default(), ""); err == nil {
-		t.Fatal("collect succeeded when Herdr workspace listing failed")
-	}
+	_, err := (&App{}).collect(context.Background(), config.Default(), "")
+	require.Error(t, err)
 }
 
 func TestCollectPickerPreservesHerdrError(t *testing.T) {
 	configureFakeSources(t, "")
 
 	col, err := (&App{}).collectPicker(context.Background(), config.Default())
-	if err != nil {
-		t.Fatalf("collect picker sources: %v", err)
-	}
-	if col.HerdrErr == nil {
-		t.Fatal("collectPicker discarded Herdr workspace listing error")
-	}
-	if len(col.Sessions) != 0 || col.HerdrWorkspaces != nil {
-		t.Fatalf("sessions=%#v workspaces=%#v", col.Sessions, col.HerdrWorkspaces)
-	}
+	require.NoError(t, err)
+	require.Error(t, col.HerdrErr)
+	require.Empty(t, col.Sessions)
+	require.Nil(t, col.HerdrWorkspaces)
 }
 
 func TestCollectPickerReturnsRawHerdrWorkspaces(t *testing.T) {
@@ -808,13 +590,10 @@ esac
 `)
 
 	col, err := (&App{}).collectPicker(context.Background(), config.Default())
-	if err != nil || col.HerdrErr != nil {
-		t.Fatalf("collect picker: err=%v herdrErr=%v", err, col.HerdrErr)
-	}
+	require.NoError(t, err)
+	require.NoError(t, col.HerdrErr)
 	want := []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "w1"}}
-	if !reflect.DeepEqual(col.HerdrWorkspaces, want) {
-		t.Fatalf("herdr workspaces=%#v want %#v", col.HerdrWorkspaces, want)
-	}
+	assert.Equal(t, want, col.HerdrWorkspaces)
 }
 
 func TestReloadPickerStateResolvesFocusedWorkspace(t *testing.T) {
@@ -856,9 +635,7 @@ case "$1 $2" in
 esac
 `, tt.paneCurrent))
 			stateDir := filepath.Join(t.TempDir(), "state")
-			if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"focused", "previous"}}); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, state.SaveHistory(stateDir, state.History{Workspaces: []string{"focused", "previous"}}))
 			t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
 			t.Setenv("HERDR_SOCKET_PATH", "")
 			pickerWorkspaceID := "closed-workspace"
@@ -868,23 +645,17 @@ esac
 			}
 
 			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, warn)
-			if err != nil {
-				t.Fatalf("reload picker state: %v", err)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantID, pickerWorkspaceID)
+			require.Equal(t, tt.wantUnknown, result.LastWorkspaceUnknown)
+			if !tt.wantUnknown {
+				assert.Equal(t, tt.wantLast, result.LastWorkspaceID)
 			}
-			if pickerWorkspaceID != tt.wantID {
-				t.Fatalf("picker workspace=%q, want %q", pickerWorkspaceID, tt.wantID)
-			}
-			if result.LastWorkspaceUnknown != tt.wantUnknown {
-				t.Fatalf("last workspace unknown=%v, want %v", result.LastWorkspaceUnknown, tt.wantUnknown)
-			}
-			if !tt.wantUnknown && result.LastWorkspaceID != tt.wantLast {
-				t.Fatalf("last workspace=%q, want %q", result.LastWorkspaceID, tt.wantLast)
-			}
-			if tt.wantWarning == "" && len(warnings) > 0 {
-				t.Fatalf("unexpected warnings: %v", warnings)
-			}
-			if tt.wantWarning != "" && (len(warnings) != 1 || !strings.Contains(warnings[0], tt.wantWarning)) {
-				t.Fatalf("warnings=%v, want one containing %q", warnings, tt.wantWarning)
+			if tt.wantWarning == "" {
+				assert.Empty(t, warnings)
+			} else {
+				require.Len(t, warnings, 1)
+				assert.Contains(t, warnings[0], tt.wantWarning)
 			}
 		})
 	}
@@ -909,73 +680,50 @@ printf '[]\n'
 `
 	for name, script := range map[string]string{"herdr": herdrScript, "zoxide": zoxideScript} {
 		//nolint:gosec // test creates local executable fixtures.
-		if err := os.WriteFile(filepath.Join(d, name), []byte(script), 0700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(d, name), []byte(script), 0700))
 	}
 	t.Setenv("HERDR_BIN_PATH", filepath.Join(d, "herdr"))
 	t.Setenv("CONCURRENT_SOURCE_MARKER", marker)
 	t.Setenv("PATH", d+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	col, err := (&App{}).collectPicker(context.Background(), config.Default())
-	if err != nil {
-		t.Fatalf("collect picker sources: %v", err)
-	}
-	if col.HerdrErr != nil {
-		t.Fatalf("Herdr ran before zoxide: %v", col.HerdrErr)
-	}
+	require.NoError(t, err)
+	require.NoError(t, col.HerdrErr)
 }
 
 func TestPreviewCommandUsesExplicitConfig(t *testing.T) {
 	d := t.TempDir()
 	targetDir := filepath.Join(d, "target")
-	if err := os.Mkdir(targetDir, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(targetDir, 0700))
 	cfgPath := filepath.Join(d, "sesh.toml")
-	if err := os.WriteFile(cfgPath, []byte("[default_session]\npreview_command = \"printf configured:%s {}\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(cfgPath, []byte("[default_session]\npreview_command = \"printf configured:%s {}\"\n"), 0600))
 	fakeBin := filepath.Join(d, "bin")
-	if err := os.MkdirAll(fakeBin, 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(fakeBin, 0700))
 	for _, name := range []string{"herdr", "zoxide"} {
 		//nolint:gosec // test creates local executable fixtures.
-		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(fakeBin, name), []byte("#!/bin/sh\nexit 1\n"), 0700))
 	}
 	//nolint:gosec // test creates a local executable fixture.
-	if err := os.WriteFile(filepath.Join(fakeBin, "eza"), []byte("#!/bin/sh\nprintf 'default:%s\\n' \"$*\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "eza"), []byte("#!/bin/sh\nprintf 'default:%s\\n' \"$*\"\n"), 0700))
 	t.Setenv("HERDR_BIN_PATH", filepath.Join(fakeBin, "herdr"))
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"preview", "--config", cfgPath, targetDir}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "configured:") || !strings.Contains(out.String(), targetDir) {
-		t.Fatalf("output = %q", out.String())
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"preview", "--config", cfgPath, targetDir}))
+	require.Contains(t, out.String(), "configured:")
+	assert.Contains(t, out.String(), targetDir)
 }
 
 func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	d := t.TempDir()
 	stateDir := filepath.Join(d, "state")
-	if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"current", "previous", "older"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, state.SaveHistory(stateDir, state.History{Workspaces: []string{"current", "previous", "older"}}))
 	fakeHerdr := filepath.Join(d, "herdr")
 	logPath := filepath.Join(d, "herdr.log")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"
 	//nolint:gosec // test creates a local executable fixture.
-	if err := os.WriteFile(fakeHerdr, []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(fakeHerdr, []byte(script), 0700))
 	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
 	t.Setenv("HERDR_FAKE_LOG", logPath)
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
@@ -983,33 +731,21 @@ func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	t.Setenv("HERDR_WORKSPACE_ID", "current")
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"last"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"last"}))
 	//nolint:gosec // logPath is a test-owned temp file.
 	log, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(log)); got != "workspace focus previous" {
-		t.Fatalf("herdr args = %q", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "workspace focus previous", strings.TrimSpace(string(log)))
 	h, err := state.LoadHistory(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []string{"previous", "current", "older"}
-	if !reflect.DeepEqual(h.Workspaces, want) {
-		t.Fatalf("workspaces=%#v want %#v", h.Workspaces, want)
-	}
+	assert.Equal(t, want, h.Workspaces)
 }
 
 func TestPluginManifestStartsHistoryWatcherForRuntimeLifecycleEvents(t *testing.T) {
 	//nolint:gosec // The manifest is a repository-owned test fixture.
 	b, err := os.ReadFile("../../herdr-plugin.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var manifest struct {
 		MinHerdrVersion string `toml:"min_herdr_version"`
 		Events          []struct {
@@ -1017,87 +753,57 @@ func TestPluginManifestStartsHistoryWatcherForRuntimeLifecycleEvents(t *testing.
 			Command []string `toml:"command"`
 		} `toml:"events"`
 	}
-	if err := toml.Unmarshal(b, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.MinHerdrVersion != "0.8.2" {
-		t.Fatalf("min_herdr_version=%q, want 0.8.2", manifest.MinHerdrVersion)
-	}
+	require.NoError(t, toml.Unmarshal(b, &manifest))
+	require.Equal(t, "0.8.2", manifest.MinHerdrVersion)
 	wantCommand := []string{"./bin/herdr-sesh", "plugin", "watch-history"}
 	got := make(map[string][]string, len(manifest.Events))
 	for _, event := range manifest.Events {
 		got[event.On] = event.Command
 	}
 	for _, event := range []string{"workspace.focused", "workspace.closed"} {
-		if !reflect.DeepEqual(got[event], wantCommand) {
-			t.Errorf("%s command=%#v want %#v", event, got[event], wantCommand)
-		}
+		assert.Equal(t, wantCommand, got[event])
 	}
 }
 
 func TestApplyHistoryHookLeavesFocusedEventsToSubscriber(t *testing.T) {
 	historyDir := t.TempDir()
 	want := state.History{Workspaces: []string{"current", "older"}}
-	if err := state.SaveHistory(historyDir, want); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, state.SaveHistory(historyDir, want))
 	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.focused")
 	t.Setenv("HERDR_WORKSPACE_ID", "late-hook")
 
 	err := applyHistoryHook(historyDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	history, err := state.LoadHistory(historyDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(history, want) {
-		t.Fatalf("history=%#v want %#v", history, want)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, want, history)
 }
 
 func TestApplyHistoryHookUsesClosedEventPayloadWorkspace(t *testing.T) {
 	historyDir := t.TempDir()
-	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"context", "closed", "older"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, state.SaveHistory(historyDir, state.History{Workspaces: []string{"context", "closed", "older"}}))
 	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.closed")
 	t.Setenv("HERDR_WORKSPACE_ID", "context")
 	t.Setenv("HERDR_PLUGIN_EVENT_JSON", `{"data":{"workspace_id":"closed"}}`)
 
-	if err := applyHistoryHook(historyDir); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, applyHistoryHook(historyDir))
 	history, err := state.LoadHistory(historyDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []string{"context", "older"}
-	if !reflect.DeepEqual(history.Workspaces, want) {
-		t.Fatalf("workspaces=%#v want %#v", history.Workspaces, want)
-	}
+	assert.Equal(t, want, history.Workspaces)
 }
 
 func TestPluginWatchHistoryBoundsClosedHookLockWait(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
 	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"closed"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, state.SaveHistory(historyDir, state.History{Workspaces: []string{"closed"}}))
 	//nolint:gosec // Test lock path is derived from t.TempDir().
 	lock, err := os.OpenFile(filepath.Join(historyDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = lock.Close() })
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
 	t.Cleanup(func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) })
 
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
@@ -1108,30 +814,20 @@ func TestPluginWatchHistoryBoundsClosedHookLockWait(t *testing.T) {
 	defer cancel()
 
 	err = (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"})
-	if !errors.Is(err, state.ErrHistoryLockTimeout) {
-		t.Fatalf("watch error=%v, want history lock timeout", err)
-	}
+	require.ErrorIs(t, err, state.ErrHistoryLockTimeout)
 }
 
 func TestPluginWatchHistoryAppliesClosedHookBeforeNoHistoryStream(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-hook-")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
 	socketPath := filepath.Join(socketDir, "herdr.sock")
 	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"closed", "other"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, state.SaveHistory(historyDir, state.History{Workspaces: []string{"closed", "other"}}))
 	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 
 	streamReady := make(chan struct{})
@@ -1207,51 +903,35 @@ func TestPluginWatchHistoryAppliesClosedHookBeforeNoHistoryStream(t *testing.T) 
 	select {
 	case <-streamReady:
 	case <-time.After(time.Second):
-		t.Fatal("watcher did not bootstrap")
+		require.FailNow(t, "watcher did not bootstrap")
 	}
 
 	deadline := time.Now().Add(time.Second)
 	for {
 		history, loadErr := state.LoadHistory(historyDir)
-		if loadErr != nil {
-			t.Fatal(loadErr)
-		}
+		require.NoError(t, loadErr)
 		if reflect.DeepEqual(history.Workspaces, []string{"other"}) {
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("history after hook and duplicate replay=%#v", history.Workspaces)
-		}
+		require.False(t, time.Now().After(deadline))
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
 	close(releaseServer)
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-watchDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("watch error=%v, want context cancellation", err)
-	}
+	require.NoError(t, <-serverDone)
+	require.ErrorIs(t, <-watchDone, context.Canceled)
 }
 
 func TestPluginWatchHistoryNonWinningFocusDoesNotMigrateLegacyHistory(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	socketPath := filepath.Join(root, "herdr", "herdr.sock")
-	if err := state.SaveHistory(stateDir, state.History{Workspaces: []string{"legacy"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, state.SaveHistory(stateDir, state.History{Workspaces: []string{"legacy"}}))
 	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !acquired {
-		t.Fatal("failed to hold watcher election lock")
-	}
+	require.NoError(t, err)
+	require.True(t, acquired, "failed to hold watcher election lock")
 	t.Cleanup(func() {
-		if err := release(); err != nil {
-			t.Error(err)
-		}
+		assert.NoError(t, release())
 	})
 
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
@@ -1259,26 +939,19 @@ func TestPluginWatchHistoryNonWinningFocusDoesNotMigrateLegacyHistory(t *testing
 	t.Setenv("HERDR_PLUGIN_EVENT", "workspace.focused")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(stateDir, "history")); !os.IsNotExist(err) {
-		t.Fatalf("non-winning focus hook migrated legacy history: %v", err)
-	}
+	require.NoError(t, (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"}))
+	_, err = os.Stat(filepath.Join(stateDir, "history"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
 	socketPath := filepath.Join(socketDir, "herdr.sock")
 	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 
 	watcherReady := make(chan struct{})
@@ -1353,7 +1026,7 @@ func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
 	select {
 	case <-watcherReady:
 	case <-time.After(2 * time.Second):
-		t.Fatal("first watcher did not subscribe")
+		require.FailNow(t, "first watcher did not subscribe")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -1362,15 +1035,9 @@ func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
 	secondErr := a.Run(ctx, []string{"plugin", "watch-history"})
 	cancelFirst()
 	close(releaseServer)
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-firstDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("first watcher error=%v, want context cancellation", err)
-	}
-	if secondErr != nil {
-		t.Fatalf("second watcher returned %v, want a successful no-op", secondErr)
-	}
+	require.NoError(t, <-serverDone)
+	require.ErrorIs(t, <-firstDone, context.Canceled)
+	require.NoError(t, secondErr)
 }
 
 func TestRetryHistoryMutationPreservesOrderAfterLockTimeout(t *testing.T) {
@@ -1409,34 +1076,22 @@ func TestRetryHistoryMutationPreservesOrderAfterLockTimeout(t *testing.T) {
 	select {
 	case <-blocked:
 	case <-ctx.Done():
-		t.Fatal("history mutation did not reach lock contention")
+		require.FailNow(t, "history mutation did not reach lock contention")
 	}
-	if len(got) != 0 {
-		t.Fatalf("later mutations overtook the contended mutation: %#v", got)
-	}
+	require.Empty(t, got)
 	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"B", "C", "D"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("mutations=%#v want %#v", got, want)
-	}
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"B", "C", "D"}, got)
 }
 
 func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T) {
 	historyDir := filepath.Join(t.TempDir(), "history")
-	if err := state.SaveHistory(historyDir, state.History{Workspaces: []string{"A", "closed"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, state.SaveHistory(historyDir, state.History{Workspaces: []string{"A", "closed"}}))
 	//nolint:gosec // Test lock path is derived from t.TempDir().
 	lock, err := os.OpenFile(filepath.Join(historyDir, "history.lock"), os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
 	locked := true
 	defer func() {
 		if locked {
@@ -1445,15 +1100,11 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	}()
 
 	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
 	socketPath := filepath.Join(socketDir, "herdr.sock")
 	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 
 	releaseServer := make(chan struct{})
@@ -1490,36 +1141,28 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	select {
 	case <-lockTimedOut:
 	case <-ctx.Done():
-		t.Fatal("watcher did not retry the contended snapshot mutation")
+		require.FailNow(t, "watcher did not retry the contended snapshot mutation")
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
 	locked = false
 
 	want := []string{"D", "C", "B", "A"}
 	for {
 		history, err := state.LoadHistory(historyDir)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		if reflect.DeepEqual(history.Workspaces, want) {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("history=%#v want %#v", history.Workspaces, want)
+			require.FailNow(t, fmt.Sprintf("history=%#v want %#v", history.Workspaces, want))
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
 	cancel()
 	close(releaseServer)
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-watchDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("watch error=%v want context cancellation", err)
-	}
+	require.NoError(t, <-serverDone)
+	require.ErrorIs(t, <-watchDone, context.Canceled)
 }
 
 func serveContendedHistoryStream(listener net.Listener, release <-chan struct{}) error {
@@ -1609,24 +1252,16 @@ func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
 	logPath := filepath.Join(d, "herdr.log")
 	fakeHerdr := filepath.Join(d, "herdr")
 	//nolint:gosec // test creates a local executable fixture.
-	if err := os.WriteFile(fakeHerdr, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(fakeHerdr, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"), 0700))
 	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
 	t.Setenv("HERDR_FAKE_LOG", logPath)
 
 	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"plugin", "open-picker"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"plugin", "open-picker"}))
 	//nolint:gosec // logPath is a test-owned temp file.
 	log, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(log)); got != "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay" {
-		t.Fatalf("herdr args=%q", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay", strings.TrimSpace(string(log)))
 }
 
 func runPickerJSON(t *testing.T, cfgPath, zoxideOutput string) []model.Session {
@@ -1635,13 +1270,9 @@ func runPickerJSON(t *testing.T, cfgPath, zoxideOutput string) []model.Session {
 
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), []string{"picker", "--json", "--config", cfgPath}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), []string{"picker", "--json", "--config", cfgPath}))
 	var sessions []model.Session
-	if err := json.Unmarshal(out.Bytes(), &sessions); err != nil {
-		t.Fatalf("decode picker JSON: %v\n%s", err, out.String())
-	}
+	require.NoError(t, json.Unmarshal(out.Bytes(), &sessions))
 	return sessions
 }
 
@@ -1652,13 +1283,9 @@ func runListJSON(t *testing.T, cfgPath, zoxideOutput string, extraArgs ...string
 	args := append([]string{"list", "--json", "--config", cfgPath}, extraArgs...)
 	var out bytes.Buffer
 	a := &App{Out: &out, Err: &bytes.Buffer{}}
-	if err := a.Run(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, a.Run(context.Background(), args))
 	var sessions []model.Session
-	if err := json.Unmarshal(out.Bytes(), &sessions); err != nil {
-		t.Fatalf("decode list JSON: %v\n%s", err, out.String())
-	}
+	require.NoError(t, json.Unmarshal(out.Bytes(), &sessions))
 	return sessions
 }
 
@@ -1666,13 +1293,9 @@ func configureHerdrScript(t *testing.T, script string) {
 	t.Helper()
 	fakeBin := t.TempDir()
 	//nolint:gosec // test creates local executable fixtures.
-	if err := os.WriteFile(filepath.Join(fakeBin, "herdr"), []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "herdr"), []byte(script), 0700))
 	//nolint:gosec // test creates local executable fixtures.
-	if err := os.WriteFile(filepath.Join(fakeBin, "zoxide"), []byte("#!/bin/sh\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "zoxide"), []byte("#!/bin/sh\n"), 0700))
 	t.Setenv("HERDR_BIN_PATH", filepath.Join(fakeBin, "herdr"))
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
@@ -1685,9 +1308,7 @@ func configureFakeSources(t *testing.T, zoxideOutput string) {
 		"zoxide": "#!/bin/sh\nprintf '%s' \"$FAKE_ZOXIDE_OUTPUT\"\n",
 	} {
 		//nolint:gosec // test creates local executable fixtures.
-		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(script), 0700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(filepath.Join(fakeBin, name), []byte(script), 0700))
 	}
 	t.Setenv("HERDR_BIN_PATH", filepath.Join(fakeBin, "herdr"))
 	t.Setenv("FAKE_ZOXIDE_OUTPUT", zoxideOutput)

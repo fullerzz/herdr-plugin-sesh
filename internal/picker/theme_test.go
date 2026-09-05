@@ -4,10 +4,11 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidHexColor(t *testing.T) {
@@ -28,9 +29,7 @@ func TestValidHexColor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := validHexColor(tt.value); got != tt.want {
-				t.Errorf("validHexColor(%q) = %v, want %v", tt.value, got, tt.want)
-			}
+			assert.Equal(t, tt.want, validHexColor(tt.value))
 		})
 	}
 }
@@ -39,18 +38,14 @@ func TestHerdrConfigPath(t *testing.T) {
 	t.Run("HERDR_CONFIG_PATH wins", func(t *testing.T) {
 		t.Setenv("HERDR_CONFIG_PATH", "/custom/herdr.toml")
 		t.Setenv("XDG_CONFIG_HOME", "/xdg")
-		if got := herdrConfigPath(); got != "/custom/herdr.toml" {
-			t.Errorf("herdrConfigPath() = %q, want /custom/herdr.toml", got)
-		}
+		assert.Equal(t, "/custom/herdr.toml", herdrConfigPath())
 	})
 
 	t.Run("XDG_CONFIG_HOME fallback", func(t *testing.T) {
 		t.Setenv("HERDR_CONFIG_PATH", "")
 		t.Setenv("XDG_CONFIG_HOME", "/xdg")
 		want := filepath.Join("/xdg", "herdr", "config.toml")
-		if got := herdrConfigPath(); got != want {
-			t.Errorf("herdrConfigPath() = %q, want %q", got, want)
-		}
+		assert.Equal(t, want, herdrConfigPath())
 	})
 
 	t.Run("home config fallback", func(t *testing.T) {
@@ -62,9 +57,7 @@ func TestHerdrConfigPath(t *testing.T) {
 			t.Skipf("no home directory: %v", err)
 		}
 		want := filepath.Join(home, ".config", "herdr", "config.toml")
-		if got != want {
-			t.Errorf("herdrConfigPath() = %q, want %q", got, want)
-		}
+		assert.Equal(t, want, got)
 	})
 }
 
@@ -83,36 +76,26 @@ key = "prefix+t"
 type = "plugin_action"
 command = "fullerzz.sesh.open-picker"
 `
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatalf("write config: %v", err)
-		}
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 		name, custom := loadHerdrThemeConfig(path)
-		if name != "catppuccin" {
-			t.Errorf("loadHerdrThemeConfig() name = %q, want %q", name, "catppuccin")
-		}
+		assert.Equal(t, "catppuccin", name)
 		want := map[string]string{"text": "#cdcdcd"}
-		if !reflect.DeepEqual(custom, want) {
-			t.Errorf("loadHerdrThemeConfig() custom = %v, want %v", custom, want)
-		}
+		assert.Equal(t, want, custom)
 	})
 
 	t.Run("missing file yields empty results", func(t *testing.T) {
 		name, custom := loadHerdrThemeConfig(filepath.Join(t.TempDir(), "absent.toml"))
-		if name != "" || custom != nil {
-			t.Errorf("loadHerdrThemeConfig() = (%q, %v), want empty results", name, custom)
-		}
+		assert.Empty(t, name)
+		assert.Nil(t, custom)
 	})
 
 	t.Run("invalid TOML yields empty results", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.toml")
-		if err := os.WriteFile(path, []byte("[theme"), 0o600); err != nil {
-			t.Fatalf("write config: %v", err)
-		}
+		require.NoError(t, os.WriteFile(path, []byte("[theme"), 0o600))
 		name, custom := loadHerdrThemeConfig(path)
-		if name != "" || custom != nil {
-			t.Errorf("loadHerdrThemeConfig() = (%q, %v), want empty results", name, custom)
-		}
+		assert.Empty(t, name)
+		assert.Nil(t, custom)
 	})
 }
 
@@ -145,36 +128,20 @@ func TestApplyHerdrTheme(t *testing.T) {
 			"bogus":  "#abcdef",
 		})
 
-		if !reflect.DeepEqual(textColor, lipgloss.Color("#112233")) {
-			t.Errorf("textColor = %v, want #112233", textColor)
-		}
-		if !reflect.DeepEqual(skyColor, lipgloss.Color("#445566")) {
-			t.Errorf("skyColor = %v, want #445566", skyColor)
-		}
-		if redColor != saved[4].value {
-			t.Errorf("redColor = %v, want untouched default %v", redColor, saved[4].value)
-		}
-		if violetColor != saved[6].value {
-			t.Errorf("violetColor = %v, want untouched default %v", violetColor, saved[6].value)
-		}
+		assert.Equal(t, lipgloss.Color("#112233"), textColor)
+		assert.Equal(t, lipgloss.Color("#445566"), skyColor)
+		assert.Equal(t, saved[4].value, redColor)
+		assert.Equal(t, saved[6].value, violetColor)
 
-		if got := rowLabelStyle.GetForeground(); !reflect.DeepEqual(got, lipgloss.Color("#112233")) {
-			t.Errorf("rowLabelStyle foreground = %v, want #112233", got)
-		}
-		if got := selectedLabelStyle.GetForeground(); !reflect.DeepEqual(got, lipgloss.Color("#112233")) {
-			t.Errorf("selectedLabelStyle foreground = %v, want #112233", got)
-		}
-		if got := selectionRailStyle.GetForeground(); !reflect.DeepEqual(got, lipgloss.Color("#445566")) {
-			t.Errorf("selectionRailStyle foreground = %v, want #445566", got)
-		}
+		assert.Equal(t, lipgloss.Color("#112233"), rowLabelStyle.GetForeground())
+		assert.Equal(t, lipgloss.Color("#112233"), selectedLabelStyle.GetForeground())
+		assert.Equal(t, lipgloss.Color("#445566"), selectionRailStyle.GetForeground())
 	})
 
 	t.Run("empty table is a no-op", func(t *testing.T) {
 		before := textColor
 		applyHerdrTheme(map[string]string{})
-		if !reflect.DeepEqual(textColor, before) {
-			t.Errorf("textColor = %v, want unchanged %v", textColor, before)
-		}
+		assert.Equal(t, before, textColor)
 	})
 }
 
@@ -254,14 +221,11 @@ func TestResolveHerdrThemeTokens(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := resolveHerdrThemeTokens(tt.rawName, tt.custom)
 			for token, want := range tt.contains {
-				if got[token] != want {
-					t.Errorf("token %q = %q, want %q", token, got[token], want)
-				}
+				assert.Equal(t, want, got[token])
 			}
 			for _, token := range tt.notContains {
-				if value, ok := got[token]; ok {
-					t.Errorf("token %q = %q, want absent", token, value)
-				}
+				value, ok := got[token]
+				assert.Falsef(t, ok, "token %q = %q, want absent", token, value)
 			}
 		})
 	}
@@ -269,16 +233,11 @@ func TestResolveHerdrThemeTokens(t *testing.T) {
 
 func TestHerdrThemePalettesAreComplete(t *testing.T) {
 	for name, palette := range herdrThemePalettes {
-		if len(palette) != len(herdrTokenRoles) {
-			t.Errorf("palette %q has %d tokens, want %d", name, len(palette), len(herdrTokenRoles))
-		}
+		assert.Len(t, palette, len(herdrTokenRoles), name)
 		for token, value := range palette {
-			if !validHexColor(value) {
-				t.Errorf("palette %q token %q = %q, want #RRGGBB hex", name, token, value)
-			}
-			if _, ok := herdrTokenRoles[token]; !ok {
-				t.Errorf("palette %q token %q is not a picker role", name, token)
-			}
+			assert.Truef(t, validHexColor(value), "palette %q token %q = %q", name, token, value)
+			_, ok := herdrTokenRoles[token]
+			assert.Truef(t, ok, "palette %q token %q is not a picker role", name, token)
 		}
 	}
 }
@@ -286,9 +245,7 @@ func TestHerdrThemePalettesAreComplete(t *testing.T) {
 func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	content := "[theme]\nname = \"dracula\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	t.Setenv("HERDR_CONFIG_PATH", path)
 
 	saved := []struct {
@@ -312,9 +269,7 @@ func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 	})
 
 	configureHerdrTheme(true)
-	if !reflect.DeepEqual(skyColor, lipgloss.Color("#bd93f9")) {
-		t.Fatalf("enabled run did not apply Dracula accent: %v", skyColor)
-	}
+	require.Equal(t, lipgloss.Color("#bd93f9"), skyColor)
 
 	configureHerdrTheme(false)
 
@@ -333,9 +288,7 @@ func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 		{name: "ghost", got: ghostColor, want: lipgloss.Color("#737AA2")},
 	}
 	for _, c := range colors {
-		if !reflect.DeepEqual(c.got, c.want) {
-			t.Errorf("%s color after disabled run = %v, want %v", c.name, c.got, c.want)
-		}
+		assert.Equal(t, c.want, c.got)
 	}
 
 	styles := []struct {
@@ -350,9 +303,7 @@ func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 		{name: "empty", got: emptyStyle.GetForeground(), want: lipgloss.Color("#E0AF68")},
 	}
 	for _, s := range styles {
-		if !reflect.DeepEqual(s.got, s.want) {
-			t.Errorf("%s style after disabled run = %v, want %v", s.name, s.got, s.want)
-		}
+		assert.Equal(t, s.want, s.got)
 	}
 }
 
@@ -366,10 +317,6 @@ func TestRebuildPickerStylesTracksColorVars(t *testing.T) {
 	violetColor = lipgloss.Color("#010203")
 	rebuildPickerStyles()
 
-	if got := titleStyle.GetForeground(); !reflect.DeepEqual(got, lipgloss.Color("#010203")) {
-		t.Errorf("titleStyle foreground = %v, want #010203", got)
-	}
-	if got := smearTrailStyle.GetForeground(); !reflect.DeepEqual(got, lipgloss.Color("#010203")) {
-		t.Errorf("smearTrailStyle foreground = %v, want #010203", got)
-	}
+	assert.Equal(t, lipgloss.Color("#010203"), titleStyle.GetForeground())
+	assert.Equal(t, lipgloss.Color("#010203"), smearTrailStyle.GetForeground())
 }

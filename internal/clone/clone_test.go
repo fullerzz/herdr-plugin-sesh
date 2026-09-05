@@ -1,30 +1,26 @@
 package clone
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestDestinationFromRepoURL(t *testing.T) {
 	got := Destination(Request{Repo: "git@host:org/project.git", CmdDir: "/tmp"})
-	if got != "/tmp/project" {
-		t.Fatalf("got %q", got)
-	}
+	assert.Equal(t, "/tmp/project", got)
 }
 func TestDestinationOverride(t *testing.T) {
 	got := Destination(Request{Repo: "x", Dir: "/tmp/custom"})
-	if got != "/tmp/custom" {
-		t.Fatalf("got %q", got)
-	}
+	assert.Equal(t, "/tmp/custom", got)
 }
 
 func TestDestinationRelativeDirUsesCmdDir(t *testing.T) {
 	got := Destination(Request{Repo: "x", CmdDir: "/tmp/work", Dir: "repo"})
-	if got != "/tmp/work/repo" {
-		t.Fatalf("got %q", got)
-	}
+	assert.Equal(t, "/tmp/work/repo", got)
 }
 
 func TestDestinationRelativeDirWithoutCmdDir(t *testing.T) {
 	got := Destination(Request{Repo: "x", Dir: "repo"})
-	if got != "repo" {
-		t.Fatalf("got %q", got)
-	}
+	assert.Equal(t, "repo", got)
 }

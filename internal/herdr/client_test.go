@@ -5,9 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type recRunner struct{ calls [][]string }
@@ -20,136 +21,118 @@ func TestCLIClientConstructsWorkspaceCreate(t *testing.T) {
 	rr := &recRunner{}
 	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
 	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api", Focus: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := [][]string{
 		{"/bin/herdr", "workspace", "create", "--cwd", "/tmp/api", "--label", "api"},
 		{"/bin/herdr", "workspace", "focus", "ws1"},
 	}
-	if !reflect.DeepEqual(rr.calls, want) {
-		t.Fatalf("got %#v want %#v", rr.calls, want)
-	}
+	assert.Equal(t, want, rr.calls)
 }
 
 func TestCLIClientConstructsWorkspaceCreateNoFocus(t *testing.T) {
 	rr := &recRunner{}
 	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
 	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := [][]string{{"/bin/herdr", "workspace", "create", "--cwd", "/tmp/api", "--label", "api", "--no-focus"}}
-	if !reflect.DeepEqual(rr.calls, want) {
-		t.Fatalf("got %#v want %#v", rr.calls, want)
-	}
+	assert.Equal(t, want, rr.calls)
 }
 
 func TestCLIClientConstructsWorkspaceClose(t *testing.T) {
 	rr := &recRunner{}
 	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
-	if err := c.WorkspaceClose(context.Background(), "ws1"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.WorkspaceClose(context.Background(), "ws1"))
 	want := [][]string{{"/bin/herdr", "workspace", "close", "ws1"}}
-	if !reflect.DeepEqual(rr.calls, want) {
-		t.Fatalf("got %#v want %#v", rr.calls, want)
-	}
+	assert.Equal(t, want, rr.calls)
 }
 
 func TestCLIClientDecodesWorkspaceListEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"api","agent_status":"working"}]}}`)}}
 	got, err := c.WorkspaceList(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "working" {
-		t.Fatalf("workspaces=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "w1", got[0].ID)
+	require.Equal(t, "api", got[0].Label)
+	assert.Equal(t, "working", got[0].AgentStatus)
 }
 
 func TestCLIClientDecodesWorkspaceListWorktreeMetadata(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"workspaces":[{"workspace_id":"w-root","label":"project","worktree":{"checkout_path":"/repos/project","is_linked_worktree":false,"repo_key":"/repos/project/.git","repo_name":"project","repo_root":"/repos/project"}},{"workspace_id":"w-child","label":"feature","worktree":{"checkout_path":"/worktrees/feature","is_linked_worktree":true,"repo_key":"/repos/project/.git","repo_name":"project","repo_root":"/repos/project"}}]}}`)}}
 	got, err := c.WorkspaceList(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("workspaces=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 2)
 	root, child := got[0].Worktree, got[1].Worktree
-	if root == nil || root.IsLinkedWorktree || root.CheckoutPath != "/repos/project" || root.RepoKey != "/repos/project/.git" || root.RepoName != "project" || root.RepoRoot != "/repos/project" {
-		t.Fatalf("root worktree=%#v", root)
-	}
-	if child == nil || !child.IsLinkedWorktree || child.CheckoutPath != "/worktrees/feature" || child.RepoKey != root.RepoKey {
-		t.Fatalf("child worktree=%#v", child)
-	}
+	require.NotNil(t, root)
+	require.False(t, root.IsLinkedWorktree)
+	require.Equal(t, "/repos/project", root.CheckoutPath)
+	require.Equal(t, "/repos/project/.git", root.RepoKey)
+	require.Equal(t, "project", root.RepoName)
+	require.Equal(t, "/repos/project", root.RepoRoot)
+	require.NotNil(t, child)
+	require.True(t, child.IsLinkedWorktree)
+	require.Equal(t, "/worktrees/feature", child.CheckoutPath)
+	assert.Equal(t, root.RepoKey, child.RepoKey)
 }
 
 func TestCLIClientDecodesWorkspaceListArrayWithoutWorktreeMetadata(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1","label":"api","agent_status":"blocked"}]`)}}
 	got, err := c.WorkspaceList(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "w1" || got[0].Label != "api" || got[0].AgentStatus != "blocked" || got[0].Worktree != nil {
-		t.Fatalf("workspaces=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "w1", got[0].ID)
+	require.Equal(t, "api", got[0].Label)
+	require.Equal(t, "blocked", got[0].AgentStatus)
+	require.Nil(t, got[0].Worktree)
 }
 
 func TestCLIClientDecodesWorkspaceCreateEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"root_pane":{"cwd":"/tmp/api","pane_id":"p1"},"workspace":{"workspace_id":"w1","label":"api"}}}`)}}
 	got, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api", Focus: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ID != "w1" || got.Label != "api" || got.CWD != "/tmp/api" {
-		t.Fatalf("workspace=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "w1", got.ID)
+	require.Equal(t, "api", got.Label)
+	assert.Equal(t, "/tmp/api", got.CWD)
 }
 
 func TestCLIClientDecodesTabCreateEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"root_pane":{"cwd":"/tmp/api","pane_id":"p1"},"tab":{"tab_id":"w1:t2","workspace_id":"w1","label":"api"}}}`)}}
 	got, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "w1", CWD: "/tmp/api", Label: "api", Focus: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ID != "w1:t2" || got.WorkspaceID != "w1" || got.CWD != "/tmp/api" || got.PaneID != "p1" {
-		t.Fatalf("tab=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "w1:t2", got.ID)
+	require.Equal(t, "w1", got.WorkspaceID)
+	require.Equal(t, "/tmp/api", got.CWD)
+	assert.Equal(t, "p1", got.PaneID)
 }
 
 func TestCLIClientDecodesTabListArray(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`[{"id":"w1:t1","workspace_id":"w1","label":"api"}]`)}}
 	got, err := c.TabList(context.Background(), "w1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "w1:t1" || got[0].WorkspaceID != "w1" || got[0].Label != "api" {
-		t.Fatalf("tabs=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "w1:t1", got[0].ID)
+	require.Equal(t, "w1", got[0].WorkspaceID)
+	assert.Equal(t, "api", got[0].Label)
 }
 
 func TestCLIClientDecodesPaneListEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"panes":[{"pane_id":"p1","workspace_id":"w1","tab_id":"w1:t1","cwd":"/tmp/api","foreground_cwd":"/tmp/api/sub","focused":true}]}}`)}}
 	got, err := c.PaneList(context.Background(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "p1" || got[0].WorkspaceID != "w1" || got[0].ForegroundCWD != "/tmp/api/sub" || !got[0].Focused {
-		t.Fatalf("panes=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "p1", got[0].ID)
+	require.Equal(t, "w1", got[0].WorkspaceID)
+	require.Equal(t, "/tmp/api/sub", got[0].ForegroundCWD)
+	assert.True(t, got[0].Focused)
 }
 
 func TestCLIClientDecodesPaneCurrentEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"pane":{"pane_id":"p1","workspace_id":"w1","tab_id":"w1:t1","cwd":"/tmp/api"}}}`)}}
 	got, err := c.PaneCurrent(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ID != "p1" || got.WorkspaceID != "w1" || got.TabID != "w1:t1" || got.CWD != "/tmp/api" {
-		t.Fatalf("pane=%#v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "p1", got.ID)
+	require.Equal(t, "w1", got.WorkspaceID)
+	require.Equal(t, "w1:t1", got.TabID)
+	assert.Equal(t, "/tmp/api", got.CWD)
 }
 
 func TestCLIClientPaneFocusedOmitsCallerPane(t *testing.T) {
@@ -163,30 +146,21 @@ else
 fi
 `
 	//nolint:gosec // test creates a local executable fixture.
-	if err := os.WriteFile(bin, []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0700))
 	t.Setenv("HERDR_PANE_ID", "stale-pane")
 	c := &CLIClient{Bin: bin, Runner: ExecRunner{}}
 
 	caller, err := c.PaneCurrent(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	focused, err := c.PaneFocused(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if caller.WorkspaceID != "caller" || focused.WorkspaceID != "focused" {
-		t.Fatalf("caller=%q focused=%q", caller.WorkspaceID, focused.WorkspaceID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "caller", caller.WorkspaceID)
+	assert.Equal(t, "focused", focused.WorkspaceID)
 }
 func TestFakeClientRecordsPaneRun(t *testing.T) {
 	f := &FakeClient{}
 	_ = f.PaneRun(context.Background(), "p1", "npm test")
-	if f.PaneRuns[0] != "p1:npm test" {
-		t.Fatal(f.PaneRuns)
-	}
+	assert.Equal(t, "p1:npm test", f.PaneRuns[0])
 }
 
 type fixedRunner struct {
@@ -202,21 +176,13 @@ func (r fixedRunner) Run(context.Context, string, ...string) ([]byte, []byte, er
 func TestCLIClientReturnsDecodeErrors(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte("not json")}}
 	_, err := c.WorkspaceList(context.Background())
-	if err == nil {
-		t.Fatal("expected decode error")
-	}
-	if !strings.Contains(err.Error(), "decode herdr workspace list JSON") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.ErrorContains(t, err, "decode herdr workspace list JSON")
 }
 
 func TestCLIClientIncludesStderrOnCommandFailure(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stderr: []byte("boom\n"), err: errors.New("exit status 1")}}
 	_, err := c.WorkspaceList(context.Background())
-	if err == nil {
-		t.Fatal("expected command error")
-	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.ErrorContains(t, err, "boom")
 }

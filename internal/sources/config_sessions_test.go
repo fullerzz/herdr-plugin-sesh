@@ -6,6 +6,8 @@ import (
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigSessionsExpandsHomePaths(t *testing.T) {
@@ -19,19 +21,12 @@ func TestConfigSessionsExpandsHomePaths(t *testing.T) {
 	}
 
 	got, err := ConfigSessions{Config: cfg, Home: "/home/zach"}.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sessions := got.Ordered()
-	if len(sessions) != 1 {
-		t.Fatalf("got %d sessions", len(sessions))
-	}
-	if sessions[0].Path != "/home/zach/projects/api" {
-		t.Fatalf("session path = %q", sessions[0].Path)
-	}
-	if len(sessions[0].WindowConfigs) != 1 || sessions[0].WindowConfigs[0].Path != "/home/zach/projects/api/logs" {
-		t.Fatalf("window configs = %#v", sessions[0].WindowConfigs)
-	}
+	require.Len(t, sessions, 1)
+	require.Equal(t, "/home/zach/projects/api", sessions[0].Path)
+	require.Len(t, sessions[0].WindowConfigs, 1)
+	assert.Equal(t, "/home/zach/projects/api/logs", sessions[0].WindowConfigs[0].Path)
 }
 
 func TestApplyConfigAttachesWildcardWindows(t *testing.T) {
@@ -45,9 +40,9 @@ func TestApplyConfigAttachesWildcardWindows(t *testing.T) {
 	ApplyConfig(&sessions, cfg, "/home/zach")
 
 	got := sessions.Ordered()[0]
-	if len(got.WindowConfigs) != 1 || got.WindowConfigs[0].Name != "logs" || got.WindowConfigs[0].Path != "/home/zach/projects/api/logs" {
-		t.Fatalf("window configs = %#v", got.WindowConfigs)
-	}
+	require.Len(t, got.WindowConfigs, 1)
+	require.Equal(t, "logs", got.WindowConfigs[0].Name)
+	assert.Equal(t, "/home/zach/projects/api/logs", got.WindowConfigs[0].Path)
 }
 
 func TestApplyConfigWildcardDisablePrecedesStartupFallback(t *testing.T) {
@@ -66,10 +61,8 @@ func TestApplyConfigWildcardDisablePrecedesStartupFallback(t *testing.T) {
 	ApplyConfig(&sessions, cfg, "")
 
 	got := sessions.Ordered()
-	if !got[0].DisableStartupCommand || got[0].StartupCommand != "configured" {
-		t.Fatalf("explicit session = %#v", got[0])
-	}
-	if !got[1].DisableStartupCommand || got[1].StartupCommand != "" {
-		t.Fatalf("fallback session = %#v", got[1])
-	}
+	require.True(t, got[0].DisableStartupCommand)
+	require.Equal(t, "configured", got[0].StartupCommand)
+	require.True(t, got[1].DisableStartupCommand)
+	assert.Empty(t, got[1].StartupCommand)
 }

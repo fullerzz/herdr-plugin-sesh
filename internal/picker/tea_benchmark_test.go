@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/require"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 )
 
@@ -30,16 +31,12 @@ func BenchmarkFilterSessions(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			picker := New(benchmarkSessions(tt.count))
 			picker.Filter(tt.query)
-			if got := len(picker.Filtered); got != tt.want {
-				b.Fatalf("filtered=%d, want %d", got, tt.want)
-			}
+			require.Len(b, picker.Filtered, tt.want)
 			b.ReportAllocs()
 			for b.Loop() {
 				picker.Filter(tt.query)
 			}
-			if got := len(picker.Filtered); got != tt.want {
-				b.Fatalf("filtered=%d, want %d", got, tt.want)
-			}
+			require.Len(b, picker.Filtered, tt.want)
 		})
 	}
 }
@@ -90,8 +87,9 @@ func BenchmarkPreviewNavigationBurst(b *testing.B) {
 			picker.list.Selected = i
 			next, command := picker.refreshPreview()
 			picker = next
+			// Keep assertion overhead off the measured success path.
 			if command == nil {
-				b.Fatalf("preview command %d is nil", i)
+				require.NotNil(b, command, "preview command %d", i)
 			}
 			go func(command tea.Cmd) {
 				_ = command()

@@ -1,23 +1,20 @@
 package config
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadMissingExplicitPathIncludesPath(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.toml")
 	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("err = %v, want os.ErrNotExist", err)
-	}
-	if !strings.Contains(err.Error(), p) {
-		t.Fatalf("err = %v, want missing path %q", err, p)
-	}
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorContains(t, err, p)
 }
 
 func TestLoadExplicitSessionAndWindows(t *testing.T) {
@@ -36,18 +33,14 @@ name = "git"
 startup_script = "git status"
 `)
 	cfg, path, err := Load(LoadOptions{Warn: io.Discard, Path: cfgp, Home: "/home/zach"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if path != cfgp || cfg.DirLength != 2 || len(cfg.SessionConfigs) != 1 || cfg.SessionConfigs[0].Path != "~/projects/api" {
-		t.Fatalf("unexpected cfg %#v path %s", cfg, path)
-	}
-	if len(cfg.WindowConfigs) != 1 || cfg.WindowConfigs[0].Name != "git" {
-		t.Fatalf("missing window %#v", cfg.WindowConfigs)
-	}
-	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
-		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
+	require.NoError(t, err)
+	require.Equal(t, cfgp, path)
+	require.Equal(t, 2, cfg.DirLength)
+	require.Len(t, cfg.SessionConfigs, 1)
+	require.Equal(t, "~/projects/api", cfg.SessionConfigs[0].Path)
+	require.Len(t, cfg.WindowConfigs, 1)
+	require.Equal(t, "git", cfg.WindowConfigs[0].Name)
+	assert.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 }
 
 func TestLoadStrictRejectsUnknown(t *testing.T) {
@@ -55,9 +48,7 @@ func TestLoadStrictRejectsUnknown(t *testing.T) {
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "strict_mode = true\nwat = 1\n")
 	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err == nil {
-		t.Fatal("expected strict error")
-	}
+	require.Error(t, err)
 }
 
 func TestLoadStrictRejectsUnsupportedSeshKeys(t *testing.T) {
@@ -73,9 +64,8 @@ func TestLoadStrictRejectsUnsupportedSeshKeys(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "sesh.toml")
 			mustWrite(t, p, "strict_mode = true\n"+body)
-			if _, _, err := Load(LoadOptions{Warn: io.Discard, Path: p}); err == nil {
-				t.Fatal("expected strict error")
-			}
+			_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
+			require.Error(t, err)
 		})
 	}
 }
@@ -85,9 +75,8 @@ func TestLoadStrictRejectsUnsupportedSeshKeysInImports(t *testing.T) {
 	mustWrite(t, filepath.Join(d, "extra.toml"), "tmux_command = \"psmux\"\n")
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "strict_mode = true\nimport = [\"extra.toml\"]\n")
-	if _, _, err := Load(LoadOptions{Warn: io.Discard, Path: p}); err == nil {
-		t.Fatal("expected strict error from imported config")
-	}
+	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
+	require.Error(t, err)
 }
 
 func TestLoadImportOrder(t *testing.T) {
@@ -99,12 +88,10 @@ path="/extra"
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import=[\"extra.toml\"]\n[[session]]\nname=\"main\"\npath=\"/main\"\n")
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := []string{cfg.SessionConfigs[0].Name, cfg.SessionConfigs[1].Name}; got[0] != "extra" || got[1] != "main" {
-		t.Fatalf("bad order %#v", got)
-	}
+	require.NoError(t, err)
+	got := []string{cfg.SessionConfigs[0].Name, cfg.SessionConfigs[1].Name}
+	require.Equal(t, "extra", got[0])
+	assert.Equal(t, "main", got[1])
 }
 
 func TestLoadMergesNestedConfigTablesFieldByField(t *testing.T) {
@@ -127,21 +114,11 @@ startup_command = "make test"
 placeholder = "Search workspaces"
 `)
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DefaultSessionConfig.StartupCommand != "make test" {
-		t.Fatalf("startup command = %q", cfg.DefaultSessionConfig.StartupCommand)
-	}
-	if cfg.DefaultSessionConfig.PreviewCommand != "printf extra {}" {
-		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
-	if cfg.TUI.Prompt != "Extra> " {
-		t.Fatalf("prompt = %q", cfg.TUI.Prompt)
-	}
-	if cfg.TUI.Placeholder != "Search workspaces" {
-		t.Fatalf("placeholder = %q", cfg.TUI.Placeholder)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "make test", cfg.DefaultSessionConfig.StartupCommand)
+	require.Equal(t, "printf extra {}", cfg.DefaultSessionConfig.PreviewCommand)
+	require.Equal(t, "Extra> ", cfg.TUI.Prompt)
+	assert.Equal(t, "Search workspaces", cfg.TUI.Placeholder)
 }
 
 func TestLoadExplicitEmptyPreviewCommandRestoresDefault(t *testing.T) {
@@ -156,12 +133,8 @@ preview_command = "printf extra {}"
 preview_command = ""
 `)
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
-		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 }
 
 func TestLoadExplicitEmptyTUITextOverridesImportedValues(t *testing.T) {
@@ -178,12 +151,9 @@ prompt = ""
 placeholder = ""
 `)
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.Prompt != "" || cfg.TUI.Placeholder != "" {
-		t.Fatalf("TUI text = prompt %q, placeholder %q", cfg.TUI.Prompt, cfg.TUI.Placeholder)
-	}
+	require.NoError(t, err)
+	require.Empty(t, cfg.TUI.Prompt)
+	assert.Empty(t, cfg.TUI.Placeholder)
 }
 
 func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
@@ -192,12 +162,8 @@ func TestLoadExplicitFalseShowIconsOverridesImportedValue(t *testing.T) {
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_icons = false\n")
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ShowIcons {
-		t.Fatal("show_icons = true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ShowIcons, "show_icons = true, want false")
 }
 
 func TestLoadExplicitFalseHerdrThemeInheritOverridesImportedValue(t *testing.T) {
@@ -206,12 +172,8 @@ func TestLoadExplicitFalseHerdrThemeInheritOverridesImportedValue(t *testing.T) 
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nherdr_theme_inherit = false\n")
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.HerdrThemeInherit {
-		t.Fatal("herdr_theme_inherit = true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.HerdrThemeInherit, "herdr_theme_inherit = true, want false")
 }
 
 func TestLoadExplicitFalseReplaceWorktreeIconOverridesImportedValue(t *testing.T) {
@@ -220,12 +182,8 @@ func TestLoadExplicitFalseReplaceWorktreeIconOverridesImportedValue(t *testing.T
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nreplace_worktree_icon = false\n")
 	cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ReplaceWorktreeIcon {
-		t.Fatal("replace_worktree_icon=true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ReplaceWorktreeIcon, "replace_worktree_icon=true, want false")
 }
 
 func TestLoadExplicitFalseShowLastWorkspacePathOverridesImportedValue(t *testing.T) {
@@ -234,12 +192,8 @@ func TestLoadExplicitFalseShowLastWorkspacePathOverridesImportedValue(t *testing
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_last_workspace_path = false\n")
 	cfg, _, err := Load(LoadOptions{Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ShowLastWorkspacePath {
-		t.Fatal("show_last_workspace_path = true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ShowLastWorkspacePath, "show_last_workspace_path = true, want false")
 }
 
 func TestLoadExplicitFalseShowLastWorkspaceOverridesImportedValue(t *testing.T) {
@@ -248,31 +202,22 @@ func TestLoadExplicitFalseShowLastWorkspaceOverridesImportedValue(t *testing.T) 
 	p := filepath.Join(d, "sesh.toml")
 	mustWrite(t, p, "import = [\"extra.toml\"]\n[tui]\nshow_last_workspace = false\n")
 	cfg, _, err := Load(LoadOptions{Path: p})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ShowLastWorkspace {
-		t.Fatal("show_last_workspace = true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ShowLastWorkspace, "show_last_workspace = true, want false")
 }
 
 func TestDefaultInheritsHerdrTheme(t *testing.T) {
-	if !Default().TUI.HerdrThemeInherit {
-		t.Fatal("herdr_theme_inherit default = false, want true")
-	}
+	assert.True(t, Default().TUI.HerdrThemeInherit, "herdr_theme_inherit default = false, want true")
 }
 
 func TestDefaultShowsLastWorkspacePath(t *testing.T) {
 	cfg := Default()
-	if !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath {
-		t.Fatalf("last workspace defaults = show %v, show path %v; want true", cfg.TUI.ShowLastWorkspace, cfg.TUI.ShowLastWorkspacePath)
-	}
+	require.True(t, cfg.TUI.ShowLastWorkspace)
+	assert.True(t, cfg.TUI.ShowLastWorkspacePath)
 }
 
 func TestDefaultReplacesWorktreeIcon(t *testing.T) {
-	if !Default().TUI.ReplaceWorktreeIcon {
-		t.Fatal("worktree icon replacement disabled by default")
-	}
+	assert.True(t, Default().TUI.ReplaceWorktreeIcon, "worktree icon replacement disabled by default")
 }
 
 func TestLoadTUIDefaultSort(t *testing.T) {
@@ -281,12 +226,8 @@ func TestLoadTUIDefaultSort(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "sesh.toml")
 			mustWrite(t, p, "[tui]\ndefault_sort = \""+sortMode+"\"\n")
 			cfg, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if cfg.TUI.DefaultSort != sortMode {
-				t.Fatalf("default sort = %q, want %q", cfg.TUI.DefaultSort, sortMode)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, sortMode, cfg.TUI.DefaultSort)
 		})
 	}
 }
@@ -295,46 +236,30 @@ func TestLoadRejectsInvalidTUIDefaultSort(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sesh.toml")
 	mustWrite(t, p, "[tui]\ndefault_sort = \"newest\"\n")
 	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})
-	if err == nil {
-		t.Fatal("expected invalid default sort error")
-	}
+	require.Error(t, err)
 	for _, want := range []string{"tui.default_sort", "workspace", "recent", "agent"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error %q does not mention %q", err, want)
-		}
+		require.ErrorContains(t, err, want)
 	}
 }
 
 func TestDefaultPreviewCommandUsesEzaIcons(t *testing.T) {
 	cfg := Default()
-	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
-		t.Fatalf("preview command = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
+	require.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 	// Preview output is captured through sh, never a TTY, so eza's automatic
 	// color detection would disable ANSI colors without an explicit force.
-	if DefaultPreviewCommand != "eza --icons=always --color=always -la {}" {
-		t.Fatalf("default preview command = %q", DefaultPreviewCommand)
-	}
+	assert.Equal(t, "eza --icons=always --color=always -la {}", DefaultPreviewCommand)
 }
 
 func TestInitConfigDoesNotAdvertiseUnsupportedSeshSchema(t *testing.T) {
 	p, err := InitConfig(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	//nolint:gosec // p is returned from InitConfig using a test-owned temporary directory.
 	data, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "sesh.schema.json") {
-		t.Fatalf("starter config advertises the full Sesh schema:\n%s", data)
-	}
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "sesh.schema.json")
 }
 
 func mustWrite(t *testing.T, p, s string) {
 	t.Helper()
-	if err := os.WriteFile(p, []byte(s), 0600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(p, []byte(s), 0600))
 }

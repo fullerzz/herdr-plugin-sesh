@@ -3,8 +3,10 @@ package herdr
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type panePreviewRunner struct {
@@ -32,13 +34,10 @@ func TestWorkspacePaneReadTargetsBackgroundWorkspaceActiveTab(t *testing.T) {
 	}}}`}
 	c := &CLIClient{Bin: "herdr", Runner: r}
 	text, err := c.WorkspacePaneRead(context.Background(), "w2")
-	if err != nil || text != "\x1b[32mactive pane\x1b[0m\n" {
-		t.Fatalf("text=%q err=%v", text, err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "\x1b[32mactive pane\x1b[0m\n", text)
 	want := [][]string{{"api", "snapshot"}, {"pane", "read", "w2:p3", "--source", "visible", "--format", "ansi"}}
-	if !reflect.DeepEqual(r.calls, want) {
-		t.Fatalf("calls=%v want=%v", r.calls, want)
-	}
+	assert.Equal(t, want, r.calls)
 }
 
 func TestWorkspacePaneReadRejectsMissingTargetsAndErrors(t *testing.T) {
@@ -55,16 +54,13 @@ func TestWorkspacePaneReadRejectsMissingTargetsAndErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &panePreviewRunner{snapshot: tc.snapshot, err: tc.err}
 			c := &CLIClient{Bin: "herdr", Runner: r}
-			if _, err := c.WorkspacePaneRead(context.Background(), tc.id); err == nil {
-				t.Fatal("expected error")
-			}
+			_, err := c.WorkspacePaneRead(context.Background(), tc.id)
+			require.Error(t, err)
 			var wantCalls [][]string
 			if tc.id != "" {
 				wantCalls = [][]string{{"api", "snapshot"}}
 			}
-			if !reflect.DeepEqual(r.calls, wantCalls) {
-				t.Fatalf("calls=%v, want %v", r.calls, wantCalls)
-			}
+			assert.Equal(t, wantCalls, r.calls)
 		})
 	}
 }

@@ -8,10 +8,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
@@ -84,16 +85,11 @@ func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 		},
 	)
 	_ = listener.Close()
-	if !reconnect || err == nil {
-		t.Fatalf("watch result=(%v, %v), want reconnect after closed stream", reconnect, err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.True(t, reconnect)
+	require.Error(t, err)
+	require.NoError(t, <-serverDone)
 	want := []string{"current", "previous", "older"}
-	if !reflect.DeepEqual(history, want) {
-		t.Fatalf("history=%#v want %#v", history, want)
-	}
+	assert.Equal(t, want, history)
 }
 
 func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) {
@@ -145,16 +141,11 @@ func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) 
 		},
 	)
 	_ = listener.Close()
-	if !reconnect || err == nil {
-		t.Fatalf("watch result=(%v, %v), want reconnect after closed stream", reconnect, err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.True(t, reconnect)
+	require.Error(t, err)
+	require.NoError(t, <-serverDone)
 	want := []string{"current", "previous", "older"}
-	if !reflect.DeepEqual(history, want) {
-		t.Fatalf("history=%#v want %#v", history, want)
-	}
+	assert.Equal(t, want, history)
 }
 
 func TestWatchWorkspaceEventsRejectsPreSubscriptionProtocol(t *testing.T) {
@@ -190,12 +181,8 @@ func TestWatchWorkspaceEventsRejectsPreSubscriptionProtocol(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	err := WatchWorkspaceEvents(ctx, socketPath, func(string) error { return nil }, func(string) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "requires Herdr protocol 20") {
-		t.Fatalf("watch error=%v, want protocol 20 requirement", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorContains(t, err, "requires Herdr protocol 20")
+	require.NoError(t, <-serverDone)
 }
 
 func TestWatchWorkspaceEventsBuffersProtocol21EventsDuringProtocolProbe(t *testing.T) {
@@ -282,15 +269,10 @@ func TestWatchWorkspaceEventsBuffersProtocol21EventsDuringProtocolProbe(t *testi
 			return nil
 		},
 	)
-	if !reconnect || err == nil {
-		t.Fatalf("watch result=(%v, %v), want reconnect after closed stream", reconnect, err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"C", "B", "A"}; !reflect.DeepEqual(history, want) {
-		t.Fatalf("history=%#v want %#v", history, want)
-	}
+	require.True(t, reconnect)
+	require.Error(t, err)
+	require.NoError(t, <-serverDone)
+	assert.Equal(t, []string{"C", "B", "A"}, history)
 }
 
 func TestWatchWorkspaceEventsNoHistoryKeepsSnapshotWindowEvent(t *testing.T) {
@@ -338,15 +320,9 @@ func TestWatchWorkspaceEventsNoHistoryKeepsSnapshotWindowEvent(t *testing.T) {
 		},
 		func(string) error { return nil },
 	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("watch error=%v, want context cancellation", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"snapshot", "during-snapshot"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("focuses=%#v want %#v", got, want)
-	}
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, <-serverDone)
+	assert.Equal(t, []string{"snapshot", "during-snapshot"}, got)
 }
 
 func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
@@ -414,30 +390,20 @@ func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
 			return nil
 		},
 	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("watch error=%v, want context cancellation", err)
-	}
-	if err := <-serverDone; err != nil {
-		t.Fatal(err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, <-serverDone)
 	want := []string{"focus:after-reconnect", "close:after-reconnect"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mutations=%#v want %#v", got, want)
-	}
+	assert.Equal(t, want, got)
 }
 
 func listenTestSocket(t *testing.T) (net.Listener, string) {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "herdr-sesh-events-")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	socketPath := filepath.Join(dir, "herdr.sock")
 	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 	return listener, socketPath
 }

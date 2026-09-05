@@ -5,56 +5,41 @@ import (
 	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSessionCacheUsesFreshEntries(t *testing.T) {
 	d := t.TempDir()
 	want := []model.Session{{Source: "config", Name: "api", Path: "/tmp/api"}}
-	if err := SaveSessionCache(d, "/tmp/sesh.toml", want, time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveSessionCache(d, "/tmp/sesh.toml", want, time.Now()))
 	got, ok, err := LoadSessionCache(d, "/tmp/sesh.toml", 5*time.Second, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || len(got) != 1 || got[0].Name != "api" {
-		t.Fatalf("got=%#v ok=%v", got, ok)
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, got, 1)
+	assert.Equal(t, "api", got[0].Name)
 }
 
 func TestSessionCacheIgnoresStaleEntries(t *testing.T) {
 	d := t.TempDir()
-	if err := SaveSessionCache(d, "", []model.Session{{Name: "old"}}, time.Unix(0, 0)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveSessionCache(d, "", []model.Session{{Name: "old"}}, time.Unix(0, 0)))
 	got, ok, err := LoadSessionCache(d, "", time.Second, time.Unix(10, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok || got != nil {
-		t.Fatalf("expected stale cache miss, got=%#v ok=%v", got, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, got)
 }
 
 func TestSessionCacheMissWhenMissing(t *testing.T) {
 	got, ok, err := LoadSessionCache(t.TempDir(), "", time.Second, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok || got != nil {
-		t.Fatalf("expected cache miss, got=%#v ok=%v", got, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, got)
 }
 
 func TestSessionCacheNoopsWithoutStateDir(t *testing.T) {
-	if err := SaveSessionCache("", "", []model.Session{{Name: "api"}}, time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, SaveSessionCache("", "", []model.Session{{Name: "api"}}, time.Now()))
 	got, ok, err := LoadSessionCache("", "", time.Second, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok || got != nil {
-		t.Fatalf("expected cache miss, got=%#v ok=%v", got, ok)
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, got)
 }

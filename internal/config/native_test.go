@@ -2,15 +2,14 @@ package config
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func loadNative(t *testing.T, body string) (Config, error) {
@@ -69,9 +68,7 @@ preview = "ls {}"
 disable_startup = false
 tabs = ["git"]
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	disable := true
 	want := Config{
 		Cache:          true,
@@ -99,40 +96,33 @@ tabs = ["git"]
 			Windows:        []string{"git"},
 		}},
 	}
-	if !configsEqual(cfg, want) {
-		t.Fatalf("decoded config mismatch:\ngot  %#v\nwant %#v", cfg, want)
-	}
+	assert.Equal(t, want, cfg)
 }
 
 func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 	cfg, err := loadNative(t, "version = 1\n")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	d := Default()
-	if cfg.DirLength != d.DirLength || cfg.TUI.DefaultSort != d.TUI.DefaultSort || !cfg.TUI.PrioritizeHome || !cfg.TUI.HerdrThemeInherit || !cfg.TUI.ShowLastWorkspace || !cfg.TUI.ShowLastWorkspacePath || !cfg.TUI.ReplaceWorktreeIcon || cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
-		t.Fatalf("defaults lost: %#v", cfg)
-	}
+	assert.Equal(t, d.DirLength, cfg.DirLength)
+	assert.Equal(t, d.TUI.DefaultSort, cfg.TUI.DefaultSort)
+	assert.True(t, cfg.TUI.PrioritizeHome, "prioritize_home")
+	assert.True(t, cfg.TUI.HerdrThemeInherit, "herdr_theme_inherit")
+	assert.True(t, cfg.TUI.ShowLastWorkspace, "show_last_workspace")
+	assert.True(t, cfg.TUI.ShowLastWorkspacePath, "show_last_workspace_path")
+	assert.True(t, cfg.TUI.ReplaceWorktreeIcon, "replace_worktree_icon")
+	assert.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 }
 
 func TestNativePickerCanDisableHomePrioritization(t *testing.T) {
 	cfg, err := loadNative(t, "version = 1\n[picker]\nprioritize_home = false\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.PrioritizeHome {
-		t.Fatal("prioritize_home=true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.PrioritizeHome, "prioritize_home=true, want false")
 }
 
 func TestNativePickerAcceptsAgentWorkspaceSort(t *testing.T) {
 	cfg, err := loadNative(t, "version = 1\n[picker]\nworkspace_sort = \"agent\"\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.DefaultSort != "agent" {
-		t.Fatalf("workspace sort = %q, want agent", cfg.TUI.DefaultSort)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "agent", cfg.TUI.DefaultSort)
 }
 
 func TestNativePickerCanDisableHerdrThemeInheritance(t *testing.T) {
@@ -141,12 +131,8 @@ func TestNativePickerCanDisableHerdrThemeInheritance(t *testing.T) {
 [picker]
 herdr_theme_inherit = false
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.HerdrThemeInherit {
-		t.Fatal("herdr_theme_inherit = true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.HerdrThemeInherit, "herdr_theme_inherit = true, want false")
 }
 
 func TestNativePickerCanDisableWorktreeIconReplacement(t *testing.T) {
@@ -155,12 +141,8 @@ func TestNativePickerCanDisableWorktreeIconReplacement(t *testing.T) {
 [picker]
 replace_worktree_icon = false
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ReplaceWorktreeIcon {
-		t.Fatal("replace_worktree_icon=true, want false")
-	}
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ReplaceWorktreeIcon, "replace_worktree_icon=true, want false")
 }
 
 func TestNativePickerCanDisablePreview(t *testing.T) {
@@ -169,20 +151,12 @@ func TestNativePickerCanDisablePreview(t *testing.T) {
 [picker]
 show_preview = false
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ShowPreview {
-		t.Fatal("show_preview=true, want false")
-	}
+	require.NoError(t, err)
+	require.False(t, cfg.TUI.ShowPreview, "show_preview=true, want false")
 
 	defaults, err := loadNative(t, "version = 1\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !defaults.TUI.ShowPreview {
-		t.Fatal("show_preview=false by default, want true")
-	}
+	require.NoError(t, err)
+	assert.True(t, defaults.TUI.ShowPreview, "show_preview=false by default, want true")
 }
 
 func TestNativePickerPreviewMode(t *testing.T) {
@@ -198,14 +172,11 @@ func TestNativePickerPreviewMode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, err := loadNative(t, "version = 1\n[picker]\n"+tc.setting+"\n")
 			if tc.want == "" {
-				if err == nil || !strings.Contains(err.Error(), "picker.preview_mode") {
-					t.Fatalf("expected preview_mode validation error, got %v", err)
-				}
+				assert.ErrorContains(t, err, "picker.preview_mode")
 				return
 			}
-			if err != nil || cfg.TUI.PreviewMode != tc.want {
-				t.Fatalf("mode=%q err=%v, want %q", cfg.TUI.PreviewMode, err, tc.want)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.TUI.PreviewMode)
 		})
 	}
 }
@@ -217,22 +188,15 @@ func TestNativePickerAcceptsLastWorkspaceSettings(t *testing.T) {
 show_last_workspace = false
 show_last_workspace_path = false
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.TUI.ShowLastWorkspace || cfg.TUI.ShowLastWorkspacePath {
-		t.Fatalf("last workspace settings = %t, %t; want false, false", cfg.TUI.ShowLastWorkspace, cfg.TUI.ShowLastWorkspacePath)
-	}
+	require.NoError(t, err)
+	require.False(t, cfg.TUI.ShowLastWorkspace)
+	assert.False(t, cfg.TUI.ShowLastWorkspacePath)
 }
 
 func TestNativeEmptyPreviewFallsBackToDefault(t *testing.T) {
 	cfg, err := loadNative(t, "version = 1\n[workspace_defaults]\npreview = \"\"\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
-		t.Fatalf("preview = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 }
 
 func TestNativeFailures(t *testing.T) {
@@ -264,12 +228,7 @@ func TestNativeFailures(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, err := loadNative(t, tc.body)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("error %q does not mention %q", err, tc.want)
-			}
+			assert.ErrorContains(t, err, tc.want)
 		})
 	}
 }
@@ -347,30 +306,13 @@ tabs = ["git"]
 `)
 	var warn bytes.Buffer
 	legacyCfg, _, err := Load(LoadOptions{Path: legacyPath, Warn: &warn})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	nativeCfg, _, err := Load(LoadOptions{Path: nativePath, Warn: &warn})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	// Normalize the one representational difference: legacy leaves ImportPaths
 	// nil and native never sets it.
 	legacyCfg.ImportPaths = nil
-	if !configsEqual(legacyCfg, nativeCfg) {
-		t.Fatalf("parity mismatch:\nlegacy %#v\nnative %#v", legacyCfg, nativeCfg)
-	}
-}
-
-func configsEqual(a, b Config) bool {
-	ad := a.SessionConfigs[0].DisableStartCommand
-	bd := b.SessionConfigs[0].DisableStartCommand
-	if (ad == nil) != (bd == nil) || (ad != nil && *ad != *bd) {
-		return false
-	}
-	a.SessionConfigs[0].DisableStartCommand = nil
-	b.SessionConfigs[0].DisableStartCommand = nil
-	return reflect.DeepEqual(a, b)
+	assert.Equal(t, legacyCfg, nativeCfg)
 }
 
 func TestDiscoveredNativeFileRequiresVersion(t *testing.T) {
@@ -381,49 +323,38 @@ func TestDiscoveredNativeFileRequiresVersion(t *testing.T) {
 		Env:  map[string]string{"HERDR_PLUGIN_CONFIG_DIR": dir},
 		Warn: &bytes.Buffer{},
 	})
-	if err == nil || !strings.Contains(err.Error(), "version") {
-		t.Fatalf("expected version error, got %v", err)
-	}
+	require.ErrorContains(t, err, "version")
 }
 
 func TestExplicitPathWithoutVersionLoadsAsLegacy(t *testing.T) {
 	p := filepath.Join(t.TempDir(), NativeFileName)
 	mustWrite(t, p, "cache = true\n")
 	cfg, _, err := Load(LoadOptions{Path: p, Warn: &bytes.Buffer{}})
-	if err != nil || !cfg.Cache {
-		t.Fatalf("cfg %#v err %v", cfg, err)
-	}
+	require.NoError(t, err)
+	assert.True(t, cfg.Cache)
 }
 
 func TestExplicitPathVersionKeySelectsNative(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "anything.toml")
 	mustWrite(t, p, "version = 1\nstrict_mode = true\n")
 	_, _, err := Load(LoadOptions{Path: p, Warn: &bytes.Buffer{}})
-	if err == nil || !strings.Contains(err.Error(), "strict_mode") {
-		t.Fatalf("expected native strict rejection, got %v", err)
-	}
+	require.ErrorContains(t, err, "strict_mode")
 }
 
 func TestLegacyLoadWarnsOnStderrWriter(t *testing.T) {
 	p := filepath.Join(t.TempDir(), LegacyFileName)
 	mustWrite(t, p, "cache = true\n")
 	var warn bytes.Buffer
-	if _, _, err := Load(LoadOptions{Path: p, Warn: &warn}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(warn.String(), "deprecated") {
-		t.Fatalf("warning = %q", warn.String())
-	}
+	_, _, err := Load(LoadOptions{Path: p, Warn: &warn})
+	require.NoError(t, err)
+	assert.Contains(t, warn.String(), "deprecated")
 }
 
 func TestNativeFixtureLoads(t *testing.T) {
 	cfg, _, err := Load(LoadOptions{Path: filepath.Join("..", "..", "testdata", "herdr-sesh.toml"), Warn: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.SessionConfigs) != 1 || cfg.SessionConfigs[0].Name != "sesh" {
-		t.Fatalf("fixture workspaces = %#v", cfg.SessionConfigs)
-	}
+	require.NoError(t, err)
+	require.Len(t, cfg.SessionConfigs, 1)
+	assert.Equal(t, "sesh", cfg.SessionConfigs[0].Name)
 }
 
 func TestDiscoveryOrderAndPrecedence(t *testing.T) {
@@ -435,9 +366,7 @@ func TestDiscoveryOrderAndPrecedence(t *testing.T) {
 		filepath.Join(home, ".config", "sesh"),
 	}
 	for _, d := range mkdirs {
-		if err := os.MkdirAll(d, 0700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(d, 0700))
 	}
 	write := func(rel string) string {
 		p := filepath.Join(home, rel)
@@ -459,12 +388,8 @@ func TestDiscoveryOrderAndPrecedence(t *testing.T) {
 	for i := len(order) - 1; i >= 0; i-- {
 		want := write(order[i])
 		got, err := ResolvePath(LoadOptions{Home: home, Env: map[string]string{"HERDR_PLUGIN_CONFIG_DIR": pluginDir}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != want {
-			t.Fatalf("after creating %s: resolved %s, want %s", order[i], got, want)
-		}
+		require.NoError(t, err)
+		require.Equal(t, want, got)
 	}
 }
 
@@ -473,9 +398,7 @@ func TestMissingEnvConfigErrors(t *testing.T) {
 		Home: t.TempDir(),
 		Env:  map[string]string{"HERDR_SESH_CONFIG": "/nope/missing.toml"},
 	})
-	if err == nil {
-		t.Fatal("expected error for missing HERDR_SESH_CONFIG target")
-	}
+	require.Error(t, err)
 }
 
 func TestResolvePathPropagatesFilesystemErrors(t *testing.T) {
@@ -485,9 +408,7 @@ func TestResolvePathPropagatesFilesystemErrors(t *testing.T) {
 
 	t.Run("explicit path", func(t *testing.T) {
 		_, err := ResolvePath(LoadOptions{Path: filepath.Join(notDir, NativeFileName), Home: home, Env: map[string]string{}})
-		if !errors.Is(err, syscall.ENOTDIR) {
-			t.Fatalf("err = %v, want original filesystem error", err)
-		}
+		require.ErrorIs(t, err, syscall.ENOTDIR)
 	})
 
 	t.Run("environment path", func(t *testing.T) {
@@ -495,59 +416,38 @@ func TestResolvePathPropagatesFilesystemErrors(t *testing.T) {
 			Home: home,
 			Env:  map[string]string{"HERDR_SESH_CONFIG": filepath.Join(notDir, NativeFileName)},
 		})
-		if !errors.Is(err, syscall.ENOTDIR) {
-			t.Fatalf("err = %v, want original filesystem error", err)
-		}
+		require.ErrorIs(t, err, syscall.ENOTDIR)
 	})
 
 	t.Run("default discovery", func(t *testing.T) {
 		fallbackDir := filepath.Join(home, ".config", "herdr-sesh")
-		if err := os.MkdirAll(fallbackDir, 0700); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.MkdirAll(fallbackDir, 0700))
 		mustWrite(t, filepath.Join(fallbackDir, NativeFileName), "version = 1\n")
 
 		_, err := ResolvePath(LoadOptions{
 			Home: home,
 			Env:  map[string]string{"HERDR_PLUGIN_CONFIG_DIR": notDir},
 		})
-		if !errors.Is(err, syscall.ENOTDIR) {
-			t.Fatalf("err = %v, want higher-priority filesystem error", err)
-		}
+		require.ErrorIs(t, err, syscall.ENOTDIR)
 	})
 }
 
 func TestInitConfigWritesNativeStarter(t *testing.T) {
 	dir := t.TempDir()
 	p, err := InitConfig(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Base(p) != NativeFileName {
-		t.Fatalf("init path = %s", p)
-	}
+	require.NoError(t, err)
+	require.Equal(t, NativeFileName, filepath.Base(p))
 	cfg, _, err := Load(LoadOptions{Path: p, Warn: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DefaultSessionConfig.PreviewCommand != DefaultPreviewCommand {
-		t.Fatalf("starter preview = %q", cfg.DefaultSessionConfig.PreviewCommand)
-	}
+	require.NoError(t, err)
+	require.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 	info, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("mode = %v", info.Mode().Perm())
-	}
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
 
 func TestInitConfigAtRejectsDirectory(t *testing.T) {
 	p := filepath.Join(t.TempDir(), NativeFileName)
-	if err := os.Mkdir(p, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := InitConfigAt(p); err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("err = %v, want non-regular config path error", err)
-	}
+	require.NoError(t, os.Mkdir(p, 0700))
+	_, err := InitConfigAt(p)
+	require.ErrorContains(t, err, "not a regular file")
 }

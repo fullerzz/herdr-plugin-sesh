@@ -38,6 +38,8 @@ Tool versions belong in `mise.toml`; update that file when adding or changing sh
 
 Tests use Go's standard `testing` package and live beside the code as `*_test.go`. Name tests as `Test<Behavior>` and keep file fixtures in `testdata/`. New behavior should include the smallest focused regression test.
 
+Use Testify `require` for prerequisites (errors, lengths, and nil checks before accessing results) and `assert` for independent expectations. Keep `require` on the test goroutine; report worker errors back to it. `testifylint` checks assertion usage through `just lint`.
+
 ## Commit & Pull Request Guidelines
 
 Recent commits use Conventional Commit-style subjects, for example `feat: cache session list when enabled` and `fix: pad native picker top border`. Keep subjects imperative and scoped when useful (`feat:`, `fix:`, `ci:`, `docs:`).
