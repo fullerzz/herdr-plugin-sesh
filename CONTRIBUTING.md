@@ -50,6 +50,38 @@ just build-docs
 
 The generated `site/` directory is build output and should not be committed.
 
+### Documentation versions
+
+The wiki's version selector offers `latest` (the `main` branch) and release tags
+that contain `docs/` and `zensical.toml`. The site root redirects to `latest`.
+Unversioned page URLs redirect to the corresponding `latest` page, preserving
+query strings and section anchors when JavaScript is enabled.
+Tags before `v0.10.0` predate the wiki and are omitted.
+
+The Pages workflow rebuilds all versions on pushes to `main`, `v*` tag pushes,
+and manual runs. Each release uses the Markdown, assets, navigation, and theme
+from that exact tag, built with the current pinned documentation toolchain.
+Release pages disable editing links; `latest` links to edits on `main`.
+The [Zensical-compatible mike fork](https://zensical.org/docs/compatibility/mkdocs/mike/)
+provides the selector metadata and root redirect. Its deployment branch exists
+only in a temporary local repository; Pages still deploys an Actions artifact.
+
+To build and test the complete versioned site locally:
+
+```bash
+git fetch origin --tags
+git lfs fetch --all
+just test-docs-versions
+just build-docs-versions
+uv run --frozen python -m http.server 8000 --directory site
+```
+
+Open `http://localhost:8000/`. Local and pull-request builds use the current
+checkout, including documentation edits, for `latest`; deployments always check
+out `main`, even when a tag triggers the workflow. All builds are strict and
+replace `site/` only after every version succeeds. No tags or deployment branches
+are pushed by these commands.
+
 ## Pull requests
 
 Before opening a pull request:

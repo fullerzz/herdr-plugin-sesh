@@ -33,6 +33,10 @@ herdr plugin action invoke fullerzz.sesh.open-picker
 
 ## Documentation
 
+Use the version selector in the header to choose a release's documentation.
+`latest` follows the `main` branch and may describe changes not yet released.
+Release snapshots are available starting with `v0.10.0`, when the wiki was added.
+
 - [Configuration](config.md) explains config discovery, picker behavior,
   workspaces, tabs, and legacy Sesh migration.
 - [Keybindings](keybindings.md) shows how to invoke the picker and related

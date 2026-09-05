@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
@@ -23,6 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Tags trigger a rebuild, but latest must always come from main.
+          ref: ${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+          fetch-depth: 0
           lfs: true
 
       - name: Install uv
@@ -36,8 +41,14 @@ jobs:
         with:
           python-version-file: pyproject.toml
 
-      - name: Build docs
-        run: uv run --frozen zensical build --clean --strict
+      - name: Fetch historical documentation assets
+        run: git lfs fetch --all
+
+      - name: Test documentation versioning
+        run: uv run --frozen python .github/scripts/test-docs-versions.py
+
+      - name: Build versioned docs
+        run: uv run --frozen python .github/scripts/build-docs-versions.py
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'

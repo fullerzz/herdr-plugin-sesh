@@ -22,6 +22,10 @@ nav = [
 icon = "fontawesome/brands/github"
 link = "https://github.com/fullerzz/herdr-plugin-sesh"
 
+[project.extra.version]
+provider = "mike"
+default = "latest"
+
 [project.theme]
 variant = "modern"
 favicon = "assets/favicon.svg"

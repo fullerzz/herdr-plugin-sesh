@@ -8,6 +8,14 @@ run:
 build-docs:
     uv run --frozen zensical build --clean --strict
 
+# Build latest and all release-tag documentation for GitHub Pages
+build-docs-versions:
+    uv run --frozen python .github/scripts/build-docs-versions.py
+
+# Exercise versioned documentation with isolated Git history
+test-docs-versions:
+    uv run --frozen python .github/scripts/test-docs-versions.py
+
 # Preview the documentation site locally
 serve-docs:
     uv run --frozen zensical serve
