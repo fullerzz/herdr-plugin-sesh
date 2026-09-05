@@ -1,3 +1,55 @@
+## v0.11.0 (2026-09-05)
+
+### 🚀 Features
+
+- feat(picker): prioritize workspace name matches by @fullerzz in [#103](https://github.com/fullerzz/herdr-plugin-sesh/pull/103) ([966997a](https://github.com/fullerzz/herdr-plugin-sesh/commit/966997aad8dade3469f14ea63e2ecdf1960e7757))
+
+- feat(picker): configure home match prioritization by @fullerzz in [#106](https://github.com/fullerzz/herdr-plugin-sesh/pull/106) ([3907677](https://github.com/fullerzz/herdr-plugin-sesh/commit/390767727674275f492aad82a241e1f0300b44a3))
+
+- feat: track external workspace history by @fullerzz in [#107](https://github.com/fullerzz/herdr-plugin-sesh/pull/107) ([0686c01](https://github.com/fullerzz/herdr-plugin-sesh/commit/0686c0107ac72a1dd4d0ac3872a3bc9bc81b6c03))
+
+- feat(picker): add configurable active-pane previews by @fullerzz in [#112](https://github.com/fullerzz/herdr-plugin-sesh/pull/112) ([a843c11](https://github.com/fullerzz/herdr-plugin-sesh/commit/a843c1189e34a64243eea504ee2597f718adeb90))
+
+- feat(picker): resize preview by dragging divider by @fullerzz in [#113](https://github.com/fullerzz/herdr-plugin-sesh/pull/113) ([ece32a5](https://github.com/fullerzz/herdr-plugin-sesh/commit/ece32a5ebd838276b397c1a63a2580ea636729f9))
+
+- feat: make preview mode keybinding configurable by @fullerzz in [#116](https://github.com/fullerzz/herdr-plugin-sesh/pull/116) ([d053f18](https://github.com/fullerzz/herdr-plugin-sesh/commit/d053f1852dcd36d48b2ebe18d0a5d4ff37f77f81))
+
+
+
+### 🐛 Bug Fixes
+
+- fix(go-deps): update golang.org/x/perf digest to 19be9d8 by @renovate[bot] in [#98](https://github.com/fullerzz/herdr-plugin-sesh/pull/98) ([65cbdbd](https://github.com/fullerzz/herdr-plugin-sesh/commit/65cbdbdff3c633e98063b0b3310cf7be2a6d862c))
+
+- fix: embed Git version in local plugin builds by @fullerzz in [#110](https://github.com/fullerzz/herdr-plugin-sesh/pull/110) ([4b9b3da](https://github.com/fullerzz/herdr-plugin-sesh/commit/4b9b3da3b6a92550974606dda40c23285c5d778b))
+
+
+
+### 🛬 Dependency Updates
+
+- chore(deps): update mise tools by @renovate[bot] in [#75](https://github.com/fullerzz/herdr-plugin-sesh/pull/75) ([dcfee2e](https://github.com/fullerzz/herdr-plugin-sesh/commit/dcfee2ea2ade552ce72bd0755c9636ef836e35ed))
+
+
+
+### 📚 Documentation
+
+- docs(wiki): add release-versioned wiki with latest docs by @fullerzz in [#111](https://github.com/fullerzz/herdr-plugin-sesh/pull/111) ([963b118](https://github.com/fullerzz/herdr-plugin-sesh/commit/963b118781d149f4829bff521e228d151a3b9d19))
+
+- Sync guides with changes since v0.10.1 by @fullerzz ([b315236](https://github.com/fullerzz/herdr-plugin-sesh/commit/b315236f5260d3cb82d97cdd48069dd27579faa1))
+
+
+
+### 🧪 Testing
+
+- test: adopt testify assertions across the test suite by @fullerzz in [#114](https://github.com/fullerzz/herdr-plugin-sesh/pull/114) ([731cd45](https://github.com/fullerzz/herdr-plugin-sesh/commit/731cd4588cc6e351172fcaea409197885a6f4f3b))
+
+
+
+### 🎡 Continuous Integration
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#101](https://github.com/fullerzz/herdr-plugin-sesh/pull/101) ([a79b6b3](https://github.com/fullerzz/herdr-plugin-sesh/commit/a79b6b34d39dad3a2f9ec77ebefde3d9d2164797))
+
+
+
 ## v0.10.1 (2026-08-29)
 
 ### 🐛 Bug Fixes
