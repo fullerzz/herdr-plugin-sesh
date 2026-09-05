@@ -191,13 +191,38 @@ equivalent; native decoding rejects them like any other unknown key.
 | --- | --- |
 | `path_components` | Sets the number of path components used by the directory-name fallback for a newly created direct-path workspace. Git repositories keep their repository-derived name. Must be at least `1` (the default). |
 
+### `[keys]`
+
+```toml
+[keys]
+cycle_preview_mode = "ctrl+o"
+```
+
+`cycle_preview_mode` changes the native picker's preview-mode shortcut. Omit it
+for `"ctrl+o"`, choose a key such as `"alt+p"` or `"f2"`, or set it to `""` to
+disable cycling and hide the shortcut hint. Key names use Bubble Tea's exact,
+case-sensitive spelling: a single printable character or a named key, with
+modifiers joined by `+` in `ctrl`, `alt`, `shift`, `meta`, `hyper`, `super` order.
+Unsupported names, duplicate modifiers, and incorrect modifier order are rejected
+as configuration errors. For shifted printable keys, configure the resulting
+character (`"P"` rather than `"shift+p"`, or `"?"` rather than `"shift+/"`).
+Shift-only printable spellings are rejected because key events report the text;
+combinations such as `"ctrl+shift+p"` and `"shift+f2"` remain valid. When Shift is
+combined with other modifiers, use the unshifted base key: `"ctrl+shift+p"`, not
+`"ctrl+shift+P"`, and `"alt+shift+/"`, not `"alt+shift+?"`.
+The configured shortcut
+takes precedence over other native picker bindings, so choose an unused key.
+Disabling cycling leaves the initial `[picker].preview_mode` in effect and
+returns keys to their normal picker/input handling. This does not affect fzf or
+configure shortcuts in Herdr itself.
+
 ### `[picker]`
 
 | Field | Runtime effect |
 | --- | --- |
 | `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
 | `show_preview` | Shows the preview panel in the native picker. The default is `true`; set it to `false` to give the workspace list the full available width and height without running preview commands. This does not change fzf preview behavior. |
-| `preview_mode` | Sets the native picker's initial preview to `command` (the configured preview command or built-in fallback, the default) or `pane` (the active pane of the selected Herdr workspace, refreshed once per second). Press ++ctrl+o++ to switch modes while the picker is open. `show_preview = false` still disables previews. This does not affect fzf or `herdr-sesh preview`. |
+| `preview_mode` | Sets the native picker's initial preview to `command` (the configured preview command or built-in fallback, the default) or `pane` (the active pane of the selected Herdr workspace, refreshed once per second). Press ++ctrl+o++ (or `keys.cycle_preview_mode`) to switch modes while the picker is open. `show_preview = false` still disables previews. This does not affect fzf or `herdr-sesh preview`. |
 | `prioritize_home` | Controls exact case-insensitive `home` searches in the native picker. The default is `true`, which promotes the actual home-directory session ahead of real-name and ordinary path matches. Set it to `false` to keep real-name matches first, then path matches in their existing order; the actual home-directory session remains searchable through the exact `home` alias. |
 | `herdr_theme_inherit` | Inherits colors from Herdr's active theme. The default is `true`; set it to `false` to keep the native picker's built-in colors. |
 | `replace_worktree_icon` | Replaces the Herdr sheep icon with `↳` for linked worktree rows. The default is `true`. Set it to `false` to keep the sheep icon (or plain `[herdr]` when icons are hidden); the purple type color and tree branches remain. |

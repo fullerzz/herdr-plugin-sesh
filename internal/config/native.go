@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -15,7 +18,13 @@ import (
 
 const NativeVersion = 1
 
+type nativeKeys struct {
+	// nil keeps the default; an explicit empty string disables cycling.
+	CyclePreviewMode *string `toml:"cycle_preview_mode,omitempty"`
+}
+
 type nativeConfig struct {
+	Keys              nativeKeys        `toml:"keys,omitempty"`
 	Version           int               `toml:"version"`
 	List              nativeList        `toml:"list,omitempty"`
 	Naming            nativeNaming      `toml:"naming"`
@@ -130,6 +139,9 @@ func (n nativeConfig) validate(path string) error {
 	if mode := n.Picker.PreviewMode; mode != "" && mode != "command" && mode != "pane" {
 		return fail("picker.preview_mode", "must be \"command\" or \"pane\", got %q", mode)
 	}
+	if binding := n.Keys.CyclePreviewMode; !validCyclePreviewKey(binding) {
+		return fail("keys.cycle_preview_mode", "unsupported key %q; use Bubble Tea key names such as ctrl+o, alt+p, or f2, or an empty string to disable; for shifted printable keys use the resulting character (e.g. P instead of shift+p), and with other modifiers use the unshifted base key (e.g. ctrl+shift+p or alt+shift+/)", *binding)
+	}
 	seenSources := map[string]bool{}
 	for _, s := range n.List.SourceOrder {
 		if !knownSources[s] {
@@ -193,6 +205,9 @@ func (n nativeConfig) validate(path string) error {
 // apply converts the validated native document onto a Default()-initialized
 // runtime Config so downstream consumers see the same shape as legacy loads.
 func (n nativeConfig) apply(cfg *Config) {
+	if n.Keys.CyclePreviewMode != nil {
+		cfg.Keys.CyclePreviewMode = *n.Keys.CyclePreviewMode
+	}
 	cfg.Cache = n.List.Cache
 	cfg.Blacklist = n.List.Blacklist
 	if len(n.List.SourceOrder) > 0 {
@@ -254,4 +269,52 @@ func (n nativeConfig) apply(cfg *Config) {
 			Windows:             r.Tabs,
 		})
 	}
+}
+
+// Keep UI dependencies out of config: their initialization runs in every
+// non-UI consumer too. TestCyclePreviewKeyNamesMatchBubbleTea checks this list.
+const cyclePreviewKeyNames = `enter tab backspace esc space up down left right
+begin find insert delete select pgup pgdown home end equal mul plus comma minus
+period div sep capslock scrolllock numlock printscreen pause menu mediaplay
+mediapause mediaplaypause mediareverse mediastop mediafastforward mediarewind
+medianext mediaprev mediarecord lowervol raisevol mute leftshift leftalt leftctrl
+leftsuper lefthyper leftmeta rightshift rightalt rightctrl rightsuper righthyper
+rightmeta isolevel3shift isolevel5shift`
+
+func validCyclePreviewKey(configured *string) bool {
+	if configured == nil || *configured == "" {
+		return true
+	}
+	name := *configured
+	shifted := false
+	for _, modifier := range []string{"ctrl", "alt", "shift", "meta", "hyper", "super"} {
+		if rest, ok := strings.CutPrefix(name, modifier+"+"); ok {
+			name = rest
+			shifted = shifted || modifier == "shift"
+			// Bubble Tea omits the modifier when it is itself the pressed key.
+			if strings.HasSuffix(name, "+left"+modifier) || strings.HasSuffix(name, "+right"+modifier) || name == "left"+modifier || name == "right"+modifier {
+				return false
+			}
+		}
+	}
+	if code, size := utf8.DecodeRuneInString(name); size == len(name) && unicode.IsPrint(code) {
+		// Explicit Shift combinations use the unshifted PC-101 base key.
+		if shifted && (unicode.IsUpper(code) || strings.ContainsRune("~!@#$%^&*()_+{}|:\"<>?", code)) {
+			return false
+		}
+		// Shift-only printable events carry their resulting text, not shift+key.
+		return size > 0 && code != ' ' && *configured != "shift+"+name
+	}
+	if number, ok := strings.CutPrefix(name, "f"); ok {
+		n, err := strconv.Atoi(number)
+		if err == nil {
+			return n >= 1 && n <= 63 && strconv.Itoa(n) == number
+		}
+	}
+	for _, key := range strings.Fields(cyclePreviewKeyNames) {
+		if name == key {
+			return true
+		}
+	}
+	return false
 }

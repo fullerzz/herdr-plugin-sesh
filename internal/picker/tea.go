@@ -18,6 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	sessionmodel "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	previewpkg "github.com/fullerzz/herdr-plugin-sesh/internal/preview"
 )
@@ -130,6 +131,8 @@ var renderPreview = previewpkg.Render
 var renderPanePreview = previewpkg.RenderPane
 
 type Options struct {
+	// nil uses the default binding; an empty string disables cycling.
+	CyclePreviewModeKey            *string
 	Context                        context.Context
 	Output                         io.Writer
 	Prompt                         string
@@ -214,6 +217,7 @@ type teaModel struct {
 	cancelPreview        context.CancelFunc
 	previewRequestID     uint64
 	panePreview          bool
+	cyclePreviewModeKey  string
 
 	defaultPreviewCommand   string
 	hidePreview             bool
@@ -306,6 +310,10 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	styles.Cursor.Color = skyColor
 	input.SetStyles(styles)
 	input.Focus()
+	cyclePreviewModeKey := config.Default().Keys.CyclePreviewMode
+	if opts.CyclePreviewModeKey != nil {
+		cyclePreviewModeKey = *opts.CyclePreviewModeKey
+	}
 	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
 		list:                  list,
@@ -314,6 +322,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
 		hidePreview:           opts.HidePreview,
 		panePreview:           opts.PreviewMode == "pane",
+		cyclePreviewModeKey:   cyclePreviewModeKey,
 		showIcons:             opts.ShowIcons,
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
@@ -565,6 +574,14 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, previewCmd)
 	}
 	m.closeError = ""
+	if m.cyclePreviewModeKey != "" && key.String() == m.cyclePreviewModeKey {
+		if m.hidePreview || m.closingWorkspaceID != "" {
+			return m, nil
+		}
+		m.panePreview = !m.panePreview
+		m.previewKey = ""
+		return m.refreshPreview()
+	}
 	switch key.String() {
 	case "ctrl+c", "esc":
 		if m.closingWorkspaceID != "" {
@@ -614,13 +631,6 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(focusCmd, previewCmd)
 	case "ctrl+r":
 		return m.toggleWorkspaceSort()
-	case "ctrl+o":
-		if m.hidePreview || m.closingWorkspaceID != "" {
-			return m, nil
-		}
-		m.panePreview = !m.panePreview
-		m.previewKey = ""
-		return m.refreshPreview()
 	case "ctrl+x":
 		return m.closeSelectedWorkspace()
 	case "right":
@@ -1080,7 +1090,9 @@ func (m teaModel) previewTitle() string {
 	if m.panePreview {
 		title = sectionStyle.Render("PANE")
 	}
-	title += countStyle.Render(" [ctrl+o]")
+	if m.cyclePreviewModeKey != "" {
+		title += countStyle.Render(" [" + m.cyclePreviewModeKey + "]")
+	}
 	current, ok := m.list.Current()
 	if !ok {
 		return title

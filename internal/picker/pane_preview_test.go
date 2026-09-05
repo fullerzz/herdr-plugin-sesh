@@ -137,3 +137,52 @@ func TestInitialPreviewMode(t *testing.T) {
 		})
 	}
 }
+
+func TestCyclePreviewModeKey(t *testing.T) {
+	for _, binding := range []string{"alt+p", ""} {
+		t.Run(binding, func(t *testing.T) {
+			m := newTeaModel(nil, Options{CyclePreviewModeKey: &binding})
+			updated, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+			m = updated.(teaModel)
+			assert.False(t, m.panePreview)
+			assert.NotContains(t, ansi.Strip(m.previewTitle()), "[ctrl+o]")
+			updated, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModAlt})
+			m = updated.(teaModel)
+			assert.Equal(t, binding != "", m.panePreview)
+			if binding != "" {
+				assert.Contains(t, ansi.Strip(m.previewTitle()), "["+binding+"]")
+				updated, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModAlt})
+				assert.False(t, updated.(teaModel).panePreview)
+			} else {
+				assert.NotContains(t, ansi.Strip(m.previewTitle()), "[]")
+			}
+		})
+	}
+}
+
+func TestCyclePreviewModeShiftedPrintableText(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		{Code: 'p', Mod: tea.ModShift, Text: "P"},
+		{Code: 'P', Text: "P"},
+		{Code: '/', Mod: tea.ModShift, Text: "?"},
+	} {
+		binding := key.Text
+		m := newTeaModel(nil, Options{CyclePreviewModeKey: &binding})
+		updated, _ := m.Update(key)
+		assert.True(t, updated.(teaModel).panePreview, "binding %q", binding)
+	}
+}
+
+func TestCyclePreviewModeModifiedShiftUsesBaseKey(t *testing.T) {
+	for _, tc := range []struct {
+		binding string
+		key     tea.KeyPressMsg
+	}{
+		{"ctrl+shift+p", tea.KeyPressMsg{Code: 'p', ShiftedCode: 'P', Mod: tea.ModCtrl | tea.ModShift}},
+		{"alt+shift+/", tea.KeyPressMsg{Code: '/', ShiftedCode: '?', Mod: tea.ModAlt | tea.ModShift}},
+	} {
+		m := newTeaModel(nil, Options{CyclePreviewModeKey: &tc.binding})
+		updated, _ := m.Update(tc.key)
+		assert.True(t, updated.(teaModel).panePreview, "binding %q", tc.binding)
+	}
+}

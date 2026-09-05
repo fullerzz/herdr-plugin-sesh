@@ -2,11 +2,17 @@ package config
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
 	"syscall"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,6 +77,7 @@ tabs = ["git"]
 	require.NoError(t, err)
 	disable := true
 	want := Config{
+		Keys:           KeyConfig{CyclePreviewMode: "ctrl+o"},
 		Cache:          true,
 		DirLength:      2,
 		SeparatorAware: true,
@@ -450,4 +457,62 @@ func TestInitConfigAtRejectsDirectory(t *testing.T) {
 	require.NoError(t, os.Mkdir(p, 0700))
 	_, err := InitConfigAt(p)
 	require.ErrorContains(t, err, "not a regular file")
+}
+
+func TestNativeCyclePreviewModeKey(t *testing.T) {
+	for _, tc := range []struct{ name, setting, want string }{
+		{"omitted", "", "ctrl+o"},
+		{"custom", `cycle_preview_mode = "alt+p"`, "alt+p"},
+		{"disabled", `cycle_preview_mode = ""`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[keys]\n"+tc.setting+"\n")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Keys.CyclePreviewMode)
+		})
+	}
+}
+
+func TestNativeCyclePreviewModeKeyValidation(t *testing.T) {
+	for _, binding := range []string{"ctrl+shift+P", "alt+shift+?", "ctrl+alt+shift+!", "shift+super+P", "shift+p", "shift+/", "shift+1", "f01", "ctrl+leftctrl", "ctrl+alt+rightctrl", " ", "ctrl+ ", "ctrl-o", "Ctrl+o", "ctrl+", "ctrl+ctrl+o", "alt+ctrl+o", "ctrl+unknown", "f64", "escape", "ctrl+o ", "\n"} {
+		t.Run(binding, func(t *testing.T) {
+			_, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "keys.cycle_preview_mode")
+		})
+	}
+	for _, binding := range []string{"", "ctrl+o", "alt+p", "ctrl+shift+p", "alt+shift+/", "ctrl+alt+shift+1", "shift+super+p", "f2", "ctrl+alt+shift+f12", "enter", "space", "esc", "+", "ctrl++", "é", "A", "P", "?"} {
+		t.Run("valid "+binding, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[keys]\ncycle_preview_mode = "+strconv.Quote(binding)+"\n")
+			require.NoError(t, err)
+			assert.Equal(t, binding, cfg.Keys.CyclePreviewMode)
+		})
+	}
+}
+
+func TestCyclePreviewKeyNamesMatchBubbleTea(t *testing.T) {
+	codes := []rune{tea.KeyEnter, tea.KeyTab, tea.KeyBackspace, tea.KeyEscape, tea.KeySpace}
+	for code := tea.KeyUp; code <= tea.KeyIsoLevel5Shift; code++ {
+		codes = append(codes, code)
+	}
+	names := make(map[string]bool)
+	for _, code := range codes {
+		names[(tea.Key{Code: code}).String()] = true
+		for mod := tea.KeyMod(0); mod < tea.ModSuper*2; mod++ {
+			binding := (tea.Key{Code: code, Mod: mod}).String()
+			// Shift-only printable spellings also arise from keypad events,
+			// but are rejected because ordinary typing reports the resulting text.
+			shiftedPrintable := mod == tea.ModShift && len([]rune(strings.TrimPrefix(binding, "shift+"))) == 1
+			require.Equal(t, !shiftedPrintable, validCyclePreviewKey(&binding), "Bubble Tea key %q", binding)
+		}
+	}
+	configuredNames := strings.Fields(cyclePreviewKeyNames)
+	for n := 1; n <= 63; n++ {
+		configuredNames = append(configuredNames, "f"+strconv.Itoa(n))
+	}
+	// Keypad digits are covered by the printable-character path.
+	for n := 0; n <= 9; n++ {
+		configuredNames = append(configuredNames, strconv.Itoa(n))
+	}
+	assert.ElementsMatch(t, configuredNames, slices.Collect(maps.Keys(names)))
 }
