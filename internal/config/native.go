@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	tea "charm.land/bubbletea/v2"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -272,42 +271,41 @@ func (n nativeConfig) apply(cfg *Config) {
 	}
 }
 
-// validCyclePreviewKey checks the exact spelling emitted by Bubble Tea without
-// maintaining a separate list of its named keys.
+// Keep UI dependencies out of config: their initialization runs in every
+// non-UI consumer too. TestCyclePreviewKeyNamesMatchBubbleTea checks this list.
+const cyclePreviewKeyNames = `enter tab backspace esc space up down left right
+begin find insert delete select pgup pgdown home end equal mul plus comma minus
+period div sep capslock scrolllock numlock printscreen pause menu mediaplay
+mediapause mediaplaypause mediareverse mediastop mediafastforward mediarewind
+medianext mediaprev mediarecord lowervol raisevol mute leftshift leftalt leftctrl
+leftsuper lefthyper leftmeta rightshift rightalt rightctrl rightsuper righthyper
+rightmeta isolevel3shift isolevel5shift`
+
 func validCyclePreviewKey(configured *string) bool {
 	if configured == nil || *configured == "" {
 		return true
 	}
-	binding := *configured
-	name := binding
-	var mod tea.KeyMod
-	for _, modifier := range []struct {
-		name string
-		mod  tea.KeyMod
-	}{
-		{"ctrl", tea.ModCtrl}, {"alt", tea.ModAlt}, {"shift", tea.ModShift},
-		{"meta", tea.ModMeta}, {"hyper", tea.ModHyper}, {"super", tea.ModSuper},
-	} {
-		if rest, ok := strings.CutPrefix(name, modifier.name+"+"); ok {
+	name := *configured
+	for _, modifier := range []string{"ctrl", "alt", "shift", "meta", "hyper", "super"} {
+		if rest, ok := strings.CutPrefix(name, modifier+"+"); ok {
 			name = rest
-			mod |= modifier.mod
+			// Bubble Tea omits the modifier when it is itself the pressed key.
+			if strings.HasSuffix(name, "+left"+modifier) || strings.HasSuffix(name, "+right"+modifier) || name == "left"+modifier || name == "right"+modifier {
+				return false
+			}
 		}
-	}
-	matches := func(code rune) bool {
-		return (tea.Key{Code: code, Mod: mod}).String() == binding
 	}
 	if code, size := utf8.DecodeRuneInString(name); size == len(name) && unicode.IsPrint(code) {
-		return matches(code)
+		return size > 0 && code != ' '
 	}
-	for _, code := range []rune{tea.KeyEnter, tea.KeyTab, tea.KeyBackspace, tea.KeyEscape, tea.KeySpace} {
-		if matches(code) {
-			return true
+	if number, ok := strings.CutPrefix(name, "f"); ok {
+		n, err := strconv.Atoi(number)
+		if err == nil {
+			return n >= 1 && n <= 63 && strconv.Itoa(n) == number
 		}
 	}
-	// Bubble Tea's extended key constants are contiguous, from arrows through
-	// function, keypad, media, and modifier keys.
-	for code := tea.KeyUp; code <= tea.KeyIsoLevel5Shift; code++ {
-		if matches(code) {
+	for _, key := range strings.Fields(cyclePreviewKeyNames) {
+		if name == key {
 			return true
 		}
 	}
