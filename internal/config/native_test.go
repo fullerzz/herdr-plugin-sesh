@@ -39,6 +39,7 @@ path_components = 2
 
 [picker]
 show_icons = true
+show_path = false
 show_preview = false
 preview_mode = "pane"
 prioritize_home = false
@@ -515,4 +516,12 @@ func TestCyclePreviewKeyNamesMatchBubbleTea(t *testing.T) {
 		configuredNames = append(configuredNames, strconv.Itoa(n))
 	}
 	assert.ElementsMatch(t, configuredNames, slices.Collect(maps.Keys(names)))
+}
+
+func TestNativePickerShowPath(t *testing.T) {
+	for _, setting := range []string{"", "show_path = true", "show_path = false"} {
+		cfg, err := loadNative(t, "version = 1\n[picker]\n"+setting+"\n")
+		require.NoError(t, err)
+		assert.Equal(t, setting != "show_path = false", cfg.TUI.ShowPath)
+	}
 }

@@ -144,6 +144,7 @@ type Options struct {
 	HideLastWorkspacePath          bool
 	SeparatorAware                 bool
 	DisableHomePrioritization      bool
+	HidePath                       bool
 	HidePreview                    bool
 	PreviewMode                    string
 	DefaultPreviewCommand          string
@@ -220,6 +221,7 @@ type teaModel struct {
 	cyclePreviewModeKey  string
 
 	defaultPreviewCommand   string
+	hidePath                bool
 	hidePreview             bool
 	showIcons               bool
 	replaceWorktreeIcon     bool
@@ -320,6 +322,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		input:                 input,
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
 		defaultPreviewCommand: opts.DefaultPreviewCommand,
+		hidePath:              opts.HidePath,
 		hidePreview:           opts.HidePreview,
 		panePreview:           opts.PreviewMode == "pane",
 		cyclePreviewModeKey:   cyclePreviewModeKey,
@@ -945,7 +948,7 @@ func (m teaModel) listView(width, visibleRows int) string {
 			selected := m.listFocused && !m.focusSmearActive && i == m.list.Selected
 			selectedRail := m.smear.headStyle().Render(m.smear.headGlyph + " ")
 			treePrefix := worktreeTreePrefix(m.list.Filtered, i)
-			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.replaceWorktreeIcon, m.list.Query, selectedRail, m.agentSpinner.View(), treePrefix), "\n")
+			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.replaceWorktreeIcon, m.hidePath, m.list.Query, selectedRail, m.agentSpinner.View(), treePrefix), "\n")
 			if rail, age := m.smearRail(i); rail != "" {
 				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
 			}
@@ -1385,7 +1388,10 @@ func (m teaModel) previewLayout() (int, int) {
 	}
 	previewWidth := m.previewWidth
 	if previewWidth == 0 {
-		previewWidth = min(width/2, maxPreviewWidth)
+		previewWidth = width / 2
+		if !m.hidePath {
+			previewWidth = min(previewWidth, maxPreviewWidth)
+		}
 	}
 	previewWidth = min(max(previewWidth, minPreviewWidth), width-minListWidth-3)
 	return width - previewWidth - 3, previewWidth
@@ -1437,10 +1443,10 @@ func fixedVisualLines(text string, width, count int) string {
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
-	return rowWithRail(s, selected, width, showIcons, true, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0], "")
+	return rowWithRail(s, selected, width, showIcons, true, false, query, selectionRailStyle.Render("┃ "), agentStatusSpinner.Frames[0], "")
 }
 
-func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, replaceWorktreeIcon bool, query, selectedRail, workingGlyph, treePrefix string) string {
+func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, replaceWorktreeIcon, hidePath bool, query, selectedRail, workingGlyph, treePrefix string) string {
 	rail := "  "
 	if selected {
 		rail = selectedRail
@@ -1473,7 +1479,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 	if path == label {
 		path = ""
 	}
-	showSecondary := width >= rowPathMinWidth && path != ""
+	showSecondary := !hidePath && width >= rowPathMinWidth && path != ""
 	nameWidth := remaining
 	secondaryWidth := 0
 	if showSecondary {

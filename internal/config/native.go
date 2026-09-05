@@ -51,6 +51,7 @@ type nativePicker struct {
 	// No omitempty: migration must keep an explicitly configured false, and
 	// an always-present value keeps icon behavior self-documenting.
 	ShowIcons             bool   `toml:"show_icons"`
+	ShowPath              *bool  `toml:"show_path,omitempty"`
 	ShowPreview           *bool  `toml:"show_preview,omitempty"`
 	PreviewMode           string `toml:"preview_mode,omitempty"`
 	PrioritizeHome        *bool  `toml:"prioritize_home,omitempty"`
@@ -218,6 +219,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	}
 	cfg.SeparatorAware = n.Picker.SeparatorAware
 	cfg.TUI.ShowIcons = n.Picker.ShowIcons
+	if n.Picker.ShowPath != nil {
+		cfg.TUI.ShowPath = *n.Picker.ShowPath
+	}
 	if n.Picker.ShowPreview != nil {
 		cfg.TUI.ShowPreview = *n.Picker.ShowPreview
 	}

@@ -1324,3 +1324,10 @@ func TestPickerOptionsPropagateCyclePreviewModeKey(t *testing.T) {
 		assert.Equal(t, binding, *opts.CyclePreviewModeKey)
 	}
 }
+
+func TestPickerOptionsPropagatePathVisibility(t *testing.T) {
+	cfg := config.Default()
+	require.False(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HidePath)
+	cfg.TUI.ShowPath = false
+	assert.True(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HidePath)
+}

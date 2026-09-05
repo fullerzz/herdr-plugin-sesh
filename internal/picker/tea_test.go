@@ -2093,3 +2093,34 @@ func sessionNames(items []model.Session) []string {
 	}
 	return names
 }
+
+func TestTeaModelHidePath(t *testing.T) {
+	items := []model.Session{{Name: "workspace", Path: "/unique/path", Source: "config"}}
+	for _, hide := range []bool{false, true} {
+		m := newTeaModel(items, Options{HidePath: hide})
+		m.width = 204
+		listWidth, previewWidth := m.previewLayout()
+		if hide {
+			assert.Equal(t, 100, previewWidth)
+			assert.NotContains(t, ansi.Strip(m.listView(listWidth, 1)), "/unique/path")
+		} else {
+			assert.Equal(t, maxPreviewWidth, previewWidth)
+			assert.Contains(t, ansi.Strip(m.listView(listWidth, 1)), "/unique/path")
+		}
+		assert.Contains(t, ansi.Strip(m.listView(listWidth, 1)), "workspace")
+		assert.Equal(t, m.contentWidth(), listWidth+3+previewWidth)
+		m.previewWidth = 70
+		_, previewWidth = m.previewLayout()
+		assert.Equal(t, 70, previewWidth, "manual resizing takes precedence")
+		m.width = 80
+		_, previewWidth = m.previewLayout()
+		assert.Zero(t, previewWidth, "narrow terminals keep stacked previews")
+		m.width = 204
+		m.hidePreview = true
+		_, previewWidth = m.previewLayout()
+		assert.Zero(t, previewWidth)
+		if hide {
+			assert.NotContains(t, ansi.Strip(m.listView(m.contentWidth(), 1)), "/unique/path")
+		}
+	}
+}
