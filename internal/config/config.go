@@ -10,7 +10,12 @@ const (
 	DefaultWorkspaceSort  = "workspace"
 )
 
+type KeyConfig struct {
+	CyclePreviewMode string
+}
+
 type Config struct {
+	Keys                 KeyConfig            `toml:"-"`
 	Cache                bool                 `toml:"cache"`
 	StrictMode           bool                 `toml:"strict_mode"`
 	ImportPaths          []string             `toml:"import"`
@@ -64,6 +69,7 @@ type WildcardConfig struct {
 
 func Default() Config {
 	return Config{
+		Keys:                 KeyConfig{CyclePreviewMode: "ctrl+o"},
 		DirLength:            1,
 		SortOrder:            []string{"herdr", "config", "zoxide", "dir"},
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},

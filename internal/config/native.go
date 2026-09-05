@@ -15,7 +15,13 @@ import (
 
 const NativeVersion = 1
 
+type nativeKeys struct {
+	// nil keeps the default; an explicit empty string disables cycling.
+	CyclePreviewMode *string `toml:"cycle_preview_mode,omitempty"`
+}
+
 type nativeConfig struct {
+	Keys              nativeKeys        `toml:"keys,omitempty"`
 	Version           int               `toml:"version"`
 	List              nativeList        `toml:"list,omitempty"`
 	Naming            nativeNaming      `toml:"naming"`
@@ -193,6 +199,9 @@ func (n nativeConfig) validate(path string) error {
 // apply converts the validated native document onto a Default()-initialized
 // runtime Config so downstream consumers see the same shape as legacy loads.
 func (n nativeConfig) apply(cfg *Config) {
+	if n.Keys.CyclePreviewMode != nil {
+		cfg.Keys.CyclePreviewMode = *n.Keys.CyclePreviewMode
+	}
 	cfg.Cache = n.List.Cache
 	cfg.Blacklist = n.List.Blacklist
 	if len(n.List.SourceOrder) > 0 {

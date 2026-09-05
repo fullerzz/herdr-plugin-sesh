@@ -1314,3 +1314,13 @@ func configureFakeSources(t *testing.T, zoxideOutput string) {
 	t.Setenv("FAKE_ZOXIDE_OUTPUT", zoxideOutput)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
+
+func TestPickerOptionsPropagateCyclePreviewModeKey(t *testing.T) {
+	for _, binding := range []string{"ctrl+o", "alt+p", ""} {
+		cfg := config.Default()
+		cfg.Keys.CyclePreviewMode = binding
+		opts := pickerOptionsFromConfig(context.Background(), io.Discard, cfg)
+		require.NotNil(t, opts.CyclePreviewModeKey)
+		assert.Equal(t, binding, *opts.CyclePreviewModeKey)
+	}
+}

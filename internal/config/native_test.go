@@ -71,6 +71,7 @@ tabs = ["git"]
 	require.NoError(t, err)
 	disable := true
 	want := Config{
+		Keys:           KeyConfig{CyclePreviewMode: "ctrl+o"},
 		Cache:          true,
 		DirLength:      2,
 		SeparatorAware: true,
@@ -450,4 +451,18 @@ func TestInitConfigAtRejectsDirectory(t *testing.T) {
 	require.NoError(t, os.Mkdir(p, 0700))
 	_, err := InitConfigAt(p)
 	require.ErrorContains(t, err, "not a regular file")
+}
+
+func TestNativeCyclePreviewModeKey(t *testing.T) {
+	for _, tc := range []struct{ name, setting, want string }{
+		{"omitted", "", "ctrl+o"},
+		{"custom", `cycle_preview_mode = "alt+p"`, "alt+p"},
+		{"disabled", `cycle_preview_mode = ""`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[keys]\n"+tc.setting+"\n")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Keys.CyclePreviewMode)
+		})
+	}
 }

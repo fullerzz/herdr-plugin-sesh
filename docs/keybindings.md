@@ -2,11 +2,21 @@
 
 ## Native picker previews
 
-In the native picker, press ++ctrl+o++ to switch between the configured preview
+In the native picker, press ++ctrl+o++ by default to switch between the configured preview
 and **Pane** mode. Pane mode shows the visible terminal contents of the selected
 Herdr workspace's active pane, in its active tab, and refreshes once per second.
 It works for background workspaces without changing focus. Press ++ctrl+o++ again
 to return to the configured preview. ++ctrl+v++ pastes into the filter.
+
+Override the shortcut in the herdr-sesh `config.toml`:
+
+```toml
+[keys]
+cycle_preview_mode = "alt+p" # default: "ctrl+o"; "" disables cycling
+```
+
+The preview heading shows the configured shortcut, or no shortcut when disabled.
+See [picker keys](config.md#keys) for key syntax and binding precedence.
 
 Set `[picker].preview_mode = "pane"` in `config.toml` to start in Pane mode;
 the default is `"command"`. Switching modes in the picker does not change the file.

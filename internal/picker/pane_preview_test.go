@@ -137,3 +137,25 @@ func TestInitialPreviewMode(t *testing.T) {
 		})
 	}
 }
+
+func TestCyclePreviewModeKey(t *testing.T) {
+	for _, binding := range []string{"alt+p", ""} {
+		t.Run(binding, func(t *testing.T) {
+			m := newTeaModel(nil, Options{CyclePreviewModeKey: &binding})
+			updated, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+			m = updated.(teaModel)
+			assert.False(t, m.panePreview)
+			assert.NotContains(t, ansi.Strip(m.previewTitle()), "[ctrl+o]")
+			updated, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModAlt})
+			m = updated.(teaModel)
+			assert.Equal(t, binding != "", m.panePreview)
+			if binding != "" {
+				assert.Contains(t, ansi.Strip(m.previewTitle()), "["+binding+"]")
+				updated, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModAlt})
+				assert.False(t, updated.(teaModel).panePreview)
+			} else {
+				assert.NotContains(t, ansi.Strip(m.previewTitle()), "[]")
+			}
+		})
+	}
+}
