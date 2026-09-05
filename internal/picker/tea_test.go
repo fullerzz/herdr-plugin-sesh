@@ -46,6 +46,90 @@ func TestTeaModelHomePrioritizationOption(t *testing.T) {
 	}
 }
 
+func TestTeaModelDragsPreviewDivider(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height = 120, 28
+	m.list.Selected = 1
+	m.preview = strings.Repeat("preview ", 30)
+	previewID := m.previewRequestID
+	if m.View().MouseMode != tea.MouseModeCellMotion {
+		t.Fatal("picker must request mouse drag events")
+	}
+	for _, step := range []struct {
+		name string
+		msg  tea.Msg
+		x    int
+	}{
+		{"press", tea.MouseClickMsg{X: 64, Y: 5, Button: tea.MouseLeft}, 64},
+		{"widen", tea.MouseMotionMsg{X: 54, Y: 6, Button: tea.MouseLeft}, 54},
+		{"minimum list", tea.MouseMotionMsg{X: 0, Y: 0, Button: tea.MouseLeft}, 39},
+		{"minimum preview", tea.MouseMotionMsg{X: 200, Y: 40, Button: tea.MouseLeft}, 80},
+		{"drag back", tea.MouseMotionMsg{X: 54, Y: 6, Button: tea.MouseLeft}, 54},
+		{"release outside", tea.MouseReleaseMsg{X: 54, Y: 40, Button: tea.MouseLeft}, 54},
+		{"motion after release", tea.MouseMotionMsg{X: 70, Y: 6, Button: tea.MouseLeft}, 54},
+		{"terminal shrinks", tea.WindowSizeMsg{Width: 92, Height: 28}, 39},
+		{"terminal expands", tea.WindowSizeMsg{Width: 120, Height: 28}, 54},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			updated, cmd := m.Update(step.msg)
+			m = updated.(teaModel)
+			if cmd != nil || m.previewRequestID != previewID || m.list.Selected != 1 || m.input.Value() != "" {
+				t.Fatal("resizing changed picker selection/input or requested a new preview")
+			}
+			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+			for y := 5; y < 5+previewTitleRows+m.previewBodyLines(); y++ {
+				if cell := ansi.Cut(lines[y], step.x, step.x+1); cell != "│" {
+					t.Fatalf("divider at (%d,%d) = %q", step.x, y, cell)
+				}
+				if width := lipgloss.Width(lines[y]); width != m.width {
+					t.Fatalf("rendered width = %d, want %d", width, m.width)
+				}
+			}
+		})
+	}
+}
+
+func TestTeaModelIgnoresMouseOutsidePreviewDivider(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		hidden bool
+		click  tea.MouseClickMsg
+		after  tea.Msg
+	}{
+		{name: "list", width: 120, click: tea.MouseClickMsg{X: 63, Y: 6, Button: tea.MouseLeft}},
+		{name: "preview", width: 120, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseLeft}},
+		{name: "header", width: 120, click: tea.MouseClickMsg{X: 64, Y: 4, Button: tea.MouseLeft}},
+		{name: "footer", width: 120, click: tea.MouseClickMsg{X: 64, Y: 25, Button: tea.MouseLeft}},
+		{name: "right button", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseRight}},
+		{name: "hidden", width: 120, hidden: true, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}},
+		{name: "stacked", width: 80, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}},
+		{name: "resize cancels drag", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}, after: tea.WindowSizeMsg{Width: 120, Height: 28}},
+		{name: "buttonless motion cancels drag", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}, after: tea.MouseMotionMsg{X: 64, Y: 6}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel(nil, Options{HidePreview: tc.hidden})
+			m.width, m.height = tc.width, 28
+			before := m.View()
+			if (tc.hidden || tc.width < previewSplitWidth) && before.MouseMode != tea.MouseModeNone {
+				t.Fatal("mouse reporting enabled without a divider")
+			}
+			updated, _ := m.Update(tc.click)
+			m = updated.(teaModel)
+			if tc.after != nil {
+				updated, _ = m.Update(tc.after)
+				m = updated.(teaModel)
+			}
+			updated, _ = m.Update(tea.MouseMotionMsg{X: 54, Y: 6, Button: tea.MouseLeft})
+			m = updated.(teaModel)
+			if got := m.View().Content; got != before.Content {
+				t.Fatal("mouse events outside an active divider drag changed the view")
+			}
+		})
+	}
+}
+
 func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Name: "api-service", Path: "/tmp/api"},

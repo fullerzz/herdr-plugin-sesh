@@ -38,6 +38,7 @@ const (
 	defaultWidth       = 80
 	previewSplitWidth  = 92
 	minPreviewWidth    = 36
+	minListWidth       = 36
 	maxPreviewWidth    = 52
 	previewTitleRows   = 1
 	pickerChromeRows   = 8
@@ -205,6 +206,8 @@ type teaModel struct {
 	smear               smearPreset
 
 	preview              string
+	previewWidth         int
+	draggingPreview      bool
 	previewKey           string
 	previewParentContext context.Context
 	previewContext       context.Context
@@ -544,7 +547,11 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
 		m.height = size.Height
+		m.draggingPreview = false
 		return m, nil
+	}
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return m.resizePreview(mouse), nil
 	}
 	if _, ok := msg.(tea.PasteMsg); ok {
 		return m.updateInput(msg)
@@ -721,7 +728,7 @@ func refreshAgentStatusesCommand(refresh func() (map[string]string, error)) tea.
 
 func (m teaModel) View() tea.View {
 	width := m.contentWidth()
-	listWidth, previewWidth := previewLayout(width)
+	listWidth, previewWidth := m.previewLayout()
 	lines := []string{"", m.header(width), horizontalRule(width)}
 	input := m.input
 	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
@@ -771,6 +778,9 @@ func (m teaModel) View() tea.View {
 	}
 	view := tea.NewView(strings.Join(framed, "\n"))
 	view.AltScreen = true
+	if previewWidth > 0 {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
 	return view
 }
 
@@ -1198,7 +1208,7 @@ func (m teaModel) focusSmearDistance() int {
 	visibleRows := m.previewBodyLines()
 	if m.hidePreview {
 		visibleRows = m.listOnlyBodyLines()
-	} else if _, previewWidth := previewLayout(m.contentWidth()); previewWidth == 0 {
+	} else if _, previewWidth := m.previewLayout(); previewWidth == 0 {
 		visibleRows, _ = m.stackedBodyLines()
 	}
 	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
@@ -1356,18 +1366,44 @@ func previewCommand(ctx context.Context, key string, requestID uint64, s session
 	}
 }
 
-func previewLayout(width int) (int, int) {
-	if width < previewSplitWidth-horizontalPadding*2 {
+func (m teaModel) previewLayout() (int, int) {
+	width := m.contentWidth()
+	if m.hidePreview || width < previewSplitWidth-horizontalPadding*2 {
 		return width, 0
 	}
-	previewWidth := width / 2
-	if previewWidth > maxPreviewWidth {
-		previewWidth = maxPreviewWidth
+	previewWidth := m.previewWidth
+	if previewWidth == 0 {
+		previewWidth = min(width/2, maxPreviewWidth)
 	}
-	if previewWidth < minPreviewWidth {
-		previewWidth = minPreviewWidth
-	}
+	previewWidth = min(max(previewWidth, minPreviewWidth), width-minListWidth-3)
 	return width - previewWidth - 3, previewWidth
+}
+
+func (m teaModel) resizePreview(msg tea.MouseMsg) teaModel {
+	listWidth, previewWidth := m.previewLayout()
+	if previewWidth == 0 {
+		m.draggingPreview = false
+		return m
+	}
+	switch mouse := msg.(type) {
+	case tea.MouseClickMsg:
+		// joinPanels places the divider after the list and one space.
+		m.draggingPreview = mouse.Button == tea.MouseLeft &&
+			mouse.X == horizontalPadding+listWidth+1 &&
+			mouse.Y >= listFirstRowIndex-previewTitleRows &&
+			mouse.Y < listFirstRowIndex+m.previewBodyLines()
+	case tea.MouseMotionMsg:
+		if mouse.Button != tea.MouseLeft {
+			m.draggingPreview = false
+		}
+		if m.draggingPreview {
+			width := m.contentWidth()
+			m.previewWidth = min(max(width+horizontalPadding-mouse.X-2, minPreviewWidth), width-minListWidth-3)
+		}
+	case tea.MouseReleaseMsg:
+		m.draggingPreview = false
+	}
+	return m
 }
 
 func fixedVisualLines(text string, width, count int) string {
