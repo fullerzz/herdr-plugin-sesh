@@ -48,6 +48,9 @@ func (b *pickerBackend) initialize(ctx context.Context) ([]model.Session, picker
 	if col.HerdrErr != nil {
 		b.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
 	}
+	if col.MachineErr != nil {
+		b.warnf("saved SSH machines unavailable: %v", col.MachineErr)
+	}
 	if err != nil {
 		return nil, pickerpkg.DisplayOptions{}, err
 	}
@@ -122,6 +125,9 @@ func (b *pickerBackend) reloadMetadata(ctx context.Context, cfg config.Config, c
 		workspaces = col.HerdrWorkspaces
 	} else {
 		b.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
+	}
+	if col.MachineErr != nil {
+		b.warnf("saved SSH machines unavailable: %v", col.MachineErr)
 	}
 	focusedPane, focusErr := b.client.PaneFocused(ctx)
 	workspaceID := focusedPane.WorkspaceID

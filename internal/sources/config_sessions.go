@@ -40,6 +40,9 @@ func ApplyConfig(sessions *model.Sessions, cfg config.Config, home string) {
 		windows[window.Name] = window
 	}
 	for key, session := range sessions.Directory {
+		if session.IsSSH() {
+			continue
+		}
 		wildcard, matched := config.FindWildcard(cfg, session.Path, home)
 		if matched && !session.DisableStartupSet {
 			session.DisableStartupCommand = wildcard.DisableStartCommand

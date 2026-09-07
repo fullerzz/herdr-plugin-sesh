@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"regexp"
+	"slices"
 	"sync"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -40,8 +41,16 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 			ordered = append(ordered, s.Name())
 		}
 	}
+	// Existing source orders predate SSH. Group it with Herdr unless the
+	// user explicitly chose a position for it.
+	if !seenOrder["ssh"] {
+		if ssh, herdr := slices.Index(ordered, "ssh"), slices.Index(ordered, "herdr"); ssh >= 0 && herdr >= 0 {
+			ordered = slices.Delete(ordered, ssh, ssh+1)
+			ordered = slices.Insert(ordered, slices.Index(ordered, "herdr")+1, "ssh")
+		}
+	}
 	out := model.NewSessions()
-	seenName := map[string]bool{}
+	seenName := map[[2]string]bool{}
 	bl := compile(blacklist)
 	for _, name := range ordered {
 		ss := by[name]
@@ -53,9 +62,12 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 				}
 			}
 			if dedupe {
-				key := sess.Name
-				if key == "" {
-					key = sess.Path
+				key := [2]string{"local", sess.Name}
+				if key[1] == "" {
+					key[1] = sess.Path
+				}
+				if sess.IsSSH() {
+					key = [2]string{"ssh", model.Key(sess)}
 				}
 				if seenName[key] {
 					continue

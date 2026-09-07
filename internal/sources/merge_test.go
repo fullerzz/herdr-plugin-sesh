@@ -38,3 +38,21 @@ func TestParseZoxideLine(t *testing.T) {
 	require.Equal(t, "/tmp/my app", s.Path)
 	assert.Equal(t, "my app", s.Name)
 }
+
+func TestMergePlacesMachinesAfterHerdrBeforeDirectories(t *testing.T) {
+	srcs := []Source{
+		staticSource{"herdr", []model.Session{{Source: "herdr", Name: "running", WorkspaceID: "w1"}}},
+		staticSource{"config", []model.Session{{Source: "config", Name: "configured", Path: "/configured"}}},
+		staticSource{"zoxide", []model.Session{{Source: "zoxide", Name: "directory", Path: "/directory"}}},
+		staticSource{"ssh", []model.Session{{Source: "ssh", Name: "remote", SSH: &model.SSHMachine{ID: "one", Enabled: true}}}},
+	}
+	for _, order := range [][]string{nil, {"herdr", "config", "zoxide", "dir"}} {
+		got, err := Merge(context.Background(), srcs, order, nil, false, true)
+		require.NoError(t, err)
+		var names []string
+		for _, session := range got.Ordered() {
+			names = append(names, session.Name)
+		}
+		assert.Equal(t, []string{"running", "remote", "configured", "directory"}, names)
+	}
+}
