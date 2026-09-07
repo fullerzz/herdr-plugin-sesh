@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unicode/utf8"
 
@@ -1315,6 +1316,77 @@ func TestPreviewTitleShowsWorktreeParentBeforeAgentStatus(t *testing.T) {
 	assert.Contains(t, got, "PREVIEW [ctrl+o] · feature · worktree of parent · working")
 }
 
+// Follow preview batches without waiting for their independent loading timers.
+//
+//nolint:ireturn // Bubble Tea commands return messages through this interface.
+func previewResult(cmd tea.Cmd) tea.Msg {
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		return previewResult(batch[0])
+	}
+	return msg
+}
+
+func TestPreviewLoadingDelayResetsAndStops(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+		defer func() { m.cancelActivePreview() }()
+		assert.NotContains(t, m.previewView(80, 5), "Loading preview")
+		assert.NotContains(t, m.previewView(80, 5), "No preview available")
+		m.preview = "last completed preview"
+		result := make(chan tea.Msg, 1)
+		ctx, id := m.previewContext, m.previewRequestID
+		go func() { result <- previewLoadingCommand(ctx, id)() }()
+		synctest.Wait()
+		time.Sleep(499 * time.Millisecond)
+		select {
+		case <-result:
+			t.Fatal("loading message arrived before 500ms")
+		default:
+		}
+		m.list.Move(1)
+		m, cmd := m.refreshPreview()
+		require.Nil(t, <-result, "selection change must cancel the old timer")
+		batch, ok := cmd().(tea.BatchMsg)
+		require.True(t, ok)
+		require.Len(t, batch, 2)
+		timerCmd := batch[1]
+		go func() { result <- timerCmd() }()
+		synctest.Wait()
+		time.Sleep(499 * time.Millisecond)
+		updated, _ := m.Update(previewLoadingMsg{requestID: id})
+		m = updated.(teaModel)
+		assert.Contains(t, m.previewView(80, 5), "last completed preview")
+		select {
+		case <-result:
+			t.Fatal("replacement timer did not reset the delay")
+		default:
+		}
+		time.Sleep(time.Millisecond)
+		loading := <-result
+		updated, _ = m.Update(loading)
+		m = updated.(teaModel)
+		assert.Contains(t, m.previewView(80, 5), "Loading preview")
+		m.list.Move(-1)
+		m, cmd = m.refreshPreview()
+		assert.Contains(t, m.previewView(80, 5), "last completed preview")
+		batch = cmd().(tea.BatchMsg)
+		nextTimerCmd := batch[1]
+		go func() { result <- nextTimerCmd() }()
+		synctest.Wait()
+		completedID := m.previewRequestID
+		updated, _ = m.Update(previewMsg{key: m.previewKey, requestID: completedID, text: "new preview"})
+		m = updated.(teaModel)
+		require.Nil(t, <-result, "completion must cancel the timer")
+		for _, msg := range []tea.Msg{loading, previewLoadingMsg{requestID: completedID}} {
+			updated, _ = m.Update(msg)
+			m = updated.(teaModel)
+			assert.Contains(t, m.previewView(80, 5), "new preview")
+			assert.NotContains(t, m.previewView(80, 5), "Loading preview")
+		}
+	})
+}
+
 func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
 	msg := previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand, false)()
@@ -1361,19 +1433,20 @@ func executeTeaCommand(cmd tea.Cmd) {
 	}
 	for _, child := range batch {
 		if child != nil {
-			_ = child()
+			executeTeaCommand(child)
 		}
 	}
 }
 
 func TestTeaModelRefreshesPreviewWhenSelectionChanges(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{})
+	m.preview = "api preview"
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	require.NotNil(t, cmd)
-	require.Contains(t, m.preview, "Loading preview")
+	require.Equal(t, "api preview", m.preview)
 	current, ok := m.list.Current()
 	require.True(t, ok)
 	require.Equal(t, "web", current.Name)
@@ -1410,7 +1483,7 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	m.previewKey = ""
 	m, firstCmd := m.refreshPreview()
 	firstResult := make(chan tea.Msg, 1)
-	go func() { firstResult <- firstCmd() }()
+	go func() { firstResult <- previewResult(firstCmd) }()
 	select {
 	case <-firstStarted:
 	case err := <-previewErr:
@@ -1422,7 +1495,7 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	m.list.Move(1)
 	m, secondCmd := m.refreshPreview()
 	secondResult := make(chan tea.Msg, 1)
-	go func() { secondResult <- secondCmd() }()
+	go func() { secondResult <- previewResult(secondCmd) }()
 	select {
 	case <-secondStarted:
 	case err := <-previewErr:
@@ -1458,9 +1531,9 @@ func TestTeaModelRejectsObsoleteSameKeyPreview(t *testing.T) {
 	m.list.Move(-1)
 	m, _ = m.refreshPreview()
 
-	updated, _ := m.Update(firstCmd())
+	updated, _ := m.Update(previewResult(firstCmd))
 	m = updated.(teaModel)
-	assert.Equal(t, "Loading preview...", m.preview)
+	assert.Empty(t, m.preview)
 }
 
 func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
@@ -1498,7 +1571,7 @@ func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
 			m := newTeaModel([]model.Session{{Name: "api"}}, Options{Context: context.Background()})
 			m.previewKey = ""
 			m, previewCmd := m.refreshPreview()
-			go previewCmd()
+			go previewResult(previewCmd)
 			select {
 			case <-started:
 			case <-time.After(time.Second):

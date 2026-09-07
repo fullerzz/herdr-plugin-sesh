@@ -92,7 +92,7 @@ func BenchmarkPreviewNavigationBurst(b *testing.B) {
 				require.NotNil(b, command, "preview command %d", i)
 			}
 			go func(command tea.Cmd) {
-				_ = command()
+				_ = previewResult(command)
 				done <- struct{}{}
 			}(command)
 			<-workload.started

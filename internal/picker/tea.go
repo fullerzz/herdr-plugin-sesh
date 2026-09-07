@@ -210,6 +210,7 @@ type teaModel struct {
 	smear               smearPreset
 
 	preview              string
+	previewLoading       bool
 	previewWidth         int
 	draggingPreview      bool
 	previewKey           string
@@ -250,6 +251,8 @@ type previewMsg struct {
 }
 
 type panePreviewTickMsg struct{ requestID uint64 }
+
+type previewLoadingMsg struct{ requestID uint64 }
 
 type statusRefreshTickMsg struct{}
 
@@ -353,7 +356,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 func (m teaModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
-		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview))
+		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview), previewLoadingCommand(m.previewContext, m.previewRequestID))
 	}
 	if m.refreshAgentStatuses != nil {
 		cmds = append(cmds, scheduleStatusRefresh(), m.agentSpinner.Tick)
@@ -497,6 +500,12 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if preview, ok := msg.(previewMsg); ok {
 		return m.receivePreview(preview)
 	}
+	if loading, ok := msg.(previewLoadingMsg); ok {
+		if loading.requestID == m.previewRequestID && m.cancelPreview != nil && m.previewContext.Err() == nil {
+			m.previewLoading = true
+		}
+		return m, nil
+	}
 	if tick, ok := msg.(panePreviewTickMsg); ok {
 		return m.refreshPanePreview(tick)
 	}
@@ -590,7 +599,6 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.closingWorkspaceID != "" {
 			m.quitAfterWorkspaceClose = true
 			m.cancelWorkspaceClose()
-			m.preview = "Cancelling workspace close..."
 			return m, nil
 		}
 		m = m.cancelActivePreview()
@@ -655,7 +663,6 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	m.closeError = ""
 	m = m.cancelActivePreview()
 	m.previewKey = ""
-	m.preview = "Closing workspace..."
 	closeCtx, cancel := context.WithCancel(m.workspaceCloseContext)
 	m.cancelWorkspaceClose = cancel
 	return m, closeWorkspaceCommand(closeCtx, cancel, m.closeWorkspace, m.reloadPicker, current.WorkspaceID)
@@ -1077,7 +1084,14 @@ func (m teaModel) footerLine(footer string, width int) string {
 
 func (m teaModel) previewView(width, maxLines int) string {
 	text := strings.TrimRight(m.preview, "\n")
-	if text == "" {
+	if m.closingWorkspaceID != "" && (m.previewKey == "" || m.quitAfterWorkspaceClose) {
+		text = "Closing workspace..."
+		if m.quitAfterWorkspaceClose {
+			text = "Cancelling workspace close..."
+		}
+	} else if m.previewLoading {
+		text = "Loading preview..."
+	} else if text == "" && m.cancelPreview == nil {
 		text = "No preview available"
 	}
 	text = fixedVisualLines(text, width, maxLines)
@@ -1121,6 +1135,11 @@ func (m teaModel) receivePreview(preview previewMsg) (teaModel, tea.Cmd) {
 		return m, nil
 	}
 	m.preview = preview.text
+	m.previewLoading = false
+	if m.cancelPreview != nil {
+		m.cancelPreview()
+		m.cancelPreview = nil
+	}
 	if current, ok := m.list.Current(); ok && m.panePreview && !m.hidePreview && current.Source == "herdr" && current.WorkspaceID != "" {
 		return m, tea.Tick(panePreviewRefreshInterval, func(time.Time) tea.Msg {
 			return panePreviewTickMsg{requestID: preview.requestID}
@@ -1162,6 +1181,7 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 }
 
 func (m teaModel) cancelActivePreview() teaModel {
+	m.previewLoading = false
 	if m.cancelPreview != nil {
 		m.cancelPreview()
 		m.cancelPreview = nil
@@ -1171,8 +1191,21 @@ func (m teaModel) cancelActivePreview() teaModel {
 }
 
 func (m teaModel) startPreview(s sessionmodel.Session) (teaModel, tea.Cmd) {
-	m.preview = "Loading preview..."
-	return m.requestPreview(s)
+	m, cmd := m.requestPreview(s)
+	return m, tea.Batch(cmd, previewLoadingCommand(m.previewContext, m.previewRequestID))
+}
+
+func previewLoadingCommand(ctx context.Context, requestID uint64) tea.Cmd {
+	return func() tea.Msg {
+		timer := time.NewTimer(500 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			return previewLoadingMsg{requestID: requestID}
+		}
+	}
 }
 
 //nolint:contextcheck // Bubble Tea persists the caller context on the model between messages.
