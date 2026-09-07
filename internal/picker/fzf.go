@@ -26,7 +26,7 @@ func RunFZF(ctx context.Context, items []sessionmodel.Session, opts Options) (se
 	}
 	//nolint:gosec // fzf is an external picker executable by design.
 	cmd := exec.CommandContext(ctx, command, fzfArgs(opts)...)
-	cmd.Stdin = strings.NewReader(fzfInput(items, opts.SeparatorAware))
+	cmd.Stdin = strings.NewReader(fzfInput(items, opts.SeparatorAware, opts.ShowIcons))
 	var selected bytes.Buffer
 	cmd.Stdout = &selected
 	cmd.Stderr = opts.Output
@@ -43,6 +43,9 @@ func RunFZF(ctx context.Context, items []sessionmodel.Session, opts Options) (se
 	idx, ok := fzfSelectionIndex(selected.String(), len(items))
 	if !ok {
 		return sessionmodel.Session{}, false, fmt.Errorf("fzf returned invalid selection %q", strings.TrimSpace(selected.String()))
+	}
+	if items[idx].IsSSH() {
+		return sessionmodel.Session{}, false, errors.New(sessionmodel.SSHDisplayOnly)
 	}
 	return items[idx], true, nil
 }
@@ -62,8 +65,9 @@ func fzfArgs(opts Options) []string {
 		"--nth=3..6",
 		"--preview=" + fzfPreviewCommand(),
 		"--preview-window=right:60%,border-left,wrap",
-		"--header=Enter select  Ctrl-U clear  Esc cancel",
+		"--header=Enter select (SSH display-only)  Ctrl-U clear  Esc cancel",
 		"--bind=ctrl-u:clear-query",
+		`--bind=enter:transform:if [ {2} != ssh ]; then printf accept; fi`,
 	}
 	if opts.Placeholder != "" {
 		args = append(args, "--ghost="+opts.Placeholder)
@@ -71,19 +75,27 @@ func fzfArgs(opts Options) []string {
 	return args
 }
 
-func fzfInput(items []sessionmodel.Session, separatorAware bool) string {
+func fzfInput(items []sessionmodel.Session, separatorAware, showIcons bool) string {
 	var b strings.Builder
 	for i, s := range items {
+		detail := s.Path
+		if s.SSH != nil {
+			detail = s.SSH.Summary()
+		}
 		_, _ = fmt.Fprintf(
 			&b,
-			"%d\t%s\t%s\t%s\t%s\t%s\n",
+			"%d\t%s\t%s\t%s\t%s\t%s",
 			i,
 			fzfField(s.Source),
-			fzfSourceBadge(s.Source),
+			fzfSourceBadge(s.Source, showIcons),
 			fzfField(fzfLabel(s)),
-			fzfField(s.Path),
+			fzfField(detail),
 			fzfSearchField(s, separatorAware),
 		)
+		if s.SSH != nil {
+			_, _ = fmt.Fprintf(&b, "\t%s", fzfField(s.SSH.ID))
+		}
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
@@ -95,6 +107,11 @@ func fzfPreviewCommand() string {
 		`source={2}`,
 		`label={4}`,
 		`item_path={5}`,
+		`if [ "$source" = ssh ]; then`,
+		`  machine_id={7}`,
+		`  printf 'machine: %s\nid: %s\n%s\n\nSaved on this host; connection status is unavailable.\nSwitch using Herdr\047s machine sidebar.\n' "$label" "$machine_id" "$item_path"`,
+		`  exit 0`,
+		`fi`,
 		`if [ -z "$item_path" ] || [ ! -d "$item_path" ]; then`,
 		`  printf 'No item path available\n'`,
 		`  exit 0`,
@@ -130,15 +147,19 @@ func fzfLabel(s sessionmodel.Session) string {
 	return s.Path
 }
 
-func fzfSourceBadge(source string) string {
-	return "\x1b[1;38;5;" + sourceBadgeColor(source) + "m" + fzfField(sourceBadge(source, true)) + "\x1b[0m"
+func fzfSourceBadge(source string, showIcons bool) string {
+	return "\x1b[1;38;5;" + sourceBadgeColor(source) + "m" + fzfField(sourceBadge(source, showIcons)) + "\x1b[0m"
 }
 
 func fzfSearchField(s sessionmodel.Session, separatorAware bool) string {
 	var terms []string
+	text := s.Name + " " + s.Path
+	if s.SSH != nil {
+		text += " " + s.SSH.Target + " " + s.SSH.RemoteSession
+	}
 	if separatorAware {
 		repl := strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ")
-		terms = append(terms, repl.Replace(s.Name+" "+s.Path))
+		terms = append(terms, repl.Replace(text))
 	}
 	if isHomeSession(s) {
 		terms = append(terms, "home")

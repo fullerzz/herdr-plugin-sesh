@@ -99,7 +99,11 @@ func (a *App) collect(ctx context.Context, cfg config.Config, target string) ([]
 
 func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
 	hs := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}
-	return a.collectFrom(ctx, cfg, target, ignoreSource{hs})
+	machines, err := herdr.NewCLIClient().MachineList(ctx)
+	if err != nil {
+		a.warnf("saved SSH machines unavailable: %v", err)
+	}
+	return a.collectFrom(ctx, cfg, target, ignoreSource{hs}, sources.SSHMachines(machines))
 }
 
 type pickerCollection struct {
@@ -108,22 +112,25 @@ type pickerCollection struct {
 	// HerdrErr reports a failed Herdr workspace listing that the merge
 	// tolerated; callers must surface it or the picker looks empty for no
 	// visible reason.
-	HerdrErr error
+	HerdrErr   error
+	MachineErr error
 }
 
 func (a *App) collectPicker(ctx context.Context, cfg config.Config) (pickerCollection, error) {
 	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}
-	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource)
-	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err}
+	machines, machineErr := herdr.NewCLIClient().MachineList(ctx)
+	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource, sources.SSHMachines(machines))
+	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err, MachineErr: machineErr}
 	if herdrSource.err == nil {
 		col.HerdrWorkspaces = herdrSource.sessions.Ordered()
 	}
 	return col, err
 }
 
-func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
+func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source, extra ...sources.Source) ([]model.Session, error) {
 	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
-	if target != "" {
+	srcs = append(srcs, extra...)
+	if target != "" && !strings.HasPrefix(target, "ssh-machine:") {
 		srcs = append(srcs, sources.DirectPath{
 			Path:  target,
 			Label: namer.Namer{}.Name(ctx, target, cfg.DirLength),
@@ -176,7 +183,13 @@ func (a *App) list(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cacheable := cfg.Cache && !*blacklisted && *hideDup
+	machines, machineErr := herdr.NewCLIClient().MachineList(ctx)
+	if machineErr != nil {
+		a.warnf("saved SSH machines unavailable: %v", machineErr)
+	}
+	// Catalog entries must be refreshed each time and never stored in the
+	// config-scoped session cache. Local-only listings retain their cache.
+	cacheable := cfg.Cache && !*blacklisted && *hideDup && len(machines) == 0
 	if cacheable {
 		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
 			a.warnf("ignoring session cache: %v", err)
@@ -184,7 +197,7 @@ func (a *App) list(ctx context.Context, args []string) error {
 			return a.printSessions(cached, *jsonOut)
 		}
 	}
-	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
+	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}, sources.SSHMachines(machines)}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
 	if err != nil {
 		return err
 	}
@@ -228,7 +241,9 @@ func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
 	}
 	for _, s := range sessions {
 		var err error
-		if s.Path != "" {
+		if s.SSH != nil {
+			_, err = fmt.Fprintf(a.Out, "%s\t%s\t%s\n", s.Source, s.Name, s.SSH.Summary())
+		} else if s.Path != "" {
 			_, err = fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.Name, s.Path)
 		} else {
 			_, err = fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.Name)
@@ -263,6 +278,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		sessions, herdrWorkspaces = col.Sessions, col.HerdrWorkspaces
 		if col.HerdrErr != nil {
 			a.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
+		}
+		if col.MachineErr != nil {
+			a.warnf("saved SSH machines unavailable: %v", col.MachineErr)
 		}
 	}
 	if err != nil {
@@ -352,6 +370,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 // stale "from" workspace.
 func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, warnf func(string, ...any)) (pickerpkg.ReloadResult, error) {
 	col, reloadErr := a.collectPicker(ctx, cfg)
+	if col.MachineErr != nil {
+		warnf("saved SSH machines unavailable: %v", col.MachineErr)
+	}
 	if reloadErr == nil {
 		reloadErr = col.HerdrErr
 	}
@@ -390,6 +411,9 @@ func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *
 }
 
 func pickerTarget(s model.Session) string {
+	if s.SSH != nil {
+		return model.Key(s)
+	}
 	if s.WorkspaceID != "" {
 		return s.WorkspaceID
 	}
@@ -411,6 +435,9 @@ func (a *App) connect(ctx context.Context, args []string) error {
 		return errors.New("connect requires target")
 	}
 	target := fs.Arg(0)
+	if strings.HasPrefix(target, "ssh-machine:") {
+		return errors.New(model.SSHDisplayOnly)
+	}
 	cfg, err := a.loadConfig(*cfgPath)
 	if err != nil {
 		return err
@@ -452,6 +479,9 @@ func (a *App) preview(ctx context.Context, args []string) error {
 	}
 	s, ok := connectpkg.Resolve(sessions, target)
 	if !ok {
+		if strings.HasPrefix(target, "ssh-machine:") {
+			return errors.New("saved SSH machine not found on this host")
+		}
 		s = model.Session{Name: filepath.Base(target), Path: target}
 	}
 	out, err := preview.Render(ctx, s, cfg.DefaultSessionConfig.PreviewCommand)

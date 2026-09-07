@@ -17,7 +17,8 @@ for the documentation matching your installed release.
 `herdr-plugin-sesh` combines running Herdr workspaces, configured sessions, and
 zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command and
-tabs.
+tabs. Saved SSH machines also appear as display-only destinations; switch to
+them through Herdr's machine sidebar.
 
 ![Herdr Sesh picker demo](docs/assets/picker-demo-42.gif)
 
@@ -97,10 +98,38 @@ herdr plugin pane open \
 See [Keybindings](docs/keybindings.md) to bind the picker and previous-workspace
 actions in your Herdr configuration.
 
+## Saved SSH machines
+
+On Herdr 0.9.0 or newer, register machines using Herdr's normal setup:
+
+```bash
+herdr machine add zach@buntu26 --label buntu26
+herdr machine add zach@ser8 --label ser8
+herdr machine list --json
+```
+
+Sesh reads that catalog on each listing and shows an `ssh` row for each saved
+machine in the native picker, fzf, and `list --json`. Search by label, SSH target,
+or remote session name. Previews show static metadata; `enabled` and `disabled`
+describe the saved profile, not live connection status. Listing never connects
+to SSH hosts or installs software.
+
+SSH rows are **display-only**: Enter keeps the picker open, and closing workspaces
+does not apply to them. Switch machines using Herdr's sidebar. Individual remote
+workspaces and cross-machine history are not aggregated. A remote Sesh process
+reads the catalog on that remote host, not the desktop client's catalog.
+
+JSON rows include an `ssh` object with `id`, `target`, `remote_session`, and
+`enabled`, with no local path or workspace ID. For a static CLI preview, use
+`herdr-sesh preview ssh-machine:<profile-id>`; `connect` rejects machine targets.
+Listings containing saved machines bypass the session cache. If the machine CLI
+is unavailable or the catalog cannot be read, Sesh warns and retains local results.
+The existing local features still work on Herdr 0.8.2.
+
 ## Configuration
 
 Configuration is optional. Without a config file, the picker still includes
-running Herdr workspaces and zoxide results when zoxide is available.
+running Herdr workspaces, saved SSH machines, and zoxide results when available.
 
 The plugin reads its versioned native TOML config from the first available
 location:

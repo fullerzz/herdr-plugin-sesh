@@ -28,7 +28,7 @@ func TestRunFZFSelectsSessionByHiddenIndex(t *testing.T) {
 }
 
 func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
-	got := fzfInput([]model.Session{{Source: "config", Name: "api-service", Path: "/tmp/api.service"}}, true)
+	got := fzfInput([]model.Session{{Source: "config", Name: "api-service", Path: "/tmp/api.service"}}, true, true)
 	require.True(t, strings.HasPrefix(got, "0\tconfig\t\x1b[1;38;5;214m"+configSourceIcon+" config\x1b[0m\tapi-service\t/tmp/api.service\t"))
 	require.Contains(t, got, "api service")
 	assert.Contains(t, got, "tmp api service")
@@ -36,7 +36,7 @@ func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 
 func TestFZFInputAddsHomeAliasSearchToken(t *testing.T) {
 	t.Setenv("HOME", "/Users/zach")
-	got := fzfInput([]model.Session{{Source: "herdr", Name: "zach", Path: "/Users/zach"}}, false)
+	got := fzfInput([]model.Session{{Source: "herdr", Name: "zach", Path: "/Users/zach"}}, false, true)
 	require.True(t, strings.HasSuffix(got, "\thome\n"))
 	args := strings.Join(fzfArgs(Options{}), "\n")
 	assert.Contains(t, args, "--nth=3..6")
@@ -48,7 +48,7 @@ func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
 		{Source: "config", Name: "config"},
 		{Source: "zoxide", Name: "zoxide"},
 		{Source: "dir", Name: "dir"},
-	}, false)
+	}, false, true)
 	for _, want := range []string{
 		"\x1b[1;38;5;81m" + herdrSourceIcon + " herdr\x1b[0m",
 		"\x1b[1;38;5;214m" + configSourceIcon + " config\x1b[0m",

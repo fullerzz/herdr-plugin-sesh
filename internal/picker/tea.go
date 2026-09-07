@@ -52,6 +52,7 @@ const (
 	filterLineIndex    = 3
 	listFirstRowIndex  = 6
 	herdrSourceIcon    = "\U000f0cc6"
+	sshSourceIcon      = "\U000f0318"
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
 
@@ -600,6 +601,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if choice, ok := m.list.Current(); ok {
+			if choice.IsSSH() {
+				return m, nil
+			}
 			m.choice = choice
 			m.chosen = true
 		}
@@ -762,6 +766,9 @@ func (m teaModel) View() tea.View {
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
 	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort))
+	if current, ok := m.list.Current(); ok && current.IsSSH() {
+		footer = helpStyle.Render("Display-only · switch using Herdr's machine sidebar · esc exit")
+	}
 	if m.closeError != "" {
 		footer = emptyStyle.Render(m.closeError)
 	} else if m.hidePreview && m.closingWorkspaceID != "" {
@@ -1476,6 +1483,9 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 	badge := sessionSourceBadgeStyle(s).Render(fitPlain(badgeText, badgeWidth))
 	remaining := maxInt(1, width-fixedWidth-badgeWidth)
 	path := compactHome(s.Path)
+	if s.SSH != nil {
+		path = s.SSH.Summary()
+	}
 	if path == label {
 		path = ""
 	}
@@ -1588,6 +1598,8 @@ func sourceBadge(source string, showIcons bool) string {
 	switch source {
 	case "herdr":
 		return herdrSourceIcon + " herdr"
+	case "ssh":
+		return sshSourceIcon + " ssh"
 	case "zoxide":
 		return zoxideSourceIcon + " zoxide"
 	case "config":

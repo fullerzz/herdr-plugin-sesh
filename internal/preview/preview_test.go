@@ -23,6 +23,24 @@ func TestRenderPaneWithoutRunningWorkspace(t *testing.T) {
 	}
 }
 
+func TestMachinePreviewsNeverRunLocalCommands(t *testing.T) {
+	t.Setenv("HERDR_BIN_PATH", "/does-not-exist")
+	s := model.Session{
+		Source: "ssh", Name: "Build", Path: "/does-not-exist", WorkspaceID: "foreign",
+		PreviewCommand: "exit 42",
+		SSH:            &model.SSHMachine{ID: "one", Target: "zach@buntu26", RemoteSession: "agents"},
+	}
+	text, err := Render(context.Background(), s, "exit 43")
+	require.NoError(t, err)
+	assert.Contains(t, text, "zach@buntu26")
+	assert.Contains(t, text, "agents")
+	assert.Contains(t, text, "disabled")
+	assert.Contains(t, text, "display-only")
+	pane, err := RenderPane(context.Background(), s)
+	require.NoError(t, err)
+	assert.Equal(t, text, pane)
+}
+
 func TestRenderPaneUsesHerdrWithoutSessionPath(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "herdr")
 	script := `#!/bin/sh

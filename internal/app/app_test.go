@@ -317,6 +317,7 @@ func TestConfigMigrateLegacySymlinkDoesNotClaimNativePrecedence(t *testing.T) {
 }
 
 func TestListIgnoresCorruptSessionCache(t *testing.T) {
+	configureFakeSources(t, "")
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
@@ -333,6 +334,7 @@ func TestListIgnoresCorruptSessionCache(t *testing.T) {
 }
 
 func TestListWarnsWhenSessionCacheCannotBeSaved(t *testing.T) {
+	configureFakeSources(t, "")
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
@@ -631,6 +633,7 @@ case "$1 $2" in
 "workspace list") printf '[]\n' ;;
 "pane list") printf '[]\n' ;;
 "pane current") %s ;;
+"machine list") printf '[]\n' ;;
 *) exit 1 ;;
 esac
 `, tt.paneCurrent))

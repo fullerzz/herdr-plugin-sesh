@@ -33,6 +33,9 @@ func (m *Model) Filter(q string) {
 	for _, s := range m.All {
 		nameMatch := Match(s.Name, q, m.SeparatorAware)
 		pathMatch := Match(s.Path, q, m.SeparatorAware) || homeQuery && isHomePath(s.Path)
+		if s.SSH != nil {
+			pathMatch = Match(s.SSH.Target, q, m.SeparatorAware) || Match(s.SSH.RemoteSession, q, m.SeparatorAware)
+		}
 		if !nameMatch && !pathMatch {
 			continue
 		}
