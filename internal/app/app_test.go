@@ -317,6 +317,7 @@ func TestConfigMigrateLegacySymlinkDoesNotClaimNativePrecedence(t *testing.T) {
 }
 
 func TestListIgnoresCorruptSessionCache(t *testing.T) {
+	configureFakeSources(t, "")
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
@@ -333,6 +334,7 @@ func TestListIgnoresCorruptSessionCache(t *testing.T) {
 }
 
 func TestListWarnsWhenSessionCacheCannotBeSaved(t *testing.T) {
+	configureFakeSources(t, "")
 	d := t.TempDir()
 	cfgPath := filepath.Join(d, "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n[[session]]\nname = \"api\"\npath = \"/tmp/api\"\n"), 0600))
@@ -486,7 +488,7 @@ func TestPickerRefreshesPluginPaneGeometry(t *testing.T) {
 			zoomed:     "true",
 			wantLog: "pane layout --pane w5:pE0\n" +
 				"pane zoom w5:pE0 --on\n" +
-				"workspace list",
+				"machine list --json\nworkspace list",
 		},
 		{
 			name:       "split",
@@ -494,17 +496,17 @@ func TestPickerRefreshesPluginPaneGeometry(t *testing.T) {
 			paneID:     "w5:pE0",
 			zoomed:     "false",
 			wantLog: "pane layout --pane w5:pE0\n" +
-				"workspace list",
+				"machine list --json\nworkspace list",
 		},
-		{name: "different entrypoint", entrypoint: "other", paneID: "w5:pE0", wantLog: "workspace list"},
-		{name: "missing pane ID", entrypoint: "picker", wantLog: "workspace list"},
+		{name: "different entrypoint", entrypoint: "other", paneID: "w5:pE0", wantLog: "machine list --json\nworkspace list"},
+		{name: "missing pane ID", entrypoint: "picker", wantLog: "machine list --json\nworkspace list"},
 		{
 			name:        "layout refresh fails",
 			entrypoint:  "picker",
 			paneID:      "w5:pE0",
 			layoutError: "true",
 			wantLog: "pane layout --pane w5:pE0\n" +
-				"workspace list",
+				"machine list --json\nworkspace list",
 			wantWarning: "could not refresh picker pane geometry: herdr pane layout --pane w5:pE0",
 		},
 		{
@@ -515,7 +517,7 @@ func TestPickerRefreshesPluginPaneGeometry(t *testing.T) {
 			zoomError:  "true",
 			wantLog: "pane layout --pane w5:pE0\n" +
 				"pane zoom w5:pE0 --on\n" +
-				"workspace list",
+				"machine list --json\nworkspace list",
 			wantWarning: "could not refresh picker pane geometry: herdr pane zoom w5:pE0 --on",
 		},
 	} {
@@ -532,6 +534,8 @@ if [ "$1 $2" = "pane layout" ]; then
 elif [ "$1 $2" = "pane zoom" ] && [ "$HERDR_FAKE_ZOOM_ERROR" = "true" ]; then
 	printf '%s\n' 'zoom failed' >&2
 	exit 1
+elif [ "$1 $2" = "machine list" ]; then
+  printf '%s\n' '[]'
 elif [ "$1 $2" = "workspace list" ]; then
   printf '%s\n' '{"result":{"workspaces":[]}}'
 fi
@@ -722,6 +726,7 @@ case "$1 $2" in
 "workspace list") printf '[]\n' ;;
 "pane list") printf '[]\n' ;;
 "pane current") %s ;;
+"machine list") printf '[]\n' ;;
 *) exit 1 ;;
 esac
 `, tt.paneCurrent))

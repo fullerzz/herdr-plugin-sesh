@@ -19,6 +19,9 @@ import (
 )
 
 func RenderPane(ctx context.Context, s model.Session) (string, error) {
+	if s.IsSSH() {
+		return Render(ctx, s, "")
+	}
 	if s.Source != "herdr" || s.WorkspaceID == "" {
 		return "Pane preview is only available for running Herdr workspaces\n", nil
 	}
@@ -28,6 +31,12 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 }
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
+	if s.IsSSH() {
+		if s.SSH == nil {
+			return model.SSHDisplayOnly + "\n", nil
+		}
+		return fmt.Sprintf("machine: %s\nid: %s\ntarget: %s\nremote session: %s\nprofile: %s\n\nSaved on this host; connection status is unavailable.\n%s\n", s.Name, s.SSH.ID, s.SSH.Target, s.SSH.RemoteSession, s.SSH.Status(), model.SSHDisplayOnly), nil
+	}
 	if s.Path == "" {
 		if s.WorkspaceID != "" {
 			return fmt.Sprintf("workspace: %s\nid: %s\npath: %s\n", s.Name, s.WorkspaceID, s.Path), nil

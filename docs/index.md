@@ -12,7 +12,7 @@ A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and sess
 `herdr-sesh` combines running Herdr workspaces, configured sessions, and
 zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command
-and tabs.
+and tabs. Saved SSH machines appear alongside them as display-only destinations.
 
 ## Install
 
@@ -32,6 +32,32 @@ herdr plugin action invoke fullerzz.sesh.open-picker
     and zoxide results when zoxide is available.
 
 ## Documentation
+
+### Saved SSH machines
+
+With Herdr 0.9.0 or newer, add machines through Herdr:
+
+```bash
+herdr machine add zach@buntu26 --label buntu26
+herdr machine add zach@ser8 --label ser8
+```
+
+Sesh reads `herdr machine list --json` on each listing. Native/FZF pickers and
+JSON output include the saved label, SSH target, remote session, and
+enabled/disabled state. These are saved profiles, not live connection or remote
+workspace snapshots. Search by label, target, or remote session name.
+
+SSH rows have static metadata previews and are **display-only**. Switch machines
+through Herdr's sidebar; selecting an SSH row never opens a connection, creates
+a workspace, or changes history. The catalog belongs to the host running Sesh,
+including when Sesh itself runs remotely. Machine discovery failures warn while
+preserving local results, and listings containing machines bypass the session cache.
+
+Use `herdr-sesh preview ssh-machine:<profile-id>` for a static CLI preview.
+`connect` rejects machine targets. JSON adds an optional `ssh` object containing
+`id`, `target`, `remote_session`, and `enabled`; local rows keep their existing shape.
+
+### Documentation versions
 
 Use the version selector in the header to choose a release's documentation.
 `latest` follows the `main` branch and may describe changes not yet released.

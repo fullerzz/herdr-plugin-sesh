@@ -13,6 +13,7 @@ type WorktreeRelation struct {
 }
 
 type Session struct {
+	SSH                   *SSHMachine      `json:"ssh,omitempty"`
 	Source                string           `json:"source"`
 	Name                  string           `json:"name"`
 	Path                  string           `json:"path,omitempty"`
@@ -58,9 +59,34 @@ func NewSessions() Sessions {
 }
 
 func Key(s Session) string {
+	if s.SSH != nil {
+		return "ssh-machine:" + s.SSH.ID
+	}
 	base := fmt.Sprintf("%s\x00%s\x00%s\x00%s", s.Source, s.Name, s.Path, s.WorkspaceID)
 	sum := sha256.Sum256([]byte(base))
 	return s.Source + ":" + hex.EncodeToString(sum[:8])
+}
+
+const SSHDisplayOnly = "SSH machines are display-only; switch using Herdr's machine sidebar"
+
+type SSHMachine struct {
+	ID            string `json:"id"`
+	Target        string `json:"target"`
+	RemoteSession string `json:"remote_session"`
+	Enabled       bool   `json:"enabled"`
+}
+
+func (s Session) IsSSH() bool { return s.Source == "ssh" || s.SSH != nil }
+
+func (s SSHMachine) Status() string {
+	if s.Enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func (s SSHMachine) Summary() string {
+	return s.Target + " · " + s.RemoteSession + " · " + s.Status() + " (display-only)"
 }
 
 func (ss *Sessions) Add(s Session) string {

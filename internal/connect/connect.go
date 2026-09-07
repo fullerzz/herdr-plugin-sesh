@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -25,6 +26,9 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	if client == nil {
 		return Result{}, errors.New("herdr client required")
 	}
+	if strings.HasPrefix(target, "ssh-machine:") {
+		return Result{}, errors.New(model.SSHDisplayOnly)
+	}
 	match, ok := Resolve(candidates, target)
 	if !ok {
 		if st, err := os.Stat(target); err == nil && st.IsDir() {
@@ -38,6 +42,9 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	}
 	if !ok {
 		return Result{}, errors.New("no matching session")
+	}
+	if match.IsSSH() {
+		return Result{}, errors.New(model.SSHDisplayOnly)
 	}
 	if match.WorkspaceID != "" {
 		if !opts.NoFocus {
@@ -60,8 +67,24 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 }
 
 func Resolve(candidates []model.Session, target string) (model.Session, bool) {
+	if strings.HasPrefix(target, "ssh-machine:") {
+		for _, s := range candidates {
+			if s.SSH != nil && model.Key(s) == target {
+				return s, true
+			}
+		}
+		return model.Session{}, false
+	}
 	for _, s := range candidates {
+		if s.IsSSH() {
+			continue
+		}
 		if s.WorkspaceID == target || s.Name == target || s.Path == target {
+			return s, true
+		}
+	}
+	for _, s := range candidates {
+		if s.IsSSH() && s.Name == target {
 			return s, true
 		}
 	}

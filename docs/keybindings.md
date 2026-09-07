@@ -26,6 +26,15 @@ the native picker; the experimental fzf picker uses its own controls.
     selection is disabled; ++esc++ requests cancellation and exits once the
     request returns. Cancellation cannot undo a close that already completed.
 
+## Saved SSH machines
+
+Saved `ssh` rows are display-only in both native and FZF pickers. Pressing Enter
+on one keeps the picker open. Use Herdr's machine sidebar to switch to the saved
+destination. ++ctrl+x++ does not close or remove machines. Both native preview
+modes show static machine metadata; no local preview command or remote pane is read.
+
+The profile's enabled/disabled state does not indicate whether it is connected.
+
 ## Native picker previews
 
 In the native picker, press ++ctrl+o++ by default to switch between the configured preview

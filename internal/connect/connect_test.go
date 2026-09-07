@@ -2,6 +2,7 @@ package connect
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -19,6 +20,37 @@ func TestConnectFocusesExistingWorkspace(t *testing.T) {
 	require.Len(t, f.FocusedWorkspaces, 1)
 	require.Equal(t, "ws1", f.FocusedWorkspaces[0])
 	assert.Empty(t, f.CreatedWorkspaces)
+}
+
+func TestConnectRejectsDisplayOnlyMachine(t *testing.T) {
+	f := &herdr.FakeClient{}
+	_, err := Connect(context.Background(), f, []model.Session{{Source: "ssh", Name: "remote"}}, "remote", Options{})
+	require.Error(t, err)
+	assert.Empty(t, f.CreatedWorkspaces)
+	assert.Empty(t, f.FocusedWorkspaces)
+	assert.Empty(t, f.PaneRuns)
+}
+
+func TestResolveLocalNameWinsOverMachine(t *testing.T) {
+	local := model.Session{Source: "herdr", Name: "Build", WorkspaceID: "w1"}
+	remote := model.Session{Source: "ssh", Name: "Build", SSH: &model.SSHMachine{ID: "one"}}
+	got, ok := Resolve([]model.Session{remote, local}, "Build")
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+	got, ok = Resolve([]model.Session{remote, local}, "ssh-machine:one")
+	require.True(t, ok)
+	assert.Equal(t, remote, got)
+}
+
+func TestMachineTokensNeverFallBackToDirectories(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, target := range []string{"ssh-machine:one", "ssh-machine:"} {
+		require.NoError(t, os.Mkdir(target, 0700))
+		f := &herdr.FakeClient{}
+		_, err := Connect(context.Background(), f, nil, target, Options{})
+		require.ErrorContains(t, err, "display-only")
+		assert.Empty(t, f.CreatedWorkspaces)
+	}
 }
 
 func TestConnectCreatesWorkspaceForConfigSession(t *testing.T) {
