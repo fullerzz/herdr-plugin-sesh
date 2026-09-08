@@ -76,17 +76,20 @@ path = "~/projects/my-project"
 tabs = ["git"]
 ```
 
-Validate the file using the same shell setup as above:
+Validate the file:
 
 === "Installed plugin"
 
     ```bash
+    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
     "$sesh_root/bin/herdr-sesh" config validate
     ```
 
 === "Local checkout"
 
     ```bash
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
     ./bin/herdr-sesh config validate
     ```
 

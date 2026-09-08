@@ -92,8 +92,12 @@ Then use the checks appropriate to the change:
 ```bash
 ./bin/herdr-sesh --version
 ./bin/herdr-sesh list --json --config testdata/herdr-sesh.toml
+./bin/herdr-sesh list --json --config testdata/sesh.toml
 git diff --check
 ```
+
+Run both fixtures to cover native configuration and legacy Sesh compatibility.
+The legacy fixture's deprecation warning on stderr is expected.
 
 !!! note "What just check includes"
 
