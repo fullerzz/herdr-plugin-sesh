@@ -37,18 +37,19 @@ Use the version selector in the header to choose a release's documentation.
 `latest` follows the `main` branch and may describe changes not yet released.
 Release snapshots are available starting with `v0.10.0`, when the wiki was added.
 
-### Changes since v0.10.1
+For changes in each release, see the
+[release notes](https://github.com/fullerzz/herdr-plugin-sesh/releases).
 
-- Native search puts name matches before path-only matches, with configurable
-  home-directory priority through `picker.prioritize_home`.
-- Previous-workspace history tracks switches outside the plugin and is isolated
-  per Herdr session. This raises the minimum Herdr version to 0.8.2.
-- Native previews can show the selected workspace's active pane. Use ++ctrl+o++
-  to toggle modes or `picker.preview_mode = "pane"` to choose the initial mode.
-- Drag the vertical preview divider to resize side-by-side panels for the
-  current picker invocation.
-- Local builds embed a Git-derived version, including a `-dirty` suffix for
-  tracked working-tree changes.
+### First steps
+
+1. Open the picker, type part of a workspace name or path, then press ++enter++.
+2. [Bind the picker to a key](keybindings.md#herdr-actions) in Herdr.
+3. Optionally [create a configuration and add a named workspace with tabs](config.md#create-your-configuration).
+
+Use ++ctrl+o++ to switch command and active-pane previews, and ++ctrl+r++ to
+cycle workspace sorting. [Picker controls](keybindings.md#native-picker-controls)
+lists the other shortcuts. If something looks wrong, start with
+[Troubleshooting](troubleshooting.md).
 
 ### Reference
 
@@ -56,6 +57,9 @@ Release snapshots are available starting with `v0.10.0`, when the wiki was added
   workspaces, tabs, and legacy Sesh migration.
 - [Keybindings](keybindings.md) shows how to invoke the picker and related
   actions from Herdr.
+- [Commands](commands.md) covers direct CLI use and installed-binary setup.
+- [Contributing](development/index.md) covers local development, tests, docs,
+  and releases.
 - [GitHub releases](https://github.com/fullerzz/herdr-plugin-sesh/releases)
   contains versioned source and release notes.
 

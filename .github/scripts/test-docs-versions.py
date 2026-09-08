@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
         'repo_url = "https://github.com/example/test"\nedit_uri = "edit/main/docs/"\n'
         'nav = [{"Overview" = "index.md"}, {"Guide" = "guide.md"}, '
         '{"Benchmarks" = "development/benchmarks.md"}]\n'
+        '[project.theme]\nfeatures = ["content.action.edit"]\n'
     )
     (source / "docs/index.md").write_text("# Released documentation\n\n[Guide](guide.md)\n")
     (source / "docs/guide.md").write_text("# Released guide\n")
@@ -65,6 +66,7 @@ with tempfile.TemporaryDirectory() as directory:
     )
     assert runtime_config["version"] == {"default": "latest", "provider": "mike"}
     assert "edit/main/docs/" not in release
+    assert "edit/main/docs/index.md" in latest
     assert 'href="latest/"' in (output / "index.html").read_text()
     not_found = (output / "404.html").read_text()
     assert not_found == (output / "latest/404.html").read_text()

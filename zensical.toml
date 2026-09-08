@@ -11,8 +11,11 @@ copyright = "Copyright &copy; 2026 Zach Fuller"
 nav = [
   { "Overview" = "index.md" },
   { "Configuration" = "config.md" },
+  { "Commands" = "commands.md" },
   { "Keybindings" = "keybindings.md" },
+  { "Troubleshooting" = "troubleshooting.md" },
   { "Development" = [
+    { "Contributing" = "development/index.md" },
     { "Workspace history" = "development/workspace-history.md" },
     { "Benchmarks" = "development/benchmarks.md" },
   ] },
@@ -31,6 +34,9 @@ variant = "modern"
 favicon = "assets/favicon.svg"
 language = "en"
 features = [
+  "content.action.edit",
+  "content.tabs.link",
+  "content.code.annotate",
   "content.code.copy",
   "content.footnote.tooltips",
   "navigation.footer",

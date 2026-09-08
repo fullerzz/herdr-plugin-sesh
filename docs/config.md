@@ -27,26 +27,85 @@ at that exact path. `config validate [PATH]` strictly validates the active or
 specified config and prints its resolved path on success. It returns an error
 when no config exists; legacy files remain valid but emit the migration warning.
 
-For a linked Herdr plugin, create or inspect the plugin-owned config with:
+## Create your configuration
 
-```bash
-just install-plugin
-HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config init
-HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)" ./bin/herdr-sesh config path
-```
+=== "Installed plugin"
+
+    Run these commands in a shell with Herdr available. `jq` is used to read
+    the installed plugin path from Herdr's JSON output.
+
+    ```bash
+    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
+    "$sesh_root/bin/herdr-sesh" config init
+    "$sesh_root/bin/herdr-sesh" config path
+    ```
+
+=== "Local checkout"
+
+    From the repository root:
+
+    ```bash
+    just install-plugin
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
+    ./bin/herdr-sesh config init
+    ./bin/herdr-sesh config path
+    ```
 
 Herdr creates `HERDR_PLUGIN_CONFIG_DIR` and `HERDR_PLUGIN_STATE_DIR` for the
 plugin. Keep user configuration in the config directory and runtime state in
 the state directory.
 
-## Example
+### Add a workspace with a tab
+
+Open the file printed by `config path`. Keep its `version = 1` line, then add
+the following entries, replacing the path with an existing Git checkout:
+
+If the existing file uses the legacy schema, [migrate it](#legacy-migration)
+before adding native entries. Use unique workspace and tab names if the file
+already defines them.
 
 ```toml
-version = 1
+[[tab]]
+name = "git"
+startup = "git status"
+
+[[workspace]]
+name = "my-project"
+path = "~/projects/my-project"
+tabs = ["git"]
+```
+
+Validate the file using the same shell setup as above:
+
+=== "Installed plugin"
+
+    ```bash
+    "$sesh_root/bin/herdr-sesh" config validate
+    ```
+
+=== "Local checkout"
+
+    ```bash
+    ./bin/herdr-sesh config validate
+    ```
+
+Open the picker, search for `my-project`, and press ++enter++. A newly created
+workspace receives the named `git` tab and runs `git status` there. Selecting
+an existing workspace focuses it; it does not recreate its tabs or rerun startup
+commands.
+
+## Example
+
+This is a customization example, not a dump of the defaults. Omitted settings
+use the defaults described in [Settings](#settings).
+
+```toml
+version = 1 # (1)!
 
 [list]
 cache = true
-source_order = ["herdr", "config", "zoxide", "dir"]
+source_order = ["herdr", "config", "zoxide", "dir"] # (2)!
 blacklist = ["^scratch$"]
 
 [naming]
@@ -79,7 +138,7 @@ startup = "git status"
 name = "brain"
 path = "~/brain"
 disable_startup = true
-tabs = ["git"]
+tabs = ["git"] # (3)!
 
 [[rule]]
 path_glob = "~/projects/**"
@@ -87,6 +146,10 @@ startup = "git status"
 preview = "eza --icons=always --color=always -la {}"
 tabs = ["git"]
 ```
+
+1. Native configuration requires this schema version; unknown keys are rejected.
+2. Source order controls how results are combined; picker sorting affects Herdr rows.
+3. Tab names refer to `[[tab]]` definitions. They are created when the workspace is new.
 
 ## Legacy migration
 
@@ -96,13 +159,16 @@ Run `config migrate` to convert the active legacy file automatically:
 === "Local checkout"
 
     ```bash
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
     ./bin/herdr-sesh config migrate
     ```
 
 === "Installed plugin"
 
     ```bash
-    "$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')/bin/herdr-sesh" config migrate
+    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
+    "$sesh_root/bin/herdr-sesh" config migrate
     ```
 
 Conversion intentionally modernizes two defaults: when

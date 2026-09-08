@@ -62,10 +62,8 @@ func BenchmarkRenderPicker(b *testing.B) {
 }
 
 // BenchmarkPreviewNavigationBurst measures a rapid navigation burst across
-// sessions, each triggering a preview render. canceled/op currently reads 0
-// because previewCommand renders with context.Background() — stale previews
-// run to completion. The metric exists to show the win once preview
-// cancellation is wired up.
+// sessions, each triggering a preview render. Superseded previews are canceled;
+// the expected metrics are 7 canceled/op and 1 completed/op.
 func BenchmarkPreviewNavigationBurst(b *testing.B) {
 	const previewCount = 8
 	var active atomic.Pointer[previewBenchmarkWorkload]

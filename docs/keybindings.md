@@ -1,5 +1,31 @@
 # Keybindings
 
+## Native picker controls
+
+| Key | Action |
+| --- | --- |
+| ++enter++ | Focus the selected workspace, or create it for a configured session or directory. |
+| ++esc++ / ++ctrl+c++ | Close the picker without selecting a workspace. |
+| ++down++ / ++ctrl+n++ / ++ctrl+j++ | Move from the filter into the list, then move down. |
+| ++up++ / ++ctrl+p++ / ++ctrl+k++ | Move up while the list is focused; moving above its first row returns to the filter. In the filter, ++ctrl+k++ keeps its text-editing behavior. |
+| ++right++ | Return from the list to the filter; within the filter, move the text cursor. |
+| ++ctrl+u++ | Clear the filter and focus it. |
+| ++ctrl+v++ | Paste into the filter. |
+| ++ctrl+r++ | Cycle workspace → recent → agent sorting for Herdr workspaces. |
+| ++ctrl+o++ | Switch command/pane previews, unless overridden by `keys.cycle_preview_mode`. |
+| ++ctrl+x++ | Close the selected running Herdr workspace and refresh the list. |
+
+Typing updates the filter even when the list is focused. These controls describe
+the native picker; the experimental fzf picker uses its own controls.
+
+!!! warning "Closing a workspace"
+
+    ++ctrl+x++ requests a workspace close immediately, without a picker
+    confirmation. It affects the running workspace, not just its row. It does
+    nothing for configured sessions or directory results. During the request,
+    selection is disabled; ++esc++ requests cancellation and exits once the
+    request returns. Cancellation cannot undo a close that already completed.
+
 ## Native picker previews
 
 In the native picker, press ++ctrl+o++ by default to switch between the configured preview
@@ -45,6 +71,9 @@ session and closed workspaces are pruned automatically. See
     page.
 
 Example Herdr keybinding once the plugin is linked:
+
+Add this to **Herdr's** `~/.config/herdr/config.toml` (or the file selected by
+`HERDR_CONFIG_PATH` / `XDG_CONFIG_HOME`), not the plugin's `config.toml`.
 
 ```toml
 [keys]

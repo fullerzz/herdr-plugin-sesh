@@ -79,11 +79,9 @@ behavioral metrics that protect the shape of an optimization:
 | `canceled/op` | Exactly `7` | The seven superseded preview renders are canceled. |
 | `completed/op` | Exactly `1` | The final, active preview render completes. |
 
-!!! warning "Preview cancellation is a target metric"
+!!! info "Preview cancellation is implemented"
 
-    `PreviewNavigationBurst` currently reports `0 canceled/op` and
-    `8 completed/op` because preview rendering uses a background context. Once
-    stale preview cancellation is implemented, the correct result is exactly
+    Each new selection cancels the superseded preview. The expected result is
     `7 canceled/op` and `1 completed/op`: seven stale renders stop while the
     active selection still updates. Any other pair is a behavioral regression,
     even if one value moved farther in an apparently favorable direction.
@@ -95,16 +93,18 @@ through [CodSpeed](https://app.codspeed.io/fullerzz/herdr-plugin-sesh), which
 reports the walltime of each benchmark and comments the comparison against the
 base branch.
 
-Run the CodSpeed suite locally with the
-[CodSpeed CLI](https://codspeed.io/docs/cli):
+For local comparisons on Linux or macOS, use `just bench` and
+`just bench-compare` above; no CodSpeed installation is needed. The repository's
+Ubuntu workflow installs the CodSpeed instrument through its pinned action and
+runs:
 
 ```bash
-curl -fsSL https://codspeed.io/install.sh | sh
-codspeed run --mode walltime -- just bench-codspeed
+just bench-codspeed
 ```
 
-`just bench-codspeed` runs `go test -bench=.` over `internal/sources` and
-`internal/picker`. CodSpeed only supports the `-bench` flag, so the extra
+`just bench-codspeed` alone runs ordinary Go benchmarks; the CI action supplies
+the instrument. It runs `go test -bench=.` over `internal/sources` and
+`internal/picker`. The extra
 `-benchmem`, `-count`, and `-run` flags used by `just bench` are omitted; the
 custom `commands/op`, `canceled/op`, and `completed/op` metrics are still
 reported.

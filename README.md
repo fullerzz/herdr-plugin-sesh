@@ -151,6 +151,9 @@ plugin actions are the normal entry points for day-to-day use.
 
 ## Local development
 
+See the [contributor guide](docs/development/index.md) for setup, the code map,
+verification, and the documentation workflow.
+
 Tool versions are pinned in [`mise.toml`](mise.toml), and common tasks live in
 the [`justfile`](justfile).
 
