@@ -1252,7 +1252,12 @@ func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
 	logPath := filepath.Join(d, "herdr.log")
 	fakeHerdr := filepath.Join(d, "herdr")
 	//nolint:gosec // test creates a local executable fixture.
-	require.NoError(t, os.WriteFile(fakeHerdr, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"), 0700))
+	require.NoError(t, os.WriteFile(fakeHerdr, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_FAKE_LOG"
+if [ "$1" = plugin ]; then
+  printf '%s\n' '{"result":{"plugin_pane":{"pane":{"pane_id":"w5:pE0"}}}}'
+fi
+`), 0700))
 	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
 	t.Setenv("HERDR_FAKE_LOG", logPath)
 
@@ -1261,7 +1266,7 @@ func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
 	//nolint:gosec // logPath is a test-owned temp file.
 	log, err := os.ReadFile(logPath)
 	require.NoError(t, err)
-	assert.Equal(t, "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay", strings.TrimSpace(string(log)))
+	assert.Equal(t, "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay\npane zoom w5:pE0 --on", strings.TrimSpace(string(log)))
 }
 
 func runPickerJSON(t *testing.T, cfgPath, zoxideOutput string) []model.Session {
