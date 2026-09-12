@@ -409,6 +409,29 @@ func (c *CLIClient) PaneRun(ctx context.Context, id, cmd string) error {
 	return err
 }
 func (c *CLIClient) PluginPaneOpen(ctx context.Context, plugin, entry, placement string) error {
-	_, err := c.run(ctx, "plugin", "pane", "open", "--plugin", plugin, "--entrypoint", entry, "--placement", placement)
+	out, err := c.run(ctx, "plugin", "pane", "open", "--plugin", plugin, "--entrypoint", entry, "--placement", placement)
+	if err != nil || placement != "overlay" {
+		return err
+	}
+	raw, _, err := responseJSON(out, "plugin pane open")
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		PluginPane struct {
+			Pane Pane `json:"pane"`
+		} `json:"plugin_pane"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("decode herdr plugin pane open JSON: %w", err)
+	}
+	if resp.PluginPane.Pane.ID == "" {
+		return fmt.Errorf("herdr plugin pane open: missing pane ID for overlay geometry refresh")
+	}
+	// Work around Herdr 0.9.0 starting overlays at the outer pane size rather
+	// than the bordered interior (#123). Overlays are already zoomed; --on
+	// preserves their layout while making Herdr synchronize the PTY size.
+	// Target the returned ID, not the caller or whichever pane is focused.
+	_, err = c.run(ctx, "pane", "zoom", resp.PluginPane.Pane.ID, "--on")
 	return err
 }
