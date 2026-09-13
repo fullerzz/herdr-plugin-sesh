@@ -468,6 +468,51 @@ func TestPickerJSONCommand(t *testing.T) {
 	assert.Contains(t, out.String(), `"name": "sesh"`)
 }
 
+func TestPickerRefreshesOnlyZoomedDirectPluginPaneGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		zoomed  string
+		wantLog string
+	}{
+		{
+			name:   "overlay",
+			zoomed: "true",
+			wantLog: "pane layout --pane w5:pE0\n" +
+				"pane zoom w5:pE0 --on\n" +
+				"workspace list",
+		},
+		{
+			name:   "split",
+			zoomed: "false",
+			wantLog: "pane layout --pane w5:pE0\n" +
+				"workspace list",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "herdr.log")
+			configureHerdrScript(t, `#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_FAKE_LOG"
+if [ "$1 $2" = "pane layout" ]; then
+  printf '%s\n' "{\"result\":{\"layout\":{\"zoomed\":$HERDR_FAKE_ZOOMED}}}"
+elif [ "$1 $2" = "workspace list" ]; then
+  printf '%s\n' '{"result":{"workspaces":[]}}'
+fi
+`)
+			t.Setenv("HERDR_FAKE_LOG", logPath)
+			t.Setenv("HERDR_FAKE_ZOOMED", tc.zoomed)
+			t.Setenv("HERDR_PLUGIN_ENTRYPOINT_ID", "picker")
+			t.Setenv("HERDR_PANE_ID", "w5:pE0")
+
+			a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+			require.NoError(t, a.Run(context.Background(), []string{"picker", "--json", "--config", filepath.Join("..", "..", "testdata", "sesh.toml")}))
+			//nolint:gosec // logPath is a test-owned temp file.
+			log, err := os.ReadFile(logPath)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantLog, strings.TrimSpace(string(log)))
+		})
+	}
+}
+
 func TestNativePickerFailsWhenWorkspaceHistoryCannotResolve(t *testing.T) {
 	configureFakeSources(t, "")
 	statePath := filepath.Join(t.TempDir(), "state")
@@ -1254,9 +1299,6 @@ func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
 	//nolint:gosec // test creates a local executable fixture.
 	require.NoError(t, os.WriteFile(fakeHerdr, []byte(`#!/bin/sh
 printf '%s\n' "$*" >> "$HERDR_FAKE_LOG"
-if [ "$1" = plugin ]; then
-  printf '%s\n' '{"result":{"plugin_pane":{"pane":{"pane_id":"w5:pE0"}}}}'
-fi
 `), 0700))
 	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
 	t.Setenv("HERDR_FAKE_LOG", logPath)
@@ -1266,7 +1308,7 @@ fi
 	//nolint:gosec // logPath is a test-owned temp file.
 	log, err := os.ReadFile(logPath)
 	require.NoError(t, err)
-	assert.Equal(t, "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay\npane zoom w5:pE0 --on", strings.TrimSpace(string(log)))
+	assert.Equal(t, "plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay", strings.TrimSpace(string(log)))
 }
 
 func runPickerJSON(t *testing.T, cfgPath, zoxideOutput string) []model.Session {

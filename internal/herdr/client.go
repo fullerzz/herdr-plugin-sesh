@@ -44,6 +44,10 @@ type Pane struct {
 	Focused       bool   `json:"focused"`
 }
 
+type PaneLayout struct {
+	Zoomed bool `json:"zoomed"`
+}
+
 func (w *Workspace) UnmarshalJSON(data []byte) error {
 	type workspace Workspace
 	var v struct {
@@ -408,30 +412,35 @@ func (c *CLIClient) PaneRun(ctx context.Context, id, cmd string) error {
 	_, err := c.run(ctx, "pane", "run", id, cmd)
 	return err
 }
-func (c *CLIClient) PluginPaneOpen(ctx context.Context, plugin, entry, placement string) error {
-	out, err := c.run(ctx, "plugin", "pane", "open", "--plugin", plugin, "--entrypoint", entry, "--placement", placement)
-	if err != nil || placement != "overlay" {
-		return err
-	}
-	raw, _, err := responseJSON(out, "plugin pane open")
+func (c *CLIClient) PaneLayout(ctx context.Context, id string) (PaneLayout, error) {
+	out, err := c.run(ctx, "pane", "layout", "--pane", id)
 	if err != nil {
-		return err
+		return PaneLayout{}, err
 	}
-	var resp struct {
-		PluginPane struct {
-			Pane Pane `json:"pane"`
-		} `json:"plugin_pane"`
+	raw, wrapped, err := responseJSON(out, "pane layout")
+	if err != nil {
+		return PaneLayout{}, err
 	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return fmt.Errorf("decode herdr plugin pane open JSON: %w", err)
+	if wrapped {
+		var resp struct {
+			Layout PaneLayout `json:"layout"`
+		}
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return PaneLayout{}, fmt.Errorf("decode herdr pane layout JSON: %w", err)
+		}
+		return resp.Layout, nil
 	}
-	if resp.PluginPane.Pane.ID == "" {
-		return fmt.Errorf("herdr plugin pane open: missing pane ID for overlay geometry refresh")
+	var layout PaneLayout
+	if err := json.Unmarshal(raw, &layout); err != nil {
+		return PaneLayout{}, fmt.Errorf("decode herdr pane layout JSON: %w", err)
 	}
-	// Work around Herdr 0.9.0 starting overlays at the outer pane size rather
-	// than the bordered interior (#123). Overlays are already zoomed; --on
-	// preserves their layout while making Herdr synchronize the PTY size.
-	// Target the returned ID, not the caller or whichever pane is focused.
-	_, err = c.run(ctx, "pane", "zoom", resp.PluginPane.Pane.ID, "--on")
+	return layout, nil
+}
+func (c *CLIClient) PaneZoom(ctx context.Context, id string) error {
+	_, err := c.run(ctx, "pane", "zoom", id, "--on")
+	return err
+}
+func (c *CLIClient) PluginPaneOpen(ctx context.Context, plugin, entry, placement string) error {
+	_, err := c.run(ctx, "plugin", "pane", "open", "--plugin", plugin, "--entrypoint", entry, "--placement", placement)
 	return err
 }
