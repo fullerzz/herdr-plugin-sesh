@@ -468,6 +468,97 @@ func TestPickerJSONCommand(t *testing.T) {
 	assert.Contains(t, out.String(), `"name": "sesh"`)
 }
 
+func TestPickerRefreshesPluginPaneGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		entrypoint  string
+		paneID      string
+		zoomed      string
+		layoutError string
+		zoomError   string
+		wantLog     string
+		wantWarning string
+	}{
+		{
+			name:       "overlay",
+			entrypoint: "picker",
+			paneID:     "w5:pE0",
+			zoomed:     "true",
+			wantLog: "pane layout --pane w5:pE0\n" +
+				"pane zoom w5:pE0 --on\n" +
+				"workspace list",
+		},
+		{
+			name:       "split",
+			entrypoint: "picker",
+			paneID:     "w5:pE0",
+			zoomed:     "false",
+			wantLog: "pane layout --pane w5:pE0\n" +
+				"workspace list",
+		},
+		{name: "different entrypoint", entrypoint: "other", paneID: "w5:pE0", wantLog: "workspace list"},
+		{name: "missing pane ID", entrypoint: "picker", wantLog: "workspace list"},
+		{
+			name:        "layout refresh fails",
+			entrypoint:  "picker",
+			paneID:      "w5:pE0",
+			layoutError: "true",
+			wantLog: "pane layout --pane w5:pE0\n" +
+				"workspace list",
+			wantWarning: "could not refresh picker pane geometry: herdr pane layout --pane w5:pE0",
+		},
+		{
+			name:       "zoom refresh fails",
+			entrypoint: "picker",
+			paneID:     "w5:pE0",
+			zoomed:     "true",
+			zoomError:  "true",
+			wantLog: "pane layout --pane w5:pE0\n" +
+				"pane zoom w5:pE0 --on\n" +
+				"workspace list",
+			wantWarning: "could not refresh picker pane geometry: herdr pane zoom w5:pE0 --on",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "herdr.log")
+			configureHerdrScript(t, `#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_FAKE_LOG"
+if [ "$1 $2" = "pane layout" ]; then
+	if [ "$HERDR_FAKE_LAYOUT_ERROR" = "true" ]; then
+		printf '%s\n' 'layout failed' >&2
+		exit 1
+	fi
+  printf '%s\n' "{\"result\":{\"layout\":{\"zoomed\":$HERDR_FAKE_ZOOMED}}}"
+elif [ "$1 $2" = "pane zoom" ] && [ "$HERDR_FAKE_ZOOM_ERROR" = "true" ]; then
+	printf '%s\n' 'zoom failed' >&2
+	exit 1
+elif [ "$1 $2" = "workspace list" ]; then
+  printf '%s\n' '{"result":{"workspaces":[]}}'
+fi
+`)
+			t.Setenv("HERDR_FAKE_LOG", logPath)
+			t.Setenv("HERDR_FAKE_ZOOMED", tc.zoomed)
+			t.Setenv("HERDR_FAKE_LAYOUT_ERROR", tc.layoutError)
+			t.Setenv("HERDR_FAKE_ZOOM_ERROR", tc.zoomError)
+			t.Setenv("HERDR_PLUGIN_ENTRYPOINT_ID", tc.entrypoint)
+			t.Setenv("HERDR_PANE_ID", tc.paneID)
+
+			var errOut bytes.Buffer
+			a := &App{Out: &bytes.Buffer{}, Err: &errOut}
+			require.NoError(t, a.Run(context.Background(), []string{"picker", "--json", "--config", filepath.Join("..", "..", "testdata", "herdr-sesh.toml")}))
+			//nolint:gosec // logPath is a test-owned temp file.
+			log, err := os.ReadFile(logPath)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantLog, strings.TrimSpace(string(log)))
+			if tc.wantWarning == "" {
+				assert.Empty(t, errOut.String())
+			} else {
+				assert.Contains(t, errOut.String(), tc.wantWarning)
+			}
+		})
+	}
+}
+
 func TestNativePickerFailsWhenWorkspaceHistoryCannotResolve(t *testing.T) {
 	configureFakeSources(t, "")
 	statePath := filepath.Join(t.TempDir(), "state")
@@ -1252,7 +1343,9 @@ func TestPluginOpenPickerStillOpensPickerPane(t *testing.T) {
 	logPath := filepath.Join(d, "herdr.log")
 	fakeHerdr := filepath.Join(d, "herdr")
 	//nolint:gosec // test creates a local executable fixture.
-	require.NoError(t, os.WriteFile(fakeHerdr, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HERDR_FAKE_LOG\"\n"), 0700))
+	require.NoError(t, os.WriteFile(fakeHerdr, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_FAKE_LOG"
+`), 0700))
 	t.Setenv("HERDR_BIN_PATH", fakeHerdr)
 	t.Setenv("HERDR_FAKE_LOG", logPath)
 

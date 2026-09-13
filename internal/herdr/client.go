@@ -44,6 +44,10 @@ type Pane struct {
 	Focused       bool   `json:"focused"`
 }
 
+type PaneLayout struct {
+	Zoomed bool `json:"zoomed"`
+}
+
 func (w *Workspace) UnmarshalJSON(data []byte) error {
 	type workspace Workspace
 	var v struct {
@@ -406,6 +410,34 @@ func (c *CLIClient) paneCurrent(ctx context.Context) (Pane, error) {
 }
 func (c *CLIClient) PaneRun(ctx context.Context, id, cmd string) error {
 	_, err := c.run(ctx, "pane", "run", id, cmd)
+	return err
+}
+func (c *CLIClient) PaneLayout(ctx context.Context, id string) (PaneLayout, error) {
+	out, err := c.run(ctx, "pane", "layout", "--pane", id)
+	if err != nil {
+		return PaneLayout{}, err
+	}
+	raw, wrapped, err := responseJSON(out, "pane layout")
+	if err != nil {
+		return PaneLayout{}, err
+	}
+	if wrapped {
+		var resp struct {
+			Layout PaneLayout `json:"layout"`
+		}
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return PaneLayout{}, fmt.Errorf("decode herdr pane layout JSON: %w", err)
+		}
+		return resp.Layout, nil
+	}
+	var layout PaneLayout
+	if err := json.Unmarshal(raw, &layout); err != nil {
+		return PaneLayout{}, fmt.Errorf("decode herdr pane layout JSON: %w", err)
+	}
+	return layout, nil
+}
+func (c *CLIClient) PaneZoom(ctx context.Context, id string) error {
+	_, err := c.run(ctx, "pane", "zoom", id, "--on")
 	return err
 }
 func (c *CLIClient) PluginPaneOpen(ctx context.Context, plugin, entry, placement string) error {

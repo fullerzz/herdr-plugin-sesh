@@ -249,6 +249,20 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") == "picker" {
+		if paneID := os.Getenv("HERDR_PANE_ID"); paneID != "" {
+			client := herdr.NewCLIClient()
+			layout, refreshErr := client.PaneLayout(ctx, paneID)
+			if refreshErr == nil && layout.Zoomed {
+				// Herdr 0.9.0 starts overlays at the outer pane size. Keeping the
+				// already-zoomed pane zoomed synchronizes its bordered PTY geometry.
+				refreshErr = client.PaneZoom(ctx, paneID)
+			}
+			if refreshErr != nil {
+				a.warnf("could not refresh picker pane geometry: %v", refreshErr)
+			}
+		}
+	}
 	cfg, err := a.loadConfig(*cfgPath)
 	if err != nil {
 		return err
