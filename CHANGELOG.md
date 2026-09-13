@@ -1,3 +1,39 @@
+## v0.12.0 (2026-09-13)
+
+### 🚀 Features
+
+- feat: allow hiding the native picker path column by @fullerzz in [#117](https://github.com/fullerzz/herdr-plugin-sesh/pull/117) ([6539de5](https://github.com/fullerzz/herdr-plugin-sesh/commit/6539de584655072fc0ff24d0189b343b872d65d9))
+
+
+
+### 🐛 Bug Fixes
+
+- fix: delay native picker preview loading message by @fullerzz in [#120](https://github.com/fullerzz/herdr-plugin-sesh/pull/120) ([917ab7a](https://github.com/fullerzz/herdr-plugin-sesh/commit/917ab7af48afbe1e2151481642c11566732cf8da))
+
+- fix: refresh overlay geometry when opening picker by @fullerzz in [#124](https://github.com/fullerzz/herdr-plugin-sesh/pull/124) ([221392b](https://github.com/fullerzz/herdr-plugin-sesh/commit/221392b500e6441f781ca6dc883e18f246010162))
+
+
+
+### 📚 Documentation
+
+- docs: improve wiki onboarding and contributor guidance by @fullerzz in [#121](https://github.com/fullerzz/herdr-plugin-sesh/pull/121) ([a734482](https://github.com/fullerzz/herdr-plugin-sesh/commit/a73448214a2b2816549f92be8d73610c9234a457))
+
+- Synchronize command reference by @fullerzz ([42cebda](https://github.com/fullerzz/herdr-plugin-sesh/commit/42cebdae53e7f3ab817d3ed51caaa61440a91f4f))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- **cliff**: Group renovate dep updates in git cliff changelog by @fullerzz ([3ba6d35](https://github.com/fullerzz/herdr-plugin-sesh/commit/3ba6d35aa5261a0f1f1295246a8663c7df792422))
+
+
+
+### 🎡 Continuous Integration
+
+- Restore changelog before switching to main by @fullerzz ([77e827a](https://github.com/fullerzz/herdr-plugin-sesh/commit/77e827a5675acbb158a5858366ebca9860f26e4d))
+
+
+
 ## v0.11.0 (2026-09-05)
 
 ### 🚀 Features
@@ -18,13 +54,15 @@
 
 ### 🐛 Bug Fixes
 
-- fix(go-deps): update golang.org/x/perf digest to 19be9d8 by @renovate[bot] in [#98](https://github.com/fullerzz/herdr-plugin-sesh/pull/98) ([65cbdbd](https://github.com/fullerzz/herdr-plugin-sesh/commit/65cbdbdff3c633e98063b0b3310cf7be2a6d862c))
-
 - fix: embed Git version in local plugin builds by @fullerzz in [#110](https://github.com/fullerzz/herdr-plugin-sesh/pull/110) ([4b9b3da](https://github.com/fullerzz/herdr-plugin-sesh/commit/4b9b3da3b6a92550974606dda40c23285c5d778b))
 
 
 
 ### 🛬 Dependency Updates
+
+- fix(go-deps): update golang.org/x/perf digest to 19be9d8 by @renovate[bot] in [#98](https://github.com/fullerzz/herdr-plugin-sesh/pull/98) ([65cbdbd](https://github.com/fullerzz/herdr-plugin-sesh/commit/65cbdbdff3c633e98063b0b3310cf7be2a6d862c))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#101](https://github.com/fullerzz/herdr-plugin-sesh/pull/101) ([a79b6b3](https://github.com/fullerzz/herdr-plugin-sesh/commit/a79b6b34d39dad3a2f9ec77ebefde3d9d2164797))
 
 - chore(deps): update mise tools by @renovate[bot] in [#75](https://github.com/fullerzz/herdr-plugin-sesh/pull/75) ([dcfee2e](https://github.com/fullerzz/herdr-plugin-sesh/commit/dcfee2ea2ade552ce72bd0755c9636ef836e35ed))
 
@@ -44,17 +82,17 @@
 
 
 
-### 🎡 Continuous Integration
-
-- ci(ci-deps): update ci dependencies by @renovate[bot] in [#101](https://github.com/fullerzz/herdr-plugin-sesh/pull/101) ([a79b6b3](https://github.com/fullerzz/herdr-plugin-sesh/commit/a79b6b34d39dad3a2f9ec77ebefde3d9d2164797))
-
-
-
 ## v0.10.1 (2026-08-29)
 
 ### 🐛 Bug Fixes
 
 - fix(picker): normalize separators in the query, not just the candidate by @cneller in [#104](https://github.com/fullerzz/herdr-plugin-sesh/pull/104) ([4faabda](https://github.com/fullerzz/herdr-plugin-sesh/commit/4faabda418011bb56a42225858bfffec91b5f089))
+
+
+
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#100](https://github.com/fullerzz/herdr-plugin-sesh/pull/100) ([d47a44e](https://github.com/fullerzz/herdr-plugin-sesh/commit/d47a44e61cd5b5be5d233184320e6e45447ca7f8))
 
 
 
@@ -67,8 +105,6 @@
 ### 🎡 Continuous Integration
 
 - ci(codspeed): run the benchmark suite with CodSpeed by @codspeed-hq[bot] in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99) ([af57466](https://github.com/fullerzz/herdr-plugin-sesh/commit/af574664396e9ecf0795e0561decdf76a45cff59))
-
-- ci(ci-deps): update ci dependencies by @renovate[bot] in [#100](https://github.com/fullerzz/herdr-plugin-sesh/pull/100) ([d47a44e](https://github.com/fullerzz/herdr-plugin-sesh/commit/d47a44e61cd5b5be5d233184320e6e45447ca7f8))
 
 
 
@@ -93,7 +129,9 @@
 
 
 
-### 🐛 Bug Fixes
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update ci dependencies (major) by @renovate[bot] in [#88](https://github.com/fullerzz/herdr-plugin-sesh/pull/88) ([16c34dd](https://github.com/fullerzz/herdr-plugin-sesh/commit/16c34dd0624f88ceda90e6d9f7af7bfcbe94aaa7))
 
 - fix(go-deps): update module charm.land/bubbles/v2 to v2.2.1 by @renovate[bot] in [#78](https://github.com/fullerzz/herdr-plugin-sesh/pull/78) ([a1e448f](https://github.com/fullerzz/herdr-plugin-sesh/commit/a1e448f970d05103f7562ab6318967b9213ca32e))
 
@@ -139,8 +177,6 @@
 
 ### 🎡 Continuous Integration
 
-- ci(ci-deps): update ci dependencies (major) by @renovate[bot] in [#88](https://github.com/fullerzz/herdr-plugin-sesh/pull/88) ([16c34dd](https://github.com/fullerzz/herdr-plugin-sesh/commit/16c34dd0624f88ceda90e6d9f7af7bfcbe94aaa7))
-
 - ci: compare benchmarks on pull requests by @fullerzz in [#93](https://github.com/fullerzz/herdr-plugin-sesh/pull/93) ([c333eed](https://github.com/fullerzz/herdr-plugin-sesh/commit/c333eed91db8d5e8fbce7222163ca10a100ded28))
 
 
@@ -176,6 +212,10 @@
 
 - fix(release): persist changelog before publication by @fullerzz in [#77](https://github.com/fullerzz/herdr-plugin-sesh/pull/77) ([7da129b](https://github.com/fullerzz/herdr-plugin-sesh/commit/7da129bdaf15639f14df330ecb20112fdf60d8dd))
 
+
+
+### 🛬 Dependency Updates
+
 - fix(go-deps): update module charm.land/bubbletea/v2 to v2.0.9 by @renovate[bot] in [#74](https://github.com/fullerzz/herdr-plugin-sesh/pull/74) ([58a5632](https://github.com/fullerzz/herdr-plugin-sesh/commit/58a5632af15e74e02776e6ef59b417db8ae00317))
 
 
@@ -200,13 +240,11 @@
 
 
 
-### 🐛 Bug Fixes
+### 🛬 Dependency Updates
 
 - fix(go-deps): update go dependencies by @renovate[bot] in [#70](https://github.com/fullerzz/herdr-plugin-sesh/pull/70) ([c996928](https://github.com/fullerzz/herdr-plugin-sesh/commit/c9969280756163a7c55658280451301b39e9a87a))
 
-
-
-### 🛬 Dependency Updates
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#64](https://github.com/fullerzz/herdr-plugin-sesh/pull/64) ([2c21785](https://github.com/fullerzz/herdr-plugin-sesh/commit/2c2178549db847d12aae11407291ed9bf9e0b287))
 
 - chore(deps): update mise tools by @renovate[bot] in [#68](https://github.com/fullerzz/herdr-plugin-sesh/pull/68) ([7227773](https://github.com/fullerzz/herdr-plugin-sesh/commit/722777318f25b8b2c372d182d3306646e61dd0fd))
 
@@ -224,12 +262,6 @@
 
 
 
-### 🎡 Continuous Integration
-
-- ci(ci-deps): update ci dependencies by @renovate[bot] in [#64](https://github.com/fullerzz/herdr-plugin-sesh/pull/64) ([2c21785](https://github.com/fullerzz/herdr-plugin-sesh/commit/2c2178549db847d12aae11407291ed9bf9e0b287))
-
-
-
 ## v0.7.0 (2026-08-06)
 
 ### 🚀 Features
@@ -240,6 +272,8 @@
 
 ### 🛬 Dependency Updates
 
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#63](https://github.com/fullerzz/herdr-plugin-sesh/pull/63) ([c505632](https://github.com/fullerzz/herdr-plugin-sesh/commit/c505632cd5729229d1399e57e171d5c28425f0c6))
+
 - chore(deps): update mise tools by @renovate[bot] in [#55](https://github.com/fullerzz/herdr-plugin-sesh/pull/55) ([c1c889d](https://github.com/fullerzz/herdr-plugin-sesh/commit/c1c889dab955d54c9e3953d61fde4ce86cf758c0))
 
 
@@ -247,12 +281,6 @@
 ### ⚙️ Miscellaneous Tasks
 
 - chore: configure Amp orb lifecycle by @fullerzz in [#67](https://github.com/fullerzz/herdr-plugin-sesh/pull/67) ([42e702a](https://github.com/fullerzz/herdr-plugin-sesh/commit/42e702ab0ca8469e148249f497bc903ff31d43d3))
-
-
-
-### 🎡 Continuous Integration
-
-- ci(ci-deps): update ci dependencies by @renovate[bot] in [#63](https://github.com/fullerzz/herdr-plugin-sesh/pull/63) ([c505632](https://github.com/fullerzz/herdr-plugin-sesh/commit/c505632cd5729229d1399e57e171d5c28425f0c6))
 
 
 
@@ -280,15 +308,15 @@
 
 
 
-### 🐛 Bug Fixes
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#52](https://github.com/fullerzz/herdr-plugin-sesh/pull/52) ([430f92c](https://github.com/fullerzz/herdr-plugin-sesh/commit/430f92ccdb7b2b84ad618b00a3da53de7d66ede4))
 
 - fix(go-deps): update module github.com/pelletier/go-toml/v2 to v2.4.3 by @renovate[bot] in [#38](https://github.com/fullerzz/herdr-plugin-sesh/pull/38) ([1369a79](https://github.com/fullerzz/herdr-plugin-sesh/commit/1369a798b6f4364249ffc2cae15269aa93515406))
 
 
 
 ### 🎡 Continuous Integration
-
-- ci(ci-deps): update ci dependencies by @renovate[bot] in [#52](https://github.com/fullerzz/herdr-plugin-sesh/pull/52) ([430f92c](https://github.com/fullerzz/herdr-plugin-sesh/commit/430f92ccdb7b2b84ad618b00a3da53de7d66ede4))
 
 - **release**: Update release notes template for gh releases by @fullerzz ([61abc9e](https://github.com/fullerzz/herdr-plugin-sesh/commit/61abc9e6adaca3bcc843321700e5a3f606c70359))
 
@@ -310,6 +338,12 @@
 
 ## v0.3.1 (2026-07-18)
 
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update actions/setup-go action to v7 by @renovate[bot] in [#53](https://github.com/fullerzz/herdr-plugin-sesh/pull/53) ([f24d765](https://github.com/fullerzz/herdr-plugin-sesh/commit/f24d765c604b8c92b756ad5674f7e7d984aa12b5))
+
+
+
 ### 💼 Other
 
 - build: expose plugin build command by @fullerzz in [#54](https://github.com/fullerzz/herdr-plugin-sesh/pull/54) ([60ba957](https://github.com/fullerzz/herdr-plugin-sesh/commit/60ba9578a23d42e7e1001c03375b698459df8605))
@@ -321,12 +355,6 @@
 - Setup pre-commit hooks with prek by @fullerzz ([7bf42cd](https://github.com/fullerzz/herdr-plugin-sesh/commit/7bf42cd38b61f1351ff71ccb21718f3c9ea0431e))
 
 - Add .editorconfig by @fullerzz ([8e924b6](https://github.com/fullerzz/herdr-plugin-sesh/commit/8e924b622431309e302cf46395c99780287b1cfa))
-
-
-
-### 🎡 Continuous Integration
-
-- ci(ci-deps): update actions/setup-go action to v7 by @renovate[bot] in [#53](https://github.com/fullerzz/herdr-plugin-sesh/pull/53) ([f24d765](https://github.com/fullerzz/herdr-plugin-sesh/commit/f24d765c604b8c92b756ad5674f7e7d984aa12b5))
 
 
 
@@ -368,9 +396,15 @@
 
 ### 🛬 Dependency Updates
 
+- ci(ci-deps): update ci dependencies (major) by @renovate[bot] in [#35](https://github.com/fullerzz/herdr-plugin-sesh/pull/35) ([d9396ab](https://github.com/fullerzz/herdr-plugin-sesh/commit/d9396ab0712b1a1b674cff88d8cbc7d1b98f4842))
+
+- ci(ci-deps): update actions/checkout action to v7 by @renovate[bot] in [#43](https://github.com/fullerzz/herdr-plugin-sesh/pull/43) ([69deee8](https://github.com/fullerzz/herdr-plugin-sesh/commit/69deee8b1b79e08d70803edf462ee3a8bcc1e91e))
+
 - chore(deps): update dependency just to v1.56.0 by @renovate[bot] in [#42](https://github.com/fullerzz/herdr-plugin-sesh/pull/42) ([699af8d](https://github.com/fullerzz/herdr-plugin-sesh/commit/699af8de2dd9eb44f32a51c9f1d5e9bba1407e6a))
 
 - chore(deps): update mise tools by @renovate[bot] in [#45](https://github.com/fullerzz/herdr-plugin-sesh/pull/45) ([4acc471](https://github.com/fullerzz/herdr-plugin-sesh/commit/4acc471250769c7296a57756d75abf006f0ea8e3))
+
+- ci(ci-deps): pin dependencies by @renovate[bot] in [#47](https://github.com/fullerzz/herdr-plugin-sesh/pull/47) ([f173bfa](https://github.com/fullerzz/herdr-plugin-sesh/commit/f173bfa879a9473391ed0726adb582a3cafa3c35))
 
 
 
@@ -384,17 +418,11 @@
 
 ### 🎡 Continuous Integration
 
-- ci(ci-deps): update ci dependencies (major) by @renovate[bot] in [#35](https://github.com/fullerzz/herdr-plugin-sesh/pull/35) ([d9396ab](https://github.com/fullerzz/herdr-plugin-sesh/commit/d9396ab0712b1a1b674cff88d8cbc7d1b98f4842))
-
 - ci: add gitleaks workflow by @fullerzz in [#36](https://github.com/fullerzz/herdr-plugin-sesh/pull/36) ([ecdba80](https://github.com/fullerzz/herdr-plugin-sesh/commit/ecdba8024db87d9fdaa1dee1b546b2a10f4cdd21))
-
-- ci(ci-deps): update actions/checkout action to v7 by @renovate[bot] in [#43](https://github.com/fullerzz/herdr-plugin-sesh/pull/43) ([69deee8](https://github.com/fullerzz/herdr-plugin-sesh/commit/69deee8b1b79e08d70803edf462ee3a8bcc1e91e))
 
 - Add golangci-lint workflow by @fullerzz ([cf1389c](https://github.com/fullerzz/herdr-plugin-sesh/commit/cf1389c75fdc2300d48be431fd617c8c0a250862))
 
 - ci: add lint checks and pin eza installation by @fullerzz in [#46](https://github.com/fullerzz/herdr-plugin-sesh/pull/46) ([fa629cb](https://github.com/fullerzz/herdr-plugin-sesh/commit/fa629cb45dcfc5bc6165811e447a89034401aded))
-
-- ci(ci-deps): pin dependencies by @renovate[bot] in [#47](https://github.com/fullerzz/herdr-plugin-sesh/pull/47) ([f173bfa](https://github.com/fullerzz/herdr-plugin-sesh/commit/f173bfa879a9473391ed0726adb582a3cafa3c35))
 
 
 
@@ -404,9 +432,13 @@
 
 - **ci**: Skip unsupported private attestations by @fullerzz ([56e6c69](https://github.com/fullerzz/herdr-plugin-sesh/commit/56e6c69b8050d59b4f936af723c0d0840f6aa047))
 
-- fix(go-deps): update go dependencies to v2 by @renovate[bot] in [#33](https://github.com/fullerzz/herdr-plugin-sesh/pull/33) ([0ffb140](https://github.com/fullerzz/herdr-plugin-sesh/commit/0ffb140f9503132ebcfcdca3d9d6a5f1cb3882e7))
-
 - **justfile**: Push release commit and tag atomically by @fullerzz ([ddaaab6](https://github.com/fullerzz/herdr-plugin-sesh/commit/ddaaab61a0e5d8c53f077fa5bd625db403800edb))
+
+
+
+### 🛬 Dependency Updates
+
+- fix(go-deps): update go dependencies to v2 by @renovate[bot] in [#33](https://github.com/fullerzz/herdr-plugin-sesh/pull/33) ([0ffb140](https://github.com/fullerzz/herdr-plugin-sesh/commit/0ffb140f9503132ebcfcdca3d9d6a5f1cb3882e7))
 
 
 
