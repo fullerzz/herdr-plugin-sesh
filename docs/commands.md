@@ -54,21 +54,19 @@ Use `"$sesh_bin"` followed by a command from this table:
 
 | Command | Purpose |
 | --- | --- |
-| `--version` | Print the build version. |
-| `picker` | Open the native picker. |
-| `picker --fzf` | Open the experimental picker; requires fzf. |
-| `list --json` | List merged session sources as JSON. |
-| `list --blacklisted` | Show only blacklisted results. |
-| `list --hide-duplicates=false` | Keep duplicate results. |
-| `connect TARGET` | Focus or create a workspace by name, path, or workspace ID. |
-| `preview TARGET` | Run the configured command preview for a target. |
-| `clone REPOSITORY` | Clone a repository and connect to its workspace. |
-| `root --connect` | Connect to the current Git repository root. |
+| `--version` or `version` | Print the build version. |
+| `picker [--config PATH] [--fzf] [--json]` | Open the native picker, use the experimental fzf picker, or print selectable sessions as JSON. |
+| `list [--config PATH] [--json] [--blacklisted] [--hide-duplicates=false]` | List merged session sources, including optional blacklist and duplicate views. |
+| `connect [--config PATH] [--no-focus] TARGET` | Focus or create a workspace by name, path, or workspace ID; `--no-focus` preserves the current focus. |
+| `preview [--config PATH] TARGET` | Run the configured command preview for a target. |
+| `clone [--cmdDir PATH] [--dir PATH] REPOSITORY` | Clone a repository and connect to it, optionally choosing Git's working directory and the destination. |
+| `root [--connect]` | Print the current Git repository root, or connect to it. |
 | `window [PATH]` | List tabs, or create a tab for a path. |
 | `config path` | Print the resolved config path, or the destination when none exists. |
 | `config init` | Create a native starter config only when no config exists. |
 | `config validate [PATH]` | Validate the active or specified configuration. |
-| `config migrate` | Convert a legacy Sesh config without deleting its source. |
+| `config migrate [PATH] [--force]` | Convert the active or specified legacy Sesh config without deleting its source. |
+| `config migrate --config PATH [--force]` | Convert a legacy Sesh config selected with the equivalent explicit-path flag. |
 
 For example:
 

@@ -139,7 +139,6 @@ The plugin binary also exposes its underlying operations directly:
 | `herdr-sesh preview TARGET` | Render the configured preview for a session. |
 | `herdr-sesh clone REPOSITORY` | Clone a repository and connect to its workspace. |
 | `herdr-sesh root --connect` | Connect to the current Git repository root. |
-| `herdr-sesh last` | Focus the previously used workspace. |
 | `herdr-sesh window [PATH]` | List tabs or create one for a path. |
 | `herdr-sesh config path` | Print the resolved plugin config path. |
 | `herdr-sesh config init` | Create a starter config if one does not exist. |
@@ -148,6 +147,10 @@ The plugin binary also exposes its underlying operations directly:
 
 The binary lives inside Herdr's managed plugin checkout after installation; the
 plugin actions are the normal entry points for day-to-day use.
+
+Previous-workspace history depends on plugin-managed state and the active Herdr
+session. Use `herdr plugin action invoke fullerzz.sesh.last` instead of running
+`herdr-sesh last` directly unless that environment is already established.
 
 ## Local development
 
