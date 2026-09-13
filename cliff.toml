@@ -45,6 +45,7 @@ commit_preprocessors = [
 ]
 protect_breaking_commits = false
 commit_parsers = [
+    { message = "^(?:chore|fix|ci)\\((?:[a-z0-9-]+-)?deps\\):", group = "<!-- 11 -->🛬 Dependency Updates" },
     { message = "^feat", group = "<!-- 0 -->🚀 Features" },
     { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
     { message = "^docs\\(CHANGELOG\\)", skip = true },
@@ -57,7 +58,6 @@ commit_parsers = [
     { message = "^chore(?:\\(release\\))?: release", skip = true },
     { message = "^chore\\(pr\\)", skip = true },
     { message = "^chore\\(pull\\)", skip = true },
-    { message = "^chore\\(deps\\)", group = "<!-- 11 -->🛬 Dependency Updates" },
     { message = "^chore", group = "<!-- 7 -->⚙️ Miscellaneous Tasks" },
     { message = "^ci", group = "<!-- 8 -->🎡 Continuous Integration" },
     { body = ".*security", group = "<!-- 9 -->🛡️ Security" },
