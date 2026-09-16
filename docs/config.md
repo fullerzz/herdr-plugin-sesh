@@ -336,6 +336,14 @@ The installed plugin starts tracking automatically through startup, focus, and
 close hooks; no additional keybinding or configuration is required. Closed
 workspaces are removed from history.
 
+!!! warning "Herdr 0.9.0 sidebar navigation"
+
+    Herdr 0.9.0 suppresses lifecycle focus events for client navigation, so
+    sidebar switches can leave history stale and make `last` select the wrong
+    workspace. Use a running Herdr server on 0.9.1 or newer for the upstream
+    fix; rebuilding herdr-sesh alone does not fix the missing events.
+    See [issue #125](https://github.com/fullerzz/herdr-plugin-sesh/issues/125).
+
 History is separate for each Herdr session, using `HERDR_SOCKET_PATH` to select
 `${HERDR_PLUGIN_STATE_DIR}/history/<socket-hash>/history.json`. Existing unscoped
 history is copied on first use for the default session only; named sessions

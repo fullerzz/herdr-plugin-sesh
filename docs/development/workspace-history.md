@@ -197,6 +197,39 @@ is not used to decide which workspace closed; a missing or malformed
 
 ## Verify a change
 
+### Host focus-event compatibility
+
+Herdr 0.9.0 suppresses API/plugin focus events in its client navigation path.
+Its sidebar can therefore change the visible workspace without updating this
+subscriber's history. Herdr 0.9.1 includes
+[upstream #3850](https://github.com/herdrdev/herdr/pull/3850), which restores
+`emit_focus_api_events()` when the requesting client's selected target changes.
+Both releases use protocol 22, so the protocol number alone does not establish
+whether this fix is present. Check the running server version, not just the
+installed CLI version.
+
+The restored events remain server-scoped and do not identify the client.
+History therefore tracks the server's focus event order, not independent
+navigation history for each attached client.
+
+For [issue #125](https://github.com/fullerzz/herdr-plugin-sesh/issues/125), verify
+the production path from inside a Herdr-managed pane on a fixed host:
+
+1. Confirm the running server is 0.9.1 or newer and the plugin's history hooks
+   are enabled.
+2. Subscribe to `workspace.focused` on that session's socket and wait for the
+   `subscription_started` acknowledgement.
+3. With one client navigating, click three distinct workspaces in the sidebar
+   in order A, B, C. Confirm `workspace_focused` events arrive in that order and
+   the socket-scoped history starts with C, B, A.
+4. Invoke the plugin's `last` action. Confirm it focuses B and history starts
+   with B, C, A. Invoke it again and confirm it returns to C.
+
+CLI-driven focus commands alone do not verify the affected sidebar path.
+The upstream source fix and local unit tests do not replace this live check.
+
+### Local checks
+
 Run the focused race-enabled suite first, then the repository and docs gates:
 
 ```bash
