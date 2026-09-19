@@ -13,6 +13,7 @@
 | ++ctrl+v++ | Paste into the filter. |
 | ++ctrl+r++ | Cycle workspace → recent → agent sorting for Herdr workspaces. |
 | ++ctrl+o++ | Switch command/pane previews, unless overridden by `keys.cycle_preview_mode`. |
+| ++f2++ | Open settings; uses **Ctrl+,** when preview cycling is bound to F2. |
 | ++ctrl+x++ | Close the selected running Herdr workspace and refresh the list. |
 
 Typing updates the filter even when the list is focused. These controls describe
@@ -98,3 +99,27 @@ Manual picker open:
 ```bash
 herdr plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement overlay
 ```
+
+## Settings controls
+
+| Key | Action |
+| --- | --- |
+| Up / Down, Tab / Shift+Tab | Select a setting. |
+| Enter / Space | Toggle a boolean, cycle a choice, or open an editor. |
+| Left / Right | Cycle choices backward / forward. |
+| Ctrl+R | Revert the selected setting to its loaded value. |
+| Ctrl+S | Apply text/list edits to the draft; from the form, review all changes. |
+| Enter in a text editor | Insert a newline; use Ctrl+S to apply. |
+| `\t` / `\\` in a text editor | Represent a tab / literal backslash. Pasted text is escaped automatically. |
+| A / Enter / D in a list | Add / edit / delete an item. |
+| Ctrl+Up / Ctrl+Down in a list | Reorder items. |
+| Y in save review | Confirm writing the reviewed changes. |
+| Esc | Cancel the current edit, close review, or return; confirm before discarding unsaved changes. |
+
+Open settings directly with:
+
+```bash
+herdr plugin action invoke fullerzz.sesh.open-settings
+```
+
+See [Settings editor](config.md#settings-editor) for file handling and migration.

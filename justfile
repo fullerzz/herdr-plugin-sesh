@@ -4,6 +4,18 @@ _default:
 run:
     go run ./cmd/herdr-sesh
 
+# Explore the settings TUI using a disposable copy, or pass a native config path
+settings-demo $config='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$config"
+    if [[ -z "$target" ]]; then
+        target=$(mktemp "${TMPDIR:-/tmp}/herdr-sesh-settings.XXXXXX")
+        trap 'rm -f "$target" "$target.settings.lock"' EXIT
+        cp testdata/herdr-sesh.toml "$target"
+    fi
+    go run ./cmd/herdr-sesh config edit --config "$target"
+
 # Build the documentation site
 build-docs:
     uv run --frozen zensical build --clean --strict

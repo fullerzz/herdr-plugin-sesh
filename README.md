@@ -51,6 +51,24 @@ Sesh concepts map onto Herdr as follows:
 | Window | Tab |
 | Picker | Overlay pane |
 
+## Settings TUI
+
+Press **F2** in the native picker, or invoke
+`herdr plugin action invoke fullerzz.sesh.open-settings`. The editor uses the
+same colors and Herdr theme inheritance as the picker.
+
+From this checkout, run `just settings-demo` to try it with a disposable config,
+or `just settings-demo /absolute/path/to/config.toml` to edit a real file.
+The standalone command is `herdr-sesh config edit [--config PATH]` and does not
+require a running Herdr instance.
+
+**Enter** edits a setting; **Ctrl+S** applies text/list edits to the draft, then
+opens the save review from the main form. Only **Y** in the review saves.
+**Esc** cancels an edit or returns, with confirmation before discarding a draft.
+Changes apply when returning to the picker. Workspaces, tabs, and rules remain
+file-only. See [the settings editor guide](docs/config.md#settings-editor) for
+migration, file preservation, and conflict handling.
+
 ## Requirements
 
 - [Herdr](https://herdr.dev/docs/installation/) 0.8.2 or newer
@@ -142,6 +160,7 @@ The plugin binary also exposes its underlying operations directly:
 | `herdr-sesh window [PATH]` | List tabs or create one for a path. |
 | `herdr-sesh config path` | Print the resolved plugin config path. |
 | `herdr-sesh config init` | Create a starter config if one does not exist. |
+| `herdr-sesh config edit [--config PATH]` | Edit global settings with a review before saving. |
 | `herdr-sesh config validate [PATH]` | Validate the active or specified config and print its resolved path. |
 | `herdr-sesh config migrate` | Convert a legacy Sesh-style config to the native format. |
 
