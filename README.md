@@ -53,7 +53,7 @@ Sesh concepts map onto Herdr as follows:
 
 ## Settings TUI
 
-Press **F2** in the native picker, or invoke
+Press **F2** in the native picker (**Ctrl+,** when preview cycling uses F2), or invoke
 `herdr plugin action invoke fullerzz.sesh.open-settings`. The editor uses the
 same colors and Herdr theme inheritance as the picker.
 

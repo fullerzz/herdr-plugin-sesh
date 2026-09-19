@@ -74,12 +74,45 @@ func TestSettingsNativeLayouts(t *testing.T) {
 			}
 			if test.success {
 				require.NoError(t, err)
+				cfg, _, loadErr := Load(LoadOptions{Path: path})
+				require.NoError(t, loadErr)
+				assert.False(t, cfg.TUI.ShowIcons)
 			} else {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrSettingsLegacy)
 				data, readErr := os.ReadFile(path) //nolint:gosec // Test-owned temporary file.
 				require.NoError(t, readErr)
 				assert.Equal(t, test.input, string(data))
 			}
 		})
 	}
+}
+
+func TestSettingsDestinationExpandsPluginConfigDir(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Chdir(root)
+	opts := LoadOptions{
+		Home: home,
+		Env:  map[string]string{"HERDR_PLUGIN_CONFIG_DIR": "~/.config/custom"},
+	}
+	path := SettingsDestination(opts)
+	assert.Equal(t, filepath.Join(home, ".config", "custom", NativeFileName), path)
+	doc, err := OpenSettings(opts)
+	require.NoError(t, err)
+	require.NoError(t, doc.Save(map[string]any{"picker.show_icons": false}))
+	_, err = os.Stat(path)
+	require.NoError(t, err)
+}
+
+func TestSerializedSettingValueUsesTOMLValueBoundary(t *testing.T) {
+	value, err := serializedSettingValue([]byte("value=[\"a = b\", \"c\"]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "[\"a = b\", \"c\"]", value)
+
+	_, err = serializedSettingValue([]byte("not_value = true\n"))
+	require.ErrorContains(t, err, "missing value assignment")
+	_, err = serializedSettingValue(nil)
+	require.ErrorContains(t, err, "missing value assignment")
+	_, err = serializedSettingValue([]byte("value = [\n"))
+	require.ErrorContains(t, err, "serialize setting value")
 }

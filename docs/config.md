@@ -29,7 +29,8 @@ when no config exists; legacy files remain valid but emit the migration warning.
 
 ## Settings editor
 
-Use **F2** in the native picker or the **Sesh Settings** Herdr action:
+Use **F2** in the native picker (**Ctrl+,** when preview cycling uses F2) or the
+**Sesh Settings** Herdr action:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-settings

@@ -52,7 +52,15 @@ func TestSettingsReloadToleratesUnavailableHerdr(t *testing.T) {
 	cfg := config.Default()
 	workspace := ""
 	var warnings []string
-	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) })
+	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }, true)
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(warnings, "\n"), "herdr workspaces unavailable")
+}
+
+func TestWorkspaceCloseReloadRejectsUnavailableHerdr(t *testing.T) {
+	configureFakeSources(t, "")
+	cfg := config.Default()
+	workspace := ""
+	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, func(string, ...any) {}, false)
+	require.Error(t, err)
 }

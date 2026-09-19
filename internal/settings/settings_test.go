@@ -51,6 +51,46 @@ func TestSettingsConfirmAndDiscard(t *testing.T) {
 	assert.True(t, cfg.TUI.ShowIcons)
 }
 
+func TestSettingsConfirmDiscardExitsWithoutWriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	original := []byte("version = 1\n[picker]\nshow_icons = false\n")
+	require.NoError(t, os.WriteFile(path, original, 0600))
+	doc, err := config.OpenSettings(config.LoadOptions{Path: path})
+	require.NoError(t, err)
+	m := newModel(doc)
+	m, _ = press(t, m, tea.KeyEnter, 0)
+	m, _ = press(t, m, tea.KeyEscape, 0)
+	require.Equal(t, discard, m.mode)
+	_, cmd := press(t, m, 'y', 0)
+	require.NotNil(t, cmd)
+	done, ok := cmd().(DoneMsg)
+	require.True(t, ok)
+	assert.False(t, done.Result.Saved)
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary file.
+	require.NoError(t, err)
+	assert.Equal(t, original, data)
+}
+
+func TestSettingsDismissConflictClearsReloadAction(t *testing.T) {
+	for _, dismiss := range []string{"esc", "r"} {
+		t.Run(dismiss, func(t *testing.T) {
+			m := Model{problem: "changed on disk", conflict: true, mode: form}
+			next, _ := m.problemKey(dismiss)
+			m = next.(Model)
+			assert.False(t, m.conflict)
+			if dismiss == "r" {
+				next, _ = m.confirmKey("n")
+				m = next.(Model)
+			}
+			m.problem = "validation failed"
+			next, _ = m.problemKey("r")
+			m = next.(Model)
+			assert.Equal(t, form, m.mode)
+			assert.Equal(t, "validation failed", m.problem)
+		})
+	}
+}
+
 func TestSettingsTextEditAndValidation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(path, []byte("version = 1\n"), 0600))

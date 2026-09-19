@@ -16,12 +16,18 @@ type Migration struct {
 }
 
 func (m *Migration) Save() error {
+	// Recheck sources under the destination lock at both persistence boundaries.
+	// Source files stay lock-free because imports may live in read-only directories.
+	return m.target.persistModeChecked(m.data, 0600, m.sourcesUnchanged)
+}
+
+func (m *Migration) sourcesUnchanged() error {
 	for _, source := range m.sources {
 		if err := source.unchanged(); err != nil {
 			return err
 		}
 	}
-	return m.target.persistMode(m.data, 0600)
+	return nil
 }
 
 func migrationSources(path string, seen map[string]bool) ([]*SettingsDocument, error) {
@@ -29,14 +35,14 @@ func migrationSources(path string, seen map[string]bool) ([]*SettingsDocument, e
 	if err != nil {
 		return nil, err
 	}
+	if seen[selected] {
+		return nil, nil
+	}
+	seen[selected] = true
 	resolved, err := filepath.EvalSymlinks(selected)
 	if err != nil {
 		return nil, err
 	}
-	if seen[resolved] {
-		return nil, nil
-	}
-	seen[resolved] = true
 	//nolint:gosec // User-selected legacy config and its imports.
 	data, err := os.ReadFile(resolved)
 	if err != nil {

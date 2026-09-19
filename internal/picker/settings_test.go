@@ -55,9 +55,10 @@ func TestSettingsRoundTripRestoresPicker(t *testing.T) {
 
 func TestSettingsShortcutDoesNotStealPreviewBinding(t *testing.T) {
 	binding := "f2"
-	m := newTeaModel(nil, Options{HidePreview: true, CyclePreviewModeKey: &binding, OpenSettings: func() (settings.Model, error) { return settings.Model{}, nil }})
+	m := newTeaModel([]sessionmodel.Session{{Name: "alpha", Path: "/alpha"}}, Options{CyclePreviewModeKey: &binding, OpenSettings: func() (settings.Model, error) { return settings.Model{}, nil }})
 	assert.Equal(t, "ctrl+,", m.settingsKey())
 	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyF2})
-	assert.Nil(t, cmd)
+	require.NotNil(t, cmd)
 	assert.False(t, next.(teaModel).settingsBusy)
+	assert.True(t, next.(teaModel).panePreview)
 }

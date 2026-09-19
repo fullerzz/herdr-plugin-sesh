@@ -22,6 +22,8 @@ func TestSettingsProductionLayouts(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.toml")
 			//nolint:gosec // Verify existing permissions survive editing.
 			require.NoError(t, os.WriteFile(path, []byte(input), 0640))
+			//nolint:gosec // Verify preservation of an intentionally broader baseline mode.
+			require.NoError(t, os.Chmod(path, 0640))
 			doc, err := OpenSettings(LoadOptions{Path: path})
 			require.NoError(t, err)
 			require.NoError(t, doc.Save(map[string]any{"picker.show_icons": false, "picker.show_path": false, "list.blacklist": []string{"^new$", "猫"}, "list.source_order": []string{"config", "herdr"}}))

@@ -307,6 +307,7 @@ func (m Model) problemKey(key string) (tea.Model, tea.Cmd) { //nolint:ireturn //
 	switch key {
 	case "esc", "enter":
 		m.problem = ""
+		m.conflict = false
 		m.offset = 0
 	case "up", "k":
 		m.offset = max(0, m.offset-1)
@@ -315,6 +316,7 @@ func (m Model) problemKey(key string) (tea.Model, tea.Cmd) { //nolint:ireturn //
 	case "r":
 		if m.conflict {
 			m.problem = ""
+			m.conflict = false
 			m.back = m.mode
 			m.mode = reloadConfirm
 		}

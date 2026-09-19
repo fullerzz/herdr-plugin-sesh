@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/pelletier/go-toml/v2/unstable"
 )
 
 var ErrSettingsLegacy = errors.New("legacy config requires migration")
@@ -50,7 +51,7 @@ func SettingsDestination(opts LoadOptions) string {
 	if dir == "" {
 		dir = filepath.Join(home, ".config", "herdr-sesh")
 	}
-	return filepath.Join(dir, NativeFileName)
+	return filepath.Join(ExpandHome(dir, home), NativeFileName)
 }
 
 func OpenSettings(opts LoadOptions) (*SettingsDocument, error) {
@@ -145,8 +146,11 @@ func (d *SettingsDocument) Preview(changes map[string]any) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, value, _ := strings.Cut(string(encoded), "= ")
-		data, err = patchSetting(data, parts[0], parts[1], strings.TrimSpace(value))
+		value, err := serializedSettingValue(encoded)
+		if err != nil {
+			return nil, err
+		}
+		data, err = patchSetting(data, parts[0], parts[1], value)
 		if err != nil {
 			return nil, err
 		}
@@ -176,6 +180,28 @@ func (d *SettingsDocument) Preview(changes map[string]any) ([]byte, error) {
 		}
 	}
 	return data, nil
+}
+
+func serializedSettingValue(encoded []byte) (string, error) {
+	var p unstable.Parser
+	p.Reset(encoded)
+	if !p.NextExpression() {
+		if err := p.Error(); err != nil {
+			return "", fmt.Errorf("serialize setting value: %w", err)
+		}
+		return "", errors.New("serialize setting value: missing value assignment")
+	}
+	n := p.Expression()
+	keys := nodeKeys(n)
+	if n.Kind != unstable.KeyValue || len(keys) != 1 || keys[0] != "value" {
+		return "", errors.New("serialize setting value: missing value assignment")
+	}
+	start := valueStart(encoded, n)
+	end, _ := valueEnd(encoded, n.Value(), start)
+	if start >= end || end > len(encoded) {
+		return "", errors.New("serialize setting value: missing value")
+	}
+	return strings.TrimSpace(string(encoded[start:end])), nil
 }
 
 func editableSetting(key string) bool {
@@ -236,6 +262,10 @@ func (d *SettingsDocument) Save(changes map[string]any) error {
 func (d *SettingsDocument) persist(data []byte) error { return d.persistMode(data, 0) }
 
 func (d *SettingsDocument) persistMode(data []byte, modeOverride os.FileMode) error {
+	return d.persistModeChecked(data, modeOverride, nil)
+}
+
+func (d *SettingsDocument) persistModeChecked(data []byte, modeOverride os.FileMode, check func() error) error {
 	if err := os.MkdirAll(filepath.Dir(d.Path), 0700); err != nil {
 		return err
 	}
@@ -252,6 +282,11 @@ func (d *SettingsDocument) persistMode(data []byte, modeOverride os.FileMode) er
 	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
 	if err := d.unchanged(); err != nil {
 		return err
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	if !d.Missing && bytes.Equal(data, d.original) && (modeOverride == 0 || d.info.Mode().Perm() == modeOverride) {
 		return nil
@@ -279,6 +314,11 @@ func (d *SettingsDocument) persistMode(data []byte, modeOverride os.FileMode) er
 	}
 	if err := tmp.Close(); err != nil {
 		return err
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	if err := d.unchanged(); err != nil {
 		return err

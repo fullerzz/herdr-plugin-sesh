@@ -735,7 +735,7 @@ esac
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			}
 
-			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, warn)
+			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, warn, false)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantID, pickerWorkspaceID)
 			require.Equal(t, tt.wantUnknown, result.LastWorkspaceUnknown)

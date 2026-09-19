@@ -316,7 +316,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			return nil
 		}
 		pickOpts.ReloadPicker = func(reloadCtx context.Context) (pickerpkg.ReloadResult, error) {
-			return a.reloadPickerState(reloadCtx, cfg, client, &pickerWorkspaceID, deferWarn)
+			return a.reloadPickerState(reloadCtx, cfg, client, &pickerWorkspaceID, deferWarn, false)
 		}
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
@@ -338,7 +338,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			if err != nil {
 				return pickerpkg.Options{}, pickerpkg.ReloadResult{}, err
 			}
-			reloaded, err := a.reloadPickerState(ctx, nextCfg, client, &pickerWorkspaceID, deferWarn)
+			reloaded, err := a.reloadPickerState(ctx, nextCfg, client, &pickerWorkspaceID, deferWarn, true)
 			if err != nil {
 				return pickerpkg.Options{}, reloaded, err
 			}
@@ -373,15 +373,20 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	return nil
 }
 
-// reloadPickerState re-collects picker sessions after a workspace close and
-// re-resolves which workspace hosts the picker, since the close may have
-// destroyed the workspace that launched it. On focus failure
+// reloadPickerState re-collects picker sessions after a workspace close or
+// settings save and re-resolves which workspace hosts the picker. Workspace
+// close reloads report an unavailable Herdr source so the picker can preserve
+// its old list; settings reloads tolerate it so non-Herdr changes still apply.
+// On focus failure
 // pickerWorkspaceID is cleared so the eventual switch is recorded without a
 // stale "from" workspace.
-func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, warnf func(string, ...any)) (pickerpkg.ReloadResult, error) {
+func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, warnf func(string, ...any), tolerateUnavailableHerdr bool) (pickerpkg.ReloadResult, error) {
 	col, reloadErr := a.collectPicker(ctx, cfg)
 	if col.HerdrErr != nil {
 		warnf("herdr workspaces unavailable: %v", col.HerdrErr)
+		if !tolerateUnavailableHerdr && reloadErr == nil {
+			reloadErr = col.HerdrErr
+		}
 	}
 	focusedPane, focusErr := client.PaneFocused(ctx)
 	*pickerWorkspaceID = focusedPane.WorkspaceID
