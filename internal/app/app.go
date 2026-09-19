@@ -332,13 +332,13 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		pickOpts.OpenSettings = func() (settings.Model, error) {
 			return settings.Open(config.LoadOptions{Path: activeConfigPath, Warn: a.Err}, a.settingsSaved)
 		}
-		pickOpts.ReloadSettings = func(result settings.Result) (pickerpkg.Options, pickerpkg.ReloadResult, error) {
+		pickOpts.ReloadSettings = func(reloadCtx context.Context, result settings.Result) (pickerpkg.Options, pickerpkg.ReloadResult, error) {
 			activeConfigPath = result.Path
 			nextCfg, _, err := config.Load(config.LoadOptions{Path: result.Path, Warn: a.Err})
 			if err != nil {
 				return pickerpkg.Options{}, pickerpkg.ReloadResult{}, err
 			}
-			reloaded, err := a.reloadPickerState(ctx, nextCfg, client, &pickerWorkspaceID, deferWarn, true)
+			reloaded, err := a.reloadPickerState(reloadCtx, nextCfg, client, &pickerWorkspaceID, deferWarn, true)
 			if err != nil {
 				return pickerpkg.Options{}, reloaded, err
 			}
@@ -382,6 +382,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 // stale "from" workspace.
 func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, warnf func(string, ...any), tolerateUnavailableHerdr bool) (pickerpkg.ReloadResult, error) {
 	col, reloadErr := a.collectPicker(ctx, cfg)
+	if err := ctx.Err(); err != nil {
+		return pickerpkg.ReloadResult{LastWorkspaceUnknown: true}, err
+	}
 	if col.HerdrErr != nil {
 		warnf("herdr workspaces unavailable: %v", col.HerdrErr)
 		if !tolerateUnavailableHerdr && reloadErr == nil {

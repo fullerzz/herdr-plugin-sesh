@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"fmt"
 
 	"charm.land/bubbles/v2/spinner"
@@ -45,10 +46,12 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 		}
 		if msg.Result.Saved && m.reloadSettings != nil {
 			m.settingsBusy = true
+			ctx, cancel := context.WithCancel(m.previewParentContext)
+			m.settingsCancel = cancel
 			reload := m.reloadSettings
 			result := msg.Result
 			return m, func() tea.Msg {
-				opts, state, err := reload(result)
+				opts, state, err := reload(ctx, result)
 				return settingsReloadedMsg{options: opts, result: state, err: err}
 			}, true
 		}
@@ -56,8 +59,15 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 		m, cmd := m.resumePicker()
 		return m, cmd, true
 	case settingsReloadedMsg:
+		if m.settingsCancel != nil {
+			m.settingsCancel()
+			m.settingsCancel = nil
+		}
 		m.settingsBusy = false
 		m.settings = nil
+		if m.quitAfterSettings {
+			return m, tea.Quit, true
+		}
 		if msg.err != nil {
 			m.closeError = fmt.Sprintf("Settings saved; picker reload failed: %v. Reopen the picker to retry.", msg.err)
 			m, cmd := m.resumePicker()
@@ -93,6 +103,15 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 			m.width, m.height = size.Width, size.Height
 		}
 		if m.settingsBusy {
+			if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
+				if m.settingsCancel != nil {
+					m.settingsCancel()
+					// Wait for the canceled callback before app state is read on exit.
+					m.quitAfterSettings = true
+					return m, nil, true
+				}
+				return m, tea.Quit, true
+			}
 			return m, nil, true
 		}
 		// Ignore old picker jobs; forwarding their ticks could restart work or move focus.

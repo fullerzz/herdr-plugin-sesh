@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -18,7 +19,7 @@ func TestSettingsRoundTripRestoresPicker(t *testing.T) {
 	items := []sessionmodel.Session{{Name: "alpha", Path: "/alpha"}, {Name: "beta", Path: "/beta"}}
 	opts := Options{Context: context.Background(), HidePreview: true}
 	opts.OpenSettings = func() (settings.Model, error) { return settings.Open(config.LoadOptions{Path: path}, nil) }
-	opts.ReloadSettings = func(result settings.Result) (Options, ReloadResult, error) {
+	opts.ReloadSettings = func(_ context.Context, result settings.Result) (Options, ReloadResult, error) {
 		assert.True(t, result.Saved)
 		next := opts
 		next.HidePath = true
@@ -61,4 +62,46 @@ func TestSettingsShortcutDoesNotStealPreviewBinding(t *testing.T) {
 	require.NotNil(t, cmd)
 	assert.False(t, next.(teaModel).settingsBusy)
 	assert.True(t, next.(teaModel).panePreview)
+}
+
+func TestSettingsReloadCanBeCancelled(t *testing.T) {
+	started := make(chan context.Context, 1)
+	m := newTeaModel(nil, Options{HidePreview: true, ReloadSettings: func(ctx context.Context, _ settings.Result) (Options, ReloadResult, error) {
+		started <- ctx
+		<-ctx.Done()
+		return Options{}, ReloadResult{}, ctx.Err()
+	}})
+	m.settings = &settings.Model{}
+	next, reload := m.Update(settings.DoneMsg{Result: settings.Result{Saved: true}})
+	m = next.(teaModel)
+	require.NotNil(t, reload)
+	require.NotNil(t, m.settingsCancel)
+	t.Cleanup(m.settingsCancel)
+	finished := make(chan tea.Msg, 1)
+	go func() { finished <- reload() }()
+	var ctx context.Context
+	select {
+	case ctx = <-started:
+	case <-time.After(time.Second):
+		t.Fatal("reload did not start")
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	m = next.(teaModel)
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+	select {
+	case result := <-finished:
+		_, quit := m.Update(result)
+		require.NotNil(t, quit)
+		assert.IsType(t, tea.QuitMsg{}, quit())
+	case <-time.After(time.Second):
+		t.Fatal("reload did not stop after Ctrl+C")
+	}
+}
+
+func TestSettingsOpeningKeepsQuitKeyActive(t *testing.T) {
+	m := newTeaModel(nil, Options{HidePreview: true})
+	m.settingsBusy = true
+	_, quit := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	require.NotNil(t, quit)
+	assert.IsType(t, tea.QuitMsg{}, quit())
 }

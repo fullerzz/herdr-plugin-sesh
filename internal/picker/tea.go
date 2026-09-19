@@ -134,7 +134,7 @@ var renderPanePreview = previewpkg.RenderPane
 
 type Options struct {
 	OpenSettings   func() (settings.Model, error)
-	ReloadSettings func(settings.Result) (Options, ReloadResult, error)
+	ReloadSettings func(context.Context, settings.Result) (Options, ReloadResult, error)
 	// nil uses the default binding; an empty string disables cycling.
 	CyclePreviewModeKey            *string
 	Context                        context.Context
@@ -195,8 +195,10 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 type teaModel struct {
 	settings          *settings.Model
 	settingsBusy      bool
+	settingsCancel    context.CancelFunc
+	quitAfterSettings bool
 	openSettings      func() (settings.Model, error)
-	reloadSettings    func(settings.Result) (Options, ReloadResult, error)
+	reloadSettings    func(context.Context, settings.Result) (Options, ReloadResult, error)
 	refreshGeneration uint64
 	list              Model
 	input             textinput.Model
@@ -773,6 +775,15 @@ func refreshAgentStatusesCommand(refresh func() (map[string]string, error), gene
 
 func (m teaModel) View() tea.View {
 	if m.settings != nil {
+		if m.settingsBusy {
+			message := "Reloading settings…"
+			if m.quitAfterSettings {
+				message = "Cancelling settings reload…"
+			}
+			view := tea.NewView(sectionStyle.Render(message) + "\n\n" + helpStyle.Render("ctrl+c exit"))
+			view.AltScreen = true
+			return view
+		}
 		return m.settings.View()
 	}
 	width := m.contentWidth()
