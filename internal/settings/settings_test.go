@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ func TestSettingsConfirmAndDiscard(t *testing.T) {
 	assert.Len(t, m.changes(), 1)
 	m, _ = press(t, m, 's', tea.ModCtrl)
 	assert.Equal(t, review, m.mode)
-	assert.Contains(t, m.View().Content, "off → on")
+	assert.Contains(t, ansi.Strip(m.View().Content), "off → on")
 	m, _ = press(t, m, tea.KeyEscape, 0)
 	assert.Equal(t, form, m.mode)
 	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary file.

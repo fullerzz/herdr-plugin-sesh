@@ -618,12 +618,16 @@ func (m Model) body() (string, []string, string, int) {
 		return "SETTINGS — MIGRATION", m.wrap(text), "↑/↓ scroll · y migrate · n/esc cancel", -1
 	case review:
 		title = "SETTINGS — REVIEW"
+		label := lipgloss.NewStyle().Foreground(m.palette.Accent).Bold(true)
+		muted := lipgloss.NewStyle().Foreground(m.palette.Muted)
+		before := lipgloss.NewStyle().Foreground(m.palette.Warning)
+		after := lipgloss.NewStyle().Foreground(m.palette.Green)
 		if m.doc.Missing {
 			lines = append(lines, "Create "+safe(m.doc.SelectedPath), "")
 		}
 		for _, field := range m.fields {
 			if !reflect.DeepEqual(field.value, field.original) {
-				lines = append(lines, m.wrap(field.label+" ("+field.key+")\n  "+display(field.original)+" → "+display(field.value))...)
+				lines = append(lines, m.wrap(label.Render(field.label)+" "+muted.Render("("+field.key+")")+"\n  "+before.Render(display(field.original))+muted.Render(" → ")+after.Render(display(field.value)))...)
 			}
 		}
 		lines = append(lines, "", "Only edited settings will be written.")
