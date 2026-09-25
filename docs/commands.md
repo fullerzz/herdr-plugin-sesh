@@ -10,6 +10,7 @@ Herdr's installed actions:
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-picker
 herdr plugin action invoke fullerzz.sesh.last
+herdr plugin action invoke fullerzz.sesh.open-settings
 ```
 
 ## Run the binary directly
@@ -64,6 +65,7 @@ Use `"$sesh_bin"` followed by a command from this table:
 | `window [PATH]` | List tabs, or create a tab for a path. |
 | `config path` | Print the resolved config path, or the destination when none exists. |
 | `config init` | Create a native starter config only when no config exists. |
+| `config edit [--config PATH]` | Open the global settings editor; review and confirm before saving. |
 | `config validate [PATH]` | Validate the active or specified configuration. |
 | `config migrate [PATH] [--force]` | Convert the active or specified legacy Sesh config without deleting its source. |
 | `config migrate --config PATH [--force]` | Convert a legacy Sesh config selected with the equivalent explicit-path flag. |

@@ -43,3 +43,15 @@ id = "picker"
 title = "Sesh Picker"
 placement = "overlay"
 command = ["./bin/herdr-sesh", "picker"]
+
+[[actions]]
+id = "open-settings"
+title = "Sesh Settings"
+contexts = ["workspace", "pane"]
+command = ["./bin/herdr-sesh", "plugin", "open-settings"]
+
+[[panes]]
+id = "settings"
+title = "Sesh Settings"
+placement = "overlay"
+command = ["./bin/herdr-sesh", "config", "edit"]

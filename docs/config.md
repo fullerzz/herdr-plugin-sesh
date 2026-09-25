@@ -27,6 +27,75 @@ at that exact path. `config validate [PATH]` strictly validates the active or
 specified config and prints its resolved path on success. It returns an error
 when no config exists; legacy files remain valid but emit the migration warning.
 
+## Settings editor
+
+Use **F2** in the native picker (**Ctrl+,** when preview cycling uses F2) or the
+**Sesh Settings** Herdr action:
+
+```bash
+herdr plugin action invoke fullerzz.sesh.open-settings
+```
+
+For standalone use from a local checkout:
+
+```bash
+just build
+./bin/herdr-sesh config edit
+# Select a particular file instead:
+./bin/herdr-sesh config edit --config /absolute/path/to/config.toml
+```
+
+The screen edits Picker, Lists (including source order and blacklist patterns),
+Naming, Keys, and Workspace Defaults. Workspace, tab, and rule definitions remain
+file-only. The editor shares the native picker's colors and honors
+`picker.herdr_theme_inherit`; theme changes apply after saving.
+
+Edits remain in memory until **Ctrl+S** opens a review and **Y** confirms it.
+Within text and list editors, **Ctrl+S** first applies the edit to the draft.
+Saving does not run startup or preview commands. Returning to the picker applies
+persisted settings and refreshes its sessions, keeping the search and selection
+when possible. Normal picker preview commands resume then.
+
+### Files, defaults, and conflicts
+
+The editor follows the lookup order above. If no config exists, it displays
+defaults and the proposed path, creating the file only after confirmation. An
+explicit missing path can be created through the editor; other commands retain
+their existing missing-path behavior. Untouched defaults are not written out.
+
+Only changed settings are patched. Unrelated definitions, comments, and line
+endings are preserved. Edited arrays are reformatted; their comments are retained
+but can move above the elements, which the review discloses. Native TOML tables,
+inline tables, dotted/quoted keys, and multiline strings are supported.
+
+Saves preserve existing file permission bits, use mode 0600 for new files, and
+replace the target atomically. Symlinks are followed without replacing the link;
+a changed target or changed file is rejected. A per-target `.settings.lock` file
+coordinates settings writers and intentionally remains after exit. Advisory
+locking cannot exclude arbitrary external editors.
+
+A conflict keeps the draft. Choose **R** on the error screen to review a reload
+confirmation; **Y** discards the draft and loads the current file. There is no
+force overwrite or automatic merge. Other save errors also preserve the draft.
+The plugin's session-list cache is invalidated when its state directory is
+available; a cache cleanup failure is reported separately from a successful save.
+
+### Legacy conversion
+
+Opening a legacy config offers a separate migration review showing source and
+destination. Conversion flattens imports and may normalize formatting/defaults.
+Only confirmation creates the native file. Legacy files are preserved, existing
+destinations are never overwritten, and source/import changes invalidate the
+prepared conversion. Invalid configs are reported without automatic repair.
+
+After conversion the editor and returning picker use the new native path. If
+`HERDR_SESH_CONFIG` or an explicit argument still selects the legacy file on future
+launches, follow the displayed path instruction; the editor does not change your
+environment. Declining later draft edits does not undo a confirmed migration or save.
+
+The form supports 80×24 and a compact 60×18 layout. Smaller terminals show a resize
+message and safe exit controls. See [Settings controls](keybindings.md#settings-controls).
+
 ## Create your configuration
 
 === "Installed plugin"

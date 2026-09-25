@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -70,30 +69,50 @@ func legacyShowIconsConfigured(path string, seen map[string]bool) bool {
 // and returns both paths. The legacy file is left untouched. fallbackDir is
 // the native destination used when the legacy file lives in the shared
 // ~/.config/sesh directory, which discovery never scans for native files.
-func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nativePath string, err error) {
-	path, _, err := resolve(opts)
+func Migrate(opts LoadOptions, fallbackDir string, force bool) (string, string, error) {
+	migration, err := prepareMigration(opts, fallbackDir, force)
 	if err != nil {
 		return "", "", err
 	}
+	if err := migration.Save(); err != nil {
+		return "", "", err
+	}
+	return migration.LegacyPath, migration.NativePath, nil
+}
+
+// PrepareMigration validates conversion without creating the native destination.
+func PrepareMigration(opts LoadOptions, fallbackDir string) (*Migration, error) {
+	return prepareMigration(opts, fallbackDir, false)
+}
+
+func prepareMigration(opts LoadOptions, fallbackDir string, force bool) (*Migration, error) {
+	path, _, err := resolve(opts)
+	if err != nil {
+		return nil, err
+	}
 	if path == "" {
-		return "", "", fmt.Errorf("no config file found to migrate")
+		return nil, fmt.Errorf("no config file found to migrate")
 	}
 	path, err = filepath.Abs(path)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	path = filepath.Clean(path)
+	dependencies, err := migrationSources(path, map[string]bool{})
+	if err != nil {
+		return nil, err
+	}
 	//nolint:gosec // the config path is user-selected by design.
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if hasVersionKey(data) {
-		return "", "", fmt.Errorf("%s is already a native config", path)
+		return nil, fmt.Errorf("%s is already a native config", path)
 	}
 	cfg := Default()
 	if err := decodeLegacy(&cfg, path, false); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	// A legacy file that never mentions show_icons migrates to the
 	// icon-enabled picker; an explicit legacy value (true or false) is kept.
@@ -108,7 +127,7 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 	targetDir := filepath.Dir(path)
 	if targetDir == filepath.Join(home, ".config", "sesh") {
 		if fallbackDir == "" {
-			return "", "", fmt.Errorf("no native destination for %s: config dir required", path)
+			return nil, fmt.Errorf("no native destination for %s: config dir required", path)
 		}
 		targetDir = fallbackDir
 	}
@@ -116,75 +135,44 @@ func Migrate(opts LoadOptions, fallbackDir string, force bool) (legacyPath, nati
 	if targetInfo, statErr := os.Stat(target); statErr == nil {
 		sourceInfo, sourceErr := os.Stat(path)
 		if sourceErr != nil {
-			return "", "", sourceErr
+			return nil, sourceErr
 		}
 		if os.SameFile(sourceInfo, targetInfo) {
-			return "", "", fmt.Errorf("source and destination are the same file: %s; rename the legacy file before migrating", path)
+			return nil, fmt.Errorf("source and destination are the same file: %s; rename the legacy file before migrating", path)
 		}
 		if !force {
-			return "", "", fmt.Errorf("refusing to overwrite existing %s", target)
+			return nil, fmt.Errorf("refusing to overwrite existing %s", target)
 		}
 		//nolint:gosec // the destination is derived from the user-selected config path.
 		targetData, readErr := os.ReadFile(target)
 		if readErr != nil {
-			return "", "", readErr
+			return nil, readErr
 		}
 		if !hasVersionKey(targetData) {
-			return "", "", fmt.Errorf("refusing to overwrite %s: not a native config", target)
+			return nil, fmt.Errorf("refusing to overwrite %s: not a native config", target)
 		}
 		if _, decodeErr := decodeNative(target, targetData); decodeErr != nil {
-			return "", "", fmt.Errorf("refusing to overwrite invalid native config: %w", decodeErr)
+			return nil, fmt.Errorf("refusing to overwrite invalid native config: %w", decodeErr)
 		}
 	} else if !os.IsNotExist(statErr) {
-		return "", "", statErr
+		return nil, statErr
 	}
 
 	out, err := marshalNative(cfg)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	// Legacy decoding never validated regexes, globs, or name uniqueness;
 	// native decoding does. Surface those errors before writing anything.
 	if _, err := decodeNative(path, out); err != nil {
-		return "", "", fmt.Errorf("legacy config does not satisfy native validation: %w", err)
+		return nil, fmt.Errorf("legacy config does not satisfy native validation: %w", err)
 	}
-	if err := os.MkdirAll(targetDir, 0700); err != nil {
-		return "", "", err
-	}
-	if err := writePrivateFileAtomic(target, out); err != nil {
-		return "", "", err
-	}
-	return path, target, nil
-}
 
-func writePrivateFileAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	targetDoc, err := OpenSettings(LoadOptions{Path: target})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	tmpName := tmp.Name()
-	closed := false
-	defer func() {
-		if !closed {
-			_ = tmp.Close()
-		}
-		_ = os.Remove(tmpName)
-	}()
-	if err := tmp.Chmod(0600); err != nil {
-		return err
-	}
-	n, err := tmp.Write(data)
-	if err != nil {
-		return err
-	}
-	if n != len(data) {
-		return io.ErrShortWrite
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	closed = true
-	return os.Rename(tmpName, path)
+	return &Migration{LegacyPath: path, NativePath: target, data: out, target: targetDoc, sources: dependencies}, nil
 }
 
 func marshalNative(cfg Config) ([]byte, error) {

@@ -21,6 +21,8 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	sessionmodel "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	previewpkg "github.com/fullerzz/herdr-plugin-sesh/internal/preview"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/settings"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/uitheme"
 )
 
 const (
@@ -55,14 +57,14 @@ const (
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
 
-	defaultSkyColor    = "#7DCFFF"
-	defaultVioletColor = "#BB9AF7"
-	defaultGreenColor  = "#9ECE6A"
-	defaultAmberColor  = "#E0AF68"
-	defaultRedColor    = "#F7768E"
-	defaultTextColor   = "#C0CAF5"
-	defaultMutedColor  = "#565F89"
-	defaultGhostColor  = "#737AA2"
+	defaultSkyColor    = uitheme.DefaultSkyColor
+	defaultVioletColor = uitheme.DefaultVioletColor
+	defaultGreenColor  = uitheme.DefaultGreenColor
+	defaultAmberColor  = uitheme.DefaultAmberColor
+	defaultRedColor    = uitheme.DefaultRedColor
+	defaultTextColor   = uitheme.DefaultTextColor
+	defaultMutedColor  = uitheme.DefaultMutedColor
+	defaultGhostColor  = uitheme.DefaultGhostColor
 )
 
 var (
@@ -131,6 +133,8 @@ var renderPreview = previewpkg.Render
 var renderPanePreview = previewpkg.RenderPane
 
 type Options struct {
+	OpenSettings   func() (settings.Model, error)
+	ReloadSettings func(context.Context, settings.Result) (Options, ReloadResult, error)
 	// nil uses the default binding; an empty string disables cycling.
 	CyclePreviewModeKey            *string
 	Context                        context.Context
@@ -189,13 +193,20 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 }
 
 type teaModel struct {
-	list         Model
-	input        textinput.Model
-	agentSpinner spinner.Model
-	width        int
-	height       int
-	choice       sessionmodel.Session
-	chosen       bool
+	settings          *settings.Model
+	settingsBusy      bool
+	settingsCancel    context.CancelFunc
+	quitAfterSettings bool
+	openSettings      func() (settings.Model, error)
+	reloadSettings    func(context.Context, settings.Result) (Options, ReloadResult, error)
+	refreshGeneration uint64
+	list              Model
+	input             textinput.Model
+	agentSpinner      spinner.Model
+	width             int
+	height            int
+	choice            sessionmodel.Session
+	chosen            bool
 
 	listFocused         bool
 	smearTail           int
@@ -254,11 +265,12 @@ type panePreviewTickMsg struct{ requestID uint64 }
 
 type previewLoadingMsg struct{ requestID uint64 }
 
-type statusRefreshTickMsg struct{}
+type statusRefreshTickMsg struct{ generation uint64 }
 
 type agentStatusesMsg struct {
-	statuses map[string]string
-	err      error
+	generation uint64
+	statuses   map[string]string
+	err        error
 }
 
 type workspaceCloseMsg struct {
@@ -321,6 +333,8 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	}
 	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
+		openSettings:          opts.OpenSettings,
+		reloadSettings:        opts.ReloadSettings,
 		list:                  list,
 		input:                 input,
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
@@ -359,7 +373,7 @@ func (m teaModel) Init() tea.Cmd {
 		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview), previewLoadingCommand(m.previewContext, m.previewRequestID))
 	}
 	if m.refreshAgentStatuses != nil {
-		cmds = append(cmds, scheduleStatusRefresh(), m.agentSpinner.Tick)
+		cmds = append(cmds, scheduleStatusRefreshFor(m.refreshGeneration), m.agentSpinner.Tick)
 	}
 	return tea.Batch(cmds...)
 }
@@ -430,17 +444,26 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 
 //nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, handled := m.updateSettings(msg); handled {
+		return next, cmd
+	}
 	if _, ok := msg.(spinner.TickMsg); ok {
 		var cmd tea.Cmd
 		m.agentSpinner, cmd = m.agentSpinner.Update(msg)
 		return m, cmd
 	}
-	if _, ok := msg.(statusRefreshTickMsg); ok {
-		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses)
+	if tick, ok := msg.(statusRefreshTickMsg); ok {
+		if tick.generation != m.refreshGeneration || m.refreshAgentStatuses == nil {
+			return m, nil
+		}
+		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses, m.refreshGeneration)
 	}
 	if statuses, ok := msg.(agentStatusesMsg); ok {
+		if statuses.generation != m.refreshGeneration {
+			return m, nil
+		}
 		if statuses.err != nil {
-			return m, scheduleStatusRefresh()
+			return m, scheduleStatusRefreshFor(m.refreshGeneration)
 		}
 		selectedKey := ""
 		if current, currentOK := m.list.Current(); currentOK {
@@ -448,7 +471,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.UpdateAgentStatuses(statuses.statuses)
 		if m.workspaceSort != workspaceSortAgent {
-			return m, scheduleStatusRefresh()
+			return m, scheduleStatusRefreshFor(m.refreshGeneration)
 		}
 		m.resortWorkspaces()
 		m.list.Filter(m.list.Query)
@@ -462,9 +485,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.focusSmearActive = false
 		m, previewCmd := m.refreshPreview()
 		if previewCmd == nil {
-			return m, scheduleStatusRefresh()
+			return m, scheduleStatusRefreshFor(m.refreshGeneration)
 		}
-		return m, tea.Batch(previewCmd, scheduleStatusRefresh())
+		return m, tea.Batch(previewCmd, scheduleStatusRefreshFor(m.refreshGeneration))
 	}
 	if _, ok := msg.(smearTickMsg); ok {
 		if m.focusSmearActive {
@@ -735,18 +758,34 @@ func (m teaModel) updateInput(msg tea.Msg) (teaModel, tea.Cmd) {
 	return m, tea.Batch(focusCmd, cmd, previewCmd)
 }
 
-func scheduleStatusRefresh() tea.Cmd {
-	return tea.Tick(statusRefreshInterval, func(time.Time) tea.Msg { return statusRefreshTickMsg{} })
+func scheduleStatusRefreshFor(generation uint64) tea.Cmd {
+	return tea.Tick(statusRefreshInterval, func(time.Time) tea.Msg { return statusRefreshTickMsg{generation: generation} })
 }
 
-func refreshAgentStatusesCommand(refresh func() (map[string]string, error)) tea.Cmd {
+func refreshAgentStatusesCommand(refresh func() (map[string]string, error), generation ...uint64) tea.Cmd {
+	var epoch uint64
+	if len(generation) > 0 {
+		epoch = generation[0]
+	}
 	return func() tea.Msg {
 		statuses, err := refresh()
-		return agentStatusesMsg{statuses: statuses, err: err}
+		return agentStatusesMsg{statuses: statuses, err: err, generation: epoch}
 	}
 }
 
 func (m teaModel) View() tea.View {
+	if m.settings != nil {
+		if m.settingsBusy {
+			message := "Reloading settings…"
+			if m.quitAfterSettings {
+				message = "Cancelling settings reload…"
+			}
+			view := tea.NewView(sectionStyle.Render(message) + "\n\n" + helpStyle.Render("ctrl+c exit"))
+			view.AltScreen = true
+			return view
+		}
+		return m.settings.View()
+	}
 	width := m.contentWidth()
 	listWidth, previewWidth := m.previewLayout()
 	lines := []string{"", m.header(width), horizontalRule(width)}
@@ -768,7 +807,14 @@ func (m teaModel) View() tea.View {
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
-	footer := helpStyle.Render(fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort))
+	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
+	if m.openSettings != nil {
+		help = m.settingsKey() + " settings · " + help
+	}
+	footer := helpStyle.Render(help)
+	if m.settingsBusy {
+		footer = helpStyle.Render("Loading settings…")
+	}
 	if m.closeError != "" {
 		footer = emptyStyle.Render(m.closeError)
 	} else if m.hidePreview && m.closingWorkspaceID != "" {
