@@ -664,7 +664,7 @@ func TestCollectPropagatesHerdrErrors(t *testing.T) {
 func TestCollectPickerPreservesHerdrError(t *testing.T) {
 	configureFakeSources(t, "")
 
-	col, err := (&App{}).collectPicker(context.Background(), config.Default())
+	col, err := (&App{}).collectPicker(context.Background(), config.Default(), nil)
 	require.NoError(t, err)
 	require.Error(t, col.HerdrErr)
 	require.Empty(t, col.Sessions)
@@ -680,7 +680,7 @@ case "$1 $2" in
 esac
 `)
 
-	col, err := (&App{}).collectPicker(context.Background(), config.Default())
+	col, err := (&App{}).collectPicker(context.Background(), config.Default(), nil)
 	require.NoError(t, err)
 	require.NoError(t, col.HerdrErr)
 	want := []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "w1"}}
@@ -735,7 +735,7 @@ esac
 				warnings = append(warnings, fmt.Sprintf(format, args...))
 			}
 
-			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, warn, false)
+			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, new([]model.Session), warn, false)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantID, pickerWorkspaceID)
 			require.Equal(t, tt.wantUnknown, result.LastWorkspaceUnknown)
@@ -777,7 +777,7 @@ printf '[]\n'
 	t.Setenv("CONCURRENT_SOURCE_MARKER", marker)
 	t.Setenv("PATH", d+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	col, err := (&App{}).collectPicker(context.Background(), config.Default())
+	col, err := (&App{}).collectPicker(context.Background(), config.Default(), nil)
 	require.NoError(t, err)
 	require.NoError(t, col.HerdrErr)
 }

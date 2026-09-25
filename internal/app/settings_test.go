@@ -11,6 +11,7 @@ import (
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,16 +52,19 @@ func TestSettingsReloadToleratesUnavailableHerdr(t *testing.T) {
 	configureFakeSources(t, "")
 	cfg := config.Default()
 	workspace := ""
+	lastHerdr := []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "w1"}}
 	var warnings []string
-	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }, true)
+	result, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, &lastHerdr, func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }, true)
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(warnings, "\n"), "herdr workspaces unavailable")
+	assert.Equal(t, lastHerdr, result.HerdrWorkspaces, "keeps last known workspace metadata")
+	assert.Equal(t, lastHerdr, result.Sessions, "keeps last known workspaces listed")
 }
 
 func TestWorkspaceCloseReloadRejectsUnavailableHerdr(t *testing.T) {
 	configureFakeSources(t, "")
 	cfg := config.Default()
 	workspace := ""
-	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, func(string, ...any) {}, false)
+	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, new([]model.Session), func(string, ...any) {}, false)
 	require.Error(t, err)
 }

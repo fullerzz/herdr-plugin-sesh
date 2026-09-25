@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -82,7 +81,7 @@ func Open(opts config.LoadOptions, onSaved func(string) error) (Model, error) {
 	if !errors.Is(err, config.ErrSettingsLegacy) {
 		return Model{}, err
 	}
-	conversion, err := config.PrepareMigration(opts, filepath.Dir(config.SettingsDestination(config.LoadOptions{Env: opts.Env, Home: opts.Home})))
+	conversion, err := config.PrepareMigration(opts, config.PluginConfigDir(opts))
 	if err != nil {
 		return Model{}, err
 	}
@@ -457,10 +456,15 @@ func (m Model) arrayKey(key string) (tea.Model, tea.Cmd) { //nolint:ireturn // B
 		m.mode = arrayEditing
 		return m, m.area.Focus()
 	case "ctrl+s":
-		// A non-nil empty slice compares consistently with effective empty config arrays.
+		// An empty list reuses an empty original so unset (nil) and [] stay
+		// unchanged; clearing a non-empty list saves an explicit [].
 		value := slices.Clone(m.list)
 		if len(value) == 0 {
-			value = []string{}
+			if original, _ := m.fields[m.cursor].original.([]string); len(original) == 0 {
+				value = original
+			} else {
+				value = []string{}
+			}
 		}
 		if err := m.validateField(value); err != nil {
 			m.problem = err.Error()

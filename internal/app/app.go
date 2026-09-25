@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,12 +113,17 @@ type pickerCollection struct {
 	HerdrErr error
 }
 
-func (a *App) collectPicker(ctx context.Context, cfg config.Config) (pickerCollection, error) {
-	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}
+// collectPicker merges picker sessions. When the Herdr listing fails, the
+// non-nil herdrFallback stands in for it so a reload keeps the last known
+// workspaces instead of dropping them.
+func (a *App) collectPicker(ctx context.Context, cfg config.Config, herdrFallback []model.Session) (pickerCollection, error) {
+	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}, fallback: herdrFallback}
 	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource)
 	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err}
 	if herdrSource.err == nil {
 		col.HerdrWorkspaces = herdrSource.sessions.Ordered()
+	} else {
+		col.HerdrWorkspaces = herdrFallback
 	}
 	return col, err
 }
@@ -151,6 +157,7 @@ func (i ignoreSource) List(ctx context.Context) (model.Sessions, error) {
 type capturingSource struct {
 	sources.Source
 
+	fallback []model.Session
 	sessions model.Sessions
 	err      error
 }
@@ -158,7 +165,11 @@ type capturingSource struct {
 func (s *capturingSource) List(ctx context.Context) (model.Sessions, error) {
 	s.sessions, s.err = s.Source.List(ctx)
 	if s.err != nil {
-		return model.NewSessions(), nil
+		fallback := model.NewSessions()
+		for _, session := range s.fallback {
+			fallback.Add(session)
+		}
+		return fallback, nil
 	}
 	return s.sessions, nil
 }
@@ -261,7 +272,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		sessions, err = a.collectAllowUnavailableHerdr(ctx, cfg, "")
 	} else {
 		var col pickerCollection
-		col, err = a.collectPicker(ctx, cfg)
+		col, err = a.collectPicker(ctx, cfg, nil)
 		sessions, herdrWorkspaces = col.Sessions, col.HerdrWorkspaces
 		if col.HerdrErr != nil {
 			a.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
@@ -313,10 +324,11 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			if err := state.RemoveWorkspace(historyDir, id); err != nil {
 				deferWarn("could not prune workspace history: %v", err)
 			}
+			herdrWorkspaces = slices.DeleteFunc(herdrWorkspaces, func(s model.Session) bool { return s.WorkspaceID == id })
 			return nil
 		}
 		pickOpts.ReloadPicker = func(reloadCtx context.Context) (pickerpkg.ReloadResult, error) {
-			return a.reloadPickerState(reloadCtx, cfg, client, &pickerWorkspaceID, deferWarn, false)
+			return a.reloadPickerState(reloadCtx, cfg, client, &pickerWorkspaceID, &herdrWorkspaces, deferWarn, false)
 		}
 		pickOpts.RefreshAgentStatuses = func() (map[string]string, error) {
 			workspaces, err := client.WorkspaceList(ctx)
@@ -338,7 +350,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 			if err != nil {
 				return pickerpkg.Options{}, pickerpkg.ReloadResult{}, err
 			}
-			reloaded, err := a.reloadPickerState(reloadCtx, nextCfg, client, &pickerWorkspaceID, deferWarn, true)
+			reloaded, err := a.reloadPickerState(reloadCtx, nextCfg, client, &pickerWorkspaceID, &herdrWorkspaces, deferWarn, true)
 			if err != nil {
 				return pickerpkg.Options{}, reloaded, err
 			}
@@ -376,16 +388,22 @@ func (a *App) picker(ctx context.Context, args []string) error {
 // reloadPickerState re-collects picker sessions after a workspace close or
 // settings save and re-resolves which workspace hosts the picker. Workspace
 // close reloads report an unavailable Herdr source so the picker can preserve
-// its old list; settings reloads tolerate it so non-Herdr changes still apply.
-// On focus failure
-// pickerWorkspaceID is cleared so the eventual switch is recorded without a
-// stale "from" workspace.
-func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, warnf func(string, ...any), tolerateUnavailableHerdr bool) (pickerpkg.ReloadResult, error) {
-	col, reloadErr := a.collectPicker(ctx, cfg)
+// its old list; settings reloads tolerate it by substituting lastHerdr, the
+// last successful Herdr listing, so non-Herdr changes still apply. On focus
+// failure pickerWorkspaceID is cleared so the eventual switch is recorded
+// without a stale "from" workspace.
+func (a *App) reloadPickerState(ctx context.Context, cfg config.Config, client *herdr.CLIClient, pickerWorkspaceID *string, lastHerdr *[]model.Session, warnf func(string, ...any), tolerateUnavailableHerdr bool) (pickerpkg.ReloadResult, error) {
+	var fallback []model.Session
+	if tolerateUnavailableHerdr {
+		fallback = *lastHerdr
+	}
+	col, reloadErr := a.collectPicker(ctx, cfg, fallback)
 	if err := ctx.Err(); err != nil {
 		return pickerpkg.ReloadResult{LastWorkspaceUnknown: true}, err
 	}
-	if col.HerdrErr != nil {
+	if col.HerdrErr == nil {
+		*lastHerdr = col.HerdrWorkspaces
+	} else {
 		warnf("herdr workspaces unavailable: %v", col.HerdrErr)
 		if !tolerateUnavailableHerdr && reloadErr == nil {
 			reloadErr = col.HerdrErr

@@ -59,6 +59,22 @@ func TestSettingsViewFitsAndEscapesConfigText(t *testing.T) {
 	}
 }
 
+func TestSettingsUntouchedEmptyListHasNoChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("version = 1\n"), 0600))
+	m, err := Open(config.LoadOptions{Path: path}, nil)
+	require.NoError(t, err)
+	for i, f := range m.fields {
+		if f.key == "list.blacklist" {
+			m.cursor = i
+		}
+	}
+	m, _ = press(t, m, tea.KeyEnter, 0)
+	require.Equal(t, array, m.mode)
+	m, _ = press(t, m, 's', tea.ModCtrl)
+	assert.Empty(t, m.changes())
+}
+
 func TestSettingsArrayAndMultilineDrafts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	m, err := Open(config.LoadOptions{Path: path}, nil)
@@ -146,6 +162,17 @@ func TestSettingsMigrationRequiresSeparateConfirmation(t *testing.T) {
 	assert.Equal(t, form, m.mode)
 	assert.Equal(t, 2, m.doc.Config.DirLength)
 	assert.Contains(t, m.problem, "HERDR_SESH_CONFIG")
+}
+
+func TestSettingsMigrationFromSharedSeshDirTargetsPluginDir(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, ".config", "sesh", "sesh.toml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0700))
+	require.NoError(t, os.WriteFile(legacy, []byte("dir_length=2\n"), 0600))
+	m, err := Open(config.LoadOptions{Home: home, Env: map[string]string{"HERDR_SESH_CONFIG": legacy}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, migration, m.mode)
+	assert.Equal(t, filepath.Join(home, ".config", "herdr-sesh", config.NativeFileName), m.migration.NativePath)
 }
 
 func TestTextEditorPreservesTabs(t *testing.T) {

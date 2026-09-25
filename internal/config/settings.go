@@ -47,11 +47,26 @@ func SettingsDestination(opts LoadOptions) string {
 	if env["HERDR_SESH_CONFIG"] != "" {
 		return ExpandHome(env["HERDR_SESH_CONFIG"], home)
 	}
+	return filepath.Join(PluginConfigDir(LoadOptions{Env: env, Home: home}), NativeFileName)
+}
+
+// PluginConfigDir is the plugin-owned native config directory. Unlike
+// SettingsDestination it ignores HERDR_SESH_CONFIG, so it is a safe legacy
+// migration target even when that variable points into ~/.config/sesh.
+func PluginConfigDir(opts LoadOptions) string {
+	env := opts.Env
+	if env == nil {
+		env = getenvMap()
+	}
+	home := opts.Home
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
 	dir := env["HERDR_PLUGIN_CONFIG_DIR"]
 	if dir == "" {
 		dir = filepath.Join(home, ".config", "herdr-sesh")
 	}
-	return filepath.Join(ExpandHome(dir, home), NativeFileName)
+	return ExpandHome(dir, home)
 }
 
 func OpenSettings(opts LoadOptions) (*SettingsDocument, error) {
