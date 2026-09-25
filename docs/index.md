@@ -54,7 +54,7 @@ lists the other shortcuts. If something looks wrong, start with
 ### Reference
 
 - [Configuration](config.md) explains config discovery, picker behavior,
-  workspaces, tabs, and legacy Sesh migration.
+  workspaces, tabs, [pane layouts](config.md#tabpane), and legacy Sesh migration.
 - [Keybindings](keybindings.md) shows how to invoke the picker and related
   actions from Herdr.
 - [Commands](commands.md) covers direct CLI use and installed-binary setup.

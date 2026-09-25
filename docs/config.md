@@ -167,6 +167,8 @@ workspace receives the named `git` tab and runs `git status` there. Selecting
 an existing workspace focuses it; it does not recreate its tabs or rerun startup
 commands.
 
+To open several panes inside a tab, follow the [pane layout example](#tabpane).
+
 ## Example
 
 This is a customization example, not a dump of the defaults. Omitted settings
@@ -519,7 +521,7 @@ ungrouped rather than inventing a parent.
 | `path` | Workspace path; `~/` is expanded before it is sent to Herdr. Must be non-empty. |
 | `startup` | Workspace-specific startup command. |
 | `preview` | Workspace-specific preview command. |
-| `disable_startup` | Suppresses startup execution when `true`. |
+| `disable_startup` | Suppresses the workspace startup command, including rule/default fallbacks, when `true`. Tab and pane startup commands still run. |
 | `tabs` | Names of `[[tab]]` entries to create as Herdr tabs. Every referenced tab must exist. |
 
 Startup commands are selected in this order: the explicit workspace command,
@@ -542,7 +544,20 @@ creates the workspace; selecting an existing workspace never changes its panes
 or reruns commands. Pane layouts use `herdr pane split` and `herdr tab create
 --env`, available since Herdr 0.8.2.
 
+The following complete native configuration creates an editor on the left,
+with a server above logs on the right. Replace the workspace path with your
+project directory. This example assumes `nvim` is installed, `web/` contains
+an npm project with a `dev` script, and `development.log` exists in the project
+root; replace the commands to suit your project.
+
+Edit the file printed by `config path`; pane definitions are file-only and
+cannot be edited in the settings TUI. When adding this example to an existing
+native config, keep its single top-level `version = 1` line and use unique tab
+and workspace names. [Migrate legacy configs](#legacy-migration) first.
+
 ```toml
+version = 1
+
 [[tab]]
 name = "development"
 
@@ -565,7 +580,37 @@ split_from = "server"
 split = "down"
 ratio = 0.3
 startup = "tail -f development.log"
+
+[[workspace]]
+name = "my-project"
+path = "~/projects/my-project"
+tabs = ["development"]
 ```
+
+The workspace's `tabs` list activates the layout; defining a tab alone does
+not create it. Validate and connect from a shell in the intended Herdr session:
+
+=== "Installed plugin"
+
+    ```bash
+    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
+    "$sesh_root/bin/herdr-sesh" config validate && "$sesh_root/bin/herdr-sesh" connect my-project
+    ```
+
+=== "Local checkout"
+
+    ```bash
+    just build
+    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
+    ./bin/herdr-sesh config validate && ./bin/herdr-sesh connect my-project
+    ```
+
+Alternatively, open the picker and select `my-project` after validation. Use a
+workspace that is not already open: reconnecting never reapplies a layout.
+The new workspace opens on the `development` tab with the editor focused.
+The server initially gets 35% of the tab's width; splitting it downward gives
+logs 30% of that right-hand column's height.
 
 | Field | Runtime effect |
 | --- | --- |
@@ -576,6 +621,11 @@ startup = "tail -f development.log"
 | `path` | Optional working directory. Without it, the tab path is used; relative paths resolve against the tab path and `~/` is expanded. |
 | `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`. Values are passed to Herdr as arguments, not through a shell. Shell startup files run afterward and can override them. |
 | `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
+
+`split_from` selects where to split, not which path or environment to inherit.
+In the example, the server runs in `web/`, but logs runs in the project root
+because it has no `path`. `NODE_ENV` is set only for the server pane. Add
+`path = "./web"` or an `env` table to logs if it needs those settings too.
 
 The first pane is the tab's root pane and cannot set `split_from`, `split`, or
 `ratio`; its `path` and `env` are applied when the tab is created. Later panes
@@ -589,6 +639,10 @@ in its root pane, joined to that pane's own `startup` as one shell line
 command exits, so an interactive pane command such as `nvim` does not receive
 the workspace command as input. Avoid ending the workspace command with a
 comment or `&`, which would break the joined line.
+
+`disable_startup = true` on a workspace suppresses its workspace startup
+command, including rule/default fallbacks. It does not suppress pane startup
+commands or layout creation; remove a pane's `startup` to leave it at a shell.
 
 With `connect --no-focus`, the workspace is created in the background and
 opens on Herdr's initial tab: Herdr cannot select a tab without also focusing

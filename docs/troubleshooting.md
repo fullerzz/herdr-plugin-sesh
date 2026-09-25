@@ -46,6 +46,28 @@ Herdr action bindings belong in Herdr's config; picker appearance and
 configuration. Startup commands and tabs apply when creating a workspace, not
 when focusing an existing one.
 
+## Pane layout changes are not appearing
+
+- Confirm the workspace's `tabs` list references the layout's `[[tab]]` name;
+  an unreferenced tab is not created.
+- Run `"$sesh_bin" config validate` after editing `[[tab.pane]]` entries.
+  Pane layouts require the native config format (`version = 1`).
+- Layouts apply only when creating a workspace. Reopening the picker or
+  reconnecting to an existing workspace does not rebuild its panes or rerun
+  commands.
+- With `connect --no-focus`, the new workspace stays on Herdr's initial tab.
+  Select the configured tab after switching to that workspace to see its layout.
+
+If creation fails partway through, the workspace and any running processes are
+kept. Correct the reported error, then save any work and stop processes before
+closing the partially created workspace in Herdr. Connect again to create it
+with the corrected layout; reconnecting while it remains open does not retry.
+Use the same close-and-recreate process to apply layout changes to an existing
+workspace.
+
+See the [complete pane layout example and field reference](config.md#tabpane)
+for split directions, ratios, working directories, and startup behavior.
+
 ## Preview is unavailable or reports an error
 
 Pane mode requires a running Herdr workspace. A configured session or directory
