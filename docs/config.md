@@ -634,11 +634,13 @@ pane stays focused. Herdr also creates the workspace's own initial tab; pane
 layouts apply only to configured tabs.
 
 When the first configured tab has panes, the workspace `startup` command runs
-in its root pane, joined to that pane's own `startup` as one shell line
-(`workspace; pane`). The shell runs the pane command after the workspace
+in its root pane, combined with that pane's own `startup` in one shell input.
+Each command is quoted and evaluated separately in the same shell, preserving
+comments, command terminators, exports, and directory changes. The shell runs
+the pane command after the workspace
 command exits, so an interactive pane command such as `nvim` does not receive
-the workspace command as input. Avoid ending the workspace command with a
-comment or `&`, which would break the joined line.
+the workspace command as input. Background commands started with `&` continue
+running without delaying the pane command.
 
 `disable_startup = true` on a workspace suppresses its workspace startup
 command, including rule/default fallbacks. It does not suppress pane startup

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -62,7 +64,7 @@ func TestApplyBuildsPaneLayout(t *testing.T) {
 		{PaneID: "new-pane", Direction: "down", CWD: "/tmp/app"},
 	}, f.Splits)
 	assert.Equal(t, []string{
-		"new-pane:echo ws; nvim",
+		"new-pane:eval 'echo ws'; eval nvim",
 		"split-1:cd '/tmp/app/web dir' && npm run dev; echo \"$NODE_ENV\"",
 	}, f.PaneRuns)
 }
@@ -74,6 +76,38 @@ func TestApplyRootPanePathOverridesTabPath(t *testing.T) {
 	require.Len(t, f.CreatedTabs, 1)
 	assert.Equal(t, "/tmp/tab/sub", f.CreatedTabs[0].CWD)
 	assert.False(t, f.CreatedTabs[0].Focus)
+}
+
+func TestApplyComposesStartupCommandsPreservingShellSyntaxAndState(t *testing.T) {
+	for name, suffix := range map[string]string{
+		"comment":            "true # workspace setup",
+		"background command": "true &",
+		"trailing semicolon": "true;",
+		"multiline command":  "true\n# workspace setup",
+		"ordinary command":   "true",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cwd := filepath.Join(t.TempDir(), "project dir")
+			require.NoError(t, os.Mkdir(cwd, 0700))
+			cwd, err := filepath.EvalSymlinks(cwd)
+			require.NoError(t, err)
+			f := &herdr.FakeClient{}
+			s := model.Session{
+				Path: cwd, StartupCommand: "cd {} && export LAYOUT_TEST_VALUE=\"it's ready\"; " + suffix,
+				WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+					{Name: "root", Startup: `printf '%s:%s' "$LAYOUT_TEST_VALUE" "$PWD"`},
+				}}},
+			}
+			require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s}))
+			require.Len(t, f.PaneRuns, 1, "both commands must be sent as one shell input")
+			_, command, found := strings.Cut(f.PaneRuns[0], ":")
+			require.True(t, found)
+			//nolint:gosec // Execute only test-owned startup commands to verify shell syntax and state.
+			out, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", command).CombinedOutput()
+			require.NoError(t, err, "generated command: %s; output: %s", command, out)
+			assert.Equal(t, "it's ready:"+cwd, string(out))
+		})
+	}
 }
 
 func TestApplyStopsAndReportsMidLayoutFailure(t *testing.T) {

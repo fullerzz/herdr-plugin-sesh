@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -115,9 +114,14 @@ func applyPanes(ctx context.Context, client herdr.Client, rootPane, tabPath stri
 		ids[pane.Name] = id
 		cmd := config.SubstitutePath(pane.Startup, cwd)
 		if i == 0 && rootPrefix != "" {
-			// ponytail: plain "; " join; a workspace command ending in a
-			// comment or "&" breaks it. Wrap each side in eval if that matters.
-			cmd = strings.TrimSuffix(rootPrefix+"; "+cmd, "; ")
+			if cmd == "" {
+				cmd = rootPrefix
+			} else {
+				// Evaluate each quoted command separately in the same shell so
+				// comments and terminators cannot consume the next command, while
+				// workspace exports and directory changes remain available to it.
+				cmd = config.SubstitutePath("eval {}", rootPrefix) + "; " + config.SubstitutePath("eval {}", cmd)
+			}
 		}
 		if cmd != "" {
 			if err := client.PaneRun(ctx, id, cmd); err != nil {
