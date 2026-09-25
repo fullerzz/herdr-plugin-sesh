@@ -116,3 +116,19 @@ func TestSerializedSettingValueUsesTOMLValueBoundary(t *testing.T) {
 	_, err = serializedSettingValue([]byte("value = [\n"))
 	require.ErrorContains(t, err, "serialize setting value")
 }
+
+func TestSettingsSavePreservesPaneLayouts(t *testing.T) {
+	const layout = "[[tab]]\nname = 'dev'\n\n[[tab.pane]]\nname = 'editor'\n\n[[tab.pane]]\nname = 'server'\nsplit_from = 'editor'\nsplit = 'right'\nratio = 0.35\nenv = { NODE_ENV = 'development' }\n"
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("version = 1\n\n"+layout), 0600))
+	doc, err := OpenSettings(LoadOptions{Path: path})
+	require.NoError(t, err)
+	require.NoError(t, doc.Save(map[string]any{"picker.show_icons": false}))
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary file.
+	require.NoError(t, err)
+	assert.Contains(t, string(data), layout)
+	cfg, _, err := Load(LoadOptions{Path: path})
+	require.NoError(t, err)
+	require.Len(t, cfg.WindowConfigs, 1)
+	assert.Len(t, cfg.WindowConfigs[0].Panes, 2)
+}

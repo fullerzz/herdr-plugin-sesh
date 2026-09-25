@@ -212,26 +212,40 @@ func TestNativeFailures(t *testing.T) {
 		body string
 		want string
 	}{
-		"unsupported version":  {"version = 2\n", "version"},
-		"zero version":         {"version = 0\n", "version"},
-		"unknown field":        {"version = 1\nwat = 1\n", "wat"},
-		"unknown nested field": {"version = 1\n[picker]\ntheme = \"dark\"\n", "theme"},
-		"legacy key rejected":  {"version = 1\nstrict_mode = true\n", "strict_mode"},
-		"import rejected":      {"version = 1\nimport = [\"x.toml\"]\n", "import"},
-		"bad sort":             {"version = 1\n[picker]\nworkspace_sort = \"newest\"\n", "picker.workspace_sort: must be \"workspace\" or \"recent\" or \"agent\""},
-		"bad path components":  {"version = 1\n[naming]\npath_components = 0\n", "path_components"},
-		"unknown source":       {"version = 1\n[list]\nsource_order = [\"tmux\"]\n", "source_order"},
-		"duplicate source":     {"version = 1\n[list]\nsource_order = [\"dir\", \"dir\"]\n", "source_order"},
-		"bad regex":            {"version = 1\n[list]\nblacklist = [\"[\"]\n", "blacklist"},
-		"bad glob":             {"version = 1\n[[rule]]\npath_glob = \"[\"\n", "path_glob"},
-		"empty glob":           {"version = 1\n[[rule]]\npath_glob = \"\"\n", "path_glob"},
-		"empty tab name":       {"version = 1\n[[tab]]\nstartup = \"x\"\n", "tab.name"},
-		"duplicate tab":        {"version = 1\n[[tab]]\nname = \"g\"\n[[tab]]\nname = \"g\"\n", "tab.name"},
-		"empty workspace name": {"version = 1\n[[workspace]]\npath = \"/x\"\n", "workspace.name"},
-		"empty workspace path": {"version = 1\n[[workspace]]\nname = \"x\"\n", "workspace.path"},
-		"duplicate workspace":  {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\n[[workspace]]\nname = \"x\"\npath = \"/y\"\n", "workspace.name"},
-		"missing tab ref":      {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"nope\"]\n", "workspace.tabs"},
-		"missing rule tab ref": {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"nope\"]\n", "rule.tabs"},
+		"unsupported version":    {"version = 2\n", "version"},
+		"zero version":           {"version = 0\n", "version"},
+		"unknown field":          {"version = 1\nwat = 1\n", "wat"},
+		"unknown nested field":   {"version = 1\n[picker]\ntheme = \"dark\"\n", "theme"},
+		"legacy key rejected":    {"version = 1\nstrict_mode = true\n", "strict_mode"},
+		"import rejected":        {"version = 1\nimport = [\"x.toml\"]\n", "import"},
+		"bad sort":               {"version = 1\n[picker]\nworkspace_sort = \"newest\"\n", "picker.workspace_sort: must be \"workspace\" or \"recent\" or \"agent\""},
+		"bad path components":    {"version = 1\n[naming]\npath_components = 0\n", "path_components"},
+		"unknown source":         {"version = 1\n[list]\nsource_order = [\"tmux\"]\n", "source_order"},
+		"duplicate source":       {"version = 1\n[list]\nsource_order = [\"dir\", \"dir\"]\n", "source_order"},
+		"bad regex":              {"version = 1\n[list]\nblacklist = [\"[\"]\n", "blacklist"},
+		"bad glob":               {"version = 1\n[[rule]]\npath_glob = \"[\"\n", "path_glob"},
+		"empty glob":             {"version = 1\n[[rule]]\npath_glob = \"\"\n", "path_glob"},
+		"empty tab name":         {"version = 1\n[[tab]]\nstartup = \"x\"\n", "tab.name"},
+		"duplicate tab":          {"version = 1\n[[tab]]\nname = \"g\"\n[[tab]]\nname = \"g\"\n", "tab.name"},
+		"empty workspace name":   {"version = 1\n[[workspace]]\npath = \"/x\"\n", "workspace.name"},
+		"empty workspace path":   {"version = 1\n[[workspace]]\nname = \"x\"\n", "workspace.path"},
+		"duplicate workspace":    {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\n[[workspace]]\nname = \"x\"\npath = \"/y\"\n", "workspace.name"},
+		"missing tab ref":        {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"nope\"]\n", "workspace.tabs"},
+		"missing rule tab ref":   {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"nope\"]\n", "rule.tabs"},
+		"empty pane name":        {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nsplit_from = \"a\"\nsplit = \"right\"\n", "tab.pane.name: must not be empty"},
+		"duplicate pane":         {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"a\"\nsplit_from = \"a\"\nsplit = \"right\"\n", "duplicate pane"},
+		"first pane splits":      {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nsplit = \"right\"\n", "first pane"},
+		"missing split_from":     {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit = \"right\"\n", "tab.pane.split_from"},
+		"forward reference":      {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"c\"\nsplit = \"right\"\n[[tab.pane]]\nname = \"c\"\nsplit_from = \"a\"\nsplit = \"down\"\n", "not an earlier pane"},
+		"self reference":         {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"b\"\nsplit = \"right\"\n", "not an earlier pane"},
+		"bad direction":          {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"left\"\n", "tab.pane.split"},
+		"ratio too low":          {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"down\"\nratio = 0.0\n", "tab.pane.ratio"},
+		"ratio too high":         {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"down\"\nratio = 0.95\n", "tab.pane.ratio"},
+		"ratio nan":              {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"down\"\nratio = nan\n", "tab.pane.ratio"},
+		"ratio inf":              {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"down\"\nratio = inf\n", "tab.pane.ratio"},
+		"bad env key":            {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nenv = { \"BAD-KEY\" = \"x\" }\n", "tab.pane.env"},
+		"tab startup with panes": {"version = 1\n[[tab]]\nname = \"t\"\nstartup = \"x\"\n[[tab.pane]]\nname = \"a\"\n", "tab.startup"},
+		"unknown pane field":     {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\ncwd = \"/x\"\n", "cwd"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -524,4 +538,39 @@ func TestNativePickerShowPath(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, setting != "show_path = false", cfg.TUI.ShowPath)
 	}
+}
+
+func TestNativeTabPanes(t *testing.T) {
+	cfg, err := loadNative(t, `version = 1
+
+[[tab]]
+name = "dev"
+path = "~/code"
+
+[[tab.pane]]
+name = "editor"
+env = { EDITOR = "nvim" }
+startup = "nvim"
+
+[[tab.pane]]
+name = "server"
+split_from = "editor"
+split = "right"
+ratio = 0.35
+path = "./web"
+env = { NODE_ENV = "development" }
+startup = "npm run dev"
+
+[[tab.pane]]
+name = "logs"
+split_from = "editor"
+split = "down"
+`)
+	require.NoError(t, err)
+	require.Len(t, cfg.WindowConfigs, 1)
+	assert.Equal(t, []model.PaneConfig{
+		{Name: "editor", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim"},
+		{Name: "server", SplitFrom: "editor", Split: "right", Ratio: 0.35, Path: "./web", Env: map[string]string{"NODE_ENV": "development"}, Startup: "npm run dev"},
+		{Name: "logs", SplitFrom: "editor", Split: "down"},
+	}, cfg.WindowConfigs[0].Panes)
 }

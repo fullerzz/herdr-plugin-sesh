@@ -186,3 +186,42 @@ func TestCLIClientIncludesStderrOnCommandFailure(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "boom")
 }
+
+func TestCLIClientConstructsPaneSplit(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	_, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "w1-1", Direction: "right", Ratio: 1 - 0.35, CWD: "/tmp/web", Env: map[string]string{"Z": "last", "A": "a b"}})
+	require.NoError(t, err)
+	want := [][]string{{"/bin/herdr", "pane", "split", "w1-1", "--direction", "right", "--no-focus", "--ratio", "0.65", "--cwd", "/tmp/web", "--env", "A=a b", "--env", "Z=last"}}
+	assert.Equal(t, want, rr.calls)
+}
+
+func TestCLIClientDecodesPaneSplitEnvelope(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"type":"pane_info","pane":{"pane_id":"w1-3"}}}`)}}
+	got, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "w1-1", Direction: "down"})
+	require.NoError(t, err)
+	assert.Equal(t, "w1-3", got.ID)
+	c.Runner = fixedRunner{stdout: []byte(`{"result":{"type":"pane_info","pane":{}}}`)}
+	_, err = c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "w1-1", Direction: "down"})
+	assert.ErrorContains(t, err, "no pane id")
+}
+
+func TestCLIClientTabCreatePassesEnv(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	_, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "w1", CWD: "/tmp", Label: "dev", Env: map[string]string{"EDITOR": "nvim"}})
+	require.NoError(t, err)
+	require.Len(t, rr.calls, 1)
+	assert.Equal(t, []string{"/bin/herdr", "tab", "create", "--workspace", "w1", "--cwd", "/tmp", "--label", "dev", "--env", "EDITOR=nvim", "--no-focus"}, rr.calls[0])
+}
+
+func TestCLIClientRedactsEnvValuesInErrors(t *testing.T) {
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stderr: []byte("pane not found"), err: errors.New("exit status 1")}}
+	_, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "w1-1", Direction: "right", Env: map[string]string{"API_TOKEN": "s3cret=value"}})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "s3cret")
+	assert.Contains(t, err.Error(), "--env API_TOKEN=<redacted>")
+	_, err = c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "w1", Env: map[string]string{"API_TOKEN": "s3cret"}})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "s3cret")
+}

@@ -66,3 +66,22 @@ func TestApplyConfigWildcardDisablePrecedesStartupFallback(t *testing.T) {
 	require.True(t, got[1].DisableStartupCommand)
 	assert.Empty(t, got[1].StartupCommand)
 }
+
+func TestApplyConfigCarriesPaneLayoutsForWorkspacesAndRules(t *testing.T) {
+	panes := []model.PaneConfig{{Name: "a"}, {Name: "b", SplitFrom: "a", Split: "right", Ratio: 0.3}}
+	cfg := config.Config{
+		WindowConfigs:   []model.WindowConfig{{Name: "dev", Panes: panes}},
+		SessionConfigs:  []config.SessionConfig{{Name: "api", Path: "/tmp/api", Windows: []string{"dev"}}},
+		WildcardConfigs: []config.WildcardConfig{{Pattern: "/tmp/projects/**", Windows: []string{"dev"}}},
+	}
+	sessions, err := ConfigSessions{Config: cfg}.List(context.Background())
+	require.NoError(t, err)
+	sessions.Add(model.Session{Source: "dir", Name: "web", Path: "/tmp/projects/web"})
+	ApplyConfig(&sessions, cfg, "")
+	got := sessions.Ordered()
+	require.Len(t, got, 2)
+	for _, s := range got {
+		require.Len(t, s.WindowConfigs, 1, s.Name)
+		assert.Equal(t, panes, s.WindowConfigs[0].Panes, s.Name)
+	}
+}

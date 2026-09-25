@@ -75,3 +75,30 @@ func TestConnectUsesExpandedConfigSessionPath(t *testing.T) {
 	require.Len(t, f.CreatedWorkspaces, 1)
 	assert.Equal(t, "/home/zach/projects/api", f.CreatedWorkspaces[0].CWD)
 }
+
+func TestConnectExistingWorkspaceSkipsPaneLayout(t *testing.T) {
+	f := &herdr.FakeClient{}
+	session := model.Session{Name: "api", WorkspaceID: "ws1", StartupCommand: "echo hi", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+		{Name: "a", Startup: "nvim"},
+		{Name: "b", SplitFrom: "a", Split: "right"},
+	}}}}
+	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{})
+	require.NoError(t, err)
+	assert.Empty(t, f.CreatedTabs)
+	assert.Empty(t, f.Splits)
+	assert.Empty(t, f.PaneRuns)
+}
+
+func TestConnectNoFocusDoesNotFocusLayoutTab(t *testing.T) {
+	f := &herdr.FakeClient{}
+	session := model.Session{Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+		{Name: "a"},
+		{Name: "b", SplitFrom: "a", Split: "right"},
+	}}}}
+	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: true})
+	require.NoError(t, err)
+	require.Len(t, f.CreatedTabs, 1)
+	assert.False(t, f.CreatedTabs[0].Focus)
+	assert.Empty(t, f.FocusedTabs)
+	assert.Len(t, f.Splits, 1)
+}

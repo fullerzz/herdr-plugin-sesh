@@ -71,10 +71,31 @@ type nativeDefaults struct {
 }
 
 type nativeTab struct {
-	Name    string `toml:"name"`
-	Startup string `toml:"startup,omitempty"`
-	Path    string `toml:"path,omitempty"`
+	Name    string       `toml:"name"`
+	Startup string       `toml:"startup,omitempty"`
+	Path    string       `toml:"path,omitempty"`
+	Panes   []nativePane `toml:"pane,omitempty"`
 }
+
+type nativePane struct {
+	Name      string `toml:"name"`
+	SplitFrom string `toml:"split_from,omitempty"`
+	Split     string `toml:"split,omitempty"`
+	// Pointer distinguishes an absent ratio (Herdr's default) from an explicit
+	// out-of-range zero.
+	Ratio   *float64          `toml:"ratio,omitempty"`
+	Path    string            `toml:"path,omitempty"`
+	Env     map[string]string `toml:"env,omitempty"`
+	Startup string            `toml:"startup,omitempty"`
+}
+
+// Herdr clamps split ratios to this range; reject values it would silently change.
+const (
+	minPaneRatio = 0.1
+	maxPaneRatio = 0.9
+)
+
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type nativeWorkspace struct {
 	Name           string   `toml:"name"`
@@ -158,15 +179,9 @@ func (n nativeConfig) validate(path string) error {
 			return fail("list.blacklist", "invalid regex %q: %v", expr, err)
 		}
 	}
-	tabNames := map[string]bool{}
-	for _, t := range n.Tabs {
-		if t.Name == "" {
-			return fail("tab.name", "must not be empty")
-		}
-		if tabNames[t.Name] {
-			return fail("tab.name", "duplicate tab %q", t.Name)
-		}
-		tabNames[t.Name] = true
+	tabNames, err := n.validateTabs(fail)
+	if err != nil {
+		return err
 	}
 	workspaceNames := map[string]bool{}
 	for _, w := range n.Workspaces {
@@ -199,6 +214,69 @@ func (n nativeConfig) validate(path string) error {
 				return fail("rule.tabs", "rule %q references unknown tab %q", r.PathGlob, ref)
 			}
 		}
+	}
+	return nil
+}
+
+func (n nativeConfig) validateTabs(fail func(key, format string, args ...any) error) (map[string]bool, error) {
+	tabNames := map[string]bool{}
+	for _, t := range n.Tabs {
+		if t.Name == "" {
+			return nil, fail("tab.name", "must not be empty")
+		}
+		if tabNames[t.Name] {
+			return nil, fail("tab.name", "duplicate tab %q", t.Name)
+		}
+		tabNames[t.Name] = true
+		if err := t.validatePanes(fail); err != nil {
+			return nil, err
+		}
+	}
+	return tabNames, nil
+}
+
+// validatePanes checks the complete layout up front so a bad layout fails at
+// config load instead of after a workspace has been created.
+func (t nativeTab) validatePanes(fail func(key, format string, args ...any) error) error {
+	if len(t.Panes) > 0 && t.Startup != "" {
+		return fail("tab.startup", "tab %q cannot combine startup with panes; set startup on each pane", t.Name)
+	}
+	seen := map[string]bool{}
+	for i, p := range t.Panes {
+		if p.Name == "" {
+			return fail("tab.pane.name", "must not be empty in tab %q", t.Name)
+		}
+		if seen[p.Name] {
+			return fail("tab.pane.name", "duplicate pane %q in tab %q", p.Name, t.Name)
+		}
+		if i == 0 {
+			if p.SplitFrom != "" || p.Split != "" || p.Ratio != nil {
+				return fail("tab.pane", "first pane %q in tab %q reuses the tab's root pane and cannot set split_from, split, or ratio", p.Name, t.Name)
+			}
+		} else {
+			if p.SplitFrom == "" {
+				return fail("tab.pane.split_from", "pane %q in tab %q must name an earlier pane", p.Name, t.Name)
+			}
+			if !seen[p.SplitFrom] {
+				return fail("tab.pane.split_from", "pane %q in tab %q references %q, which is not an earlier pane", p.Name, t.Name, p.SplitFrom)
+			}
+			if p.Split != "right" && p.Split != "down" {
+				return fail("tab.pane.split", "pane %q in tab %q must be \"right\" or \"down\", got %q", p.Name, t.Name, p.Split)
+			}
+			// NaN fails both comparisons, so this also rejects non-finite values.
+			if p.Ratio != nil && !(*p.Ratio >= minPaneRatio && *p.Ratio <= maxPaneRatio) {
+				return fail("tab.pane.ratio", "pane %q in tab %q must be between %g and %g, got %g", p.Name, t.Name, minPaneRatio, maxPaneRatio, *p.Ratio)
+			}
+		}
+		for key, value := range p.Env {
+			if !envKeyPattern.MatchString(key) {
+				return fail("tab.pane.env", "pane %q in tab %q has invalid variable name %q", p.Name, t.Name, key)
+			}
+			if strings.ContainsRune(value, 0) {
+				return fail("tab.pane.env", "pane %q in tab %q variable %q must not contain NUL bytes", p.Name, t.Name, key)
+			}
+		}
+		seen[p.Name] = true
 	}
 	return nil
 }
@@ -253,7 +331,15 @@ func (n nativeConfig) apply(cfg *Config) {
 		cfg.DefaultSessionConfig.PreviewCommand = n.WorkspaceDefaults.Preview
 	}
 	for _, t := range n.Tabs {
-		cfg.WindowConfigs = append(cfg.WindowConfigs, model.WindowConfig{Name: t.Name, StartupScript: t.Startup, Path: t.Path})
+		w := model.WindowConfig{Name: t.Name, StartupScript: t.Startup, Path: t.Path}
+		for _, p := range t.Panes {
+			pane := model.PaneConfig{Name: p.Name, SplitFrom: p.SplitFrom, Split: p.Split, Path: p.Path, Env: p.Env, Startup: p.Startup}
+			if p.Ratio != nil {
+				pane.Ratio = *p.Ratio
+			}
+			w.Panes = append(w.Panes, pane)
+		}
+		cfg.WindowConfigs = append(cfg.WindowConfigs, w)
 	}
 	for _, w := range n.Workspaces {
 		cfg.SessionConfigs = append(cfg.SessionConfigs, SessionConfig{

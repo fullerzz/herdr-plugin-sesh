@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -105,7 +109,16 @@ type WorkspaceCreateRequest struct {
 }
 type TabCreateRequest struct {
 	WorkspaceID, CWD, Label string
+	Env                     map[string]string
 	Focus                   bool
+}
+
+// PaneSplitRequest never focuses the new pane. Ratio uses Herdr's semantics:
+// the split pane's (first child's) share; zero leaves Herdr's default.
+type PaneSplitRequest struct {
+	PaneID, Direction, CWD string
+	Ratio                  float64
+	Env                    map[string]string
 }
 
 type Client interface {
@@ -118,6 +131,7 @@ type Client interface {
 	PaneList(context.Context, string) ([]Pane, error)
 	PaneCurrent(context.Context) (Pane, error)
 	PaneRun(context.Context, string, string) error
+	PaneSplit(context.Context, PaneSplitRequest) (Pane, error)
 	PluginPaneOpen(context.Context, string, string, string) error
 }
 type Runner interface {
@@ -175,7 +189,7 @@ func (c *CLIClient) run(ctx context.Context, args ...string) ([]byte, error) {
 	defer cancel()
 	out, stderr, err := c.Runner.Run(ctx, c.Bin, args...)
 	if err != nil {
-		return out, fmt.Errorf("herdr %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
+		return out, fmt.Errorf("herdr %s: %w: %s", strings.Join(redactEnvArgs(args), " "), err, strings.TrimSpace(string(stderr)))
 	}
 	return out, nil
 }
@@ -303,6 +317,7 @@ func (c *CLIClient) TabList(ctx context.Context, wid string) ([]Tab, error) {
 }
 func (c *CLIClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, error) {
 	args := []string{"tab", "create", "--workspace", r.WorkspaceID, "--cwd", r.CWD, "--label", r.Label}
+	args = appendEnvArgs(args, r.Env)
 	if !r.Focus {
 		args = append(args, "--no-focus")
 	}
@@ -389,28 +404,75 @@ func (c *CLIClient) paneCurrent(ctx context.Context) (Pane, error) {
 	if err != nil {
 		return Pane{}, err
 	}
-	raw, wrapped, err := responseJSON(out, "pane current")
+	return decodePane(out, "pane current")
+}
+
+// decodePane accepts both the {"result":{"pane":...}} envelope and a bare pane.
+func decodePane(out []byte, command string) (Pane, error) {
+	raw, wrapped, err := responseJSON(out, command)
 	if err != nil {
 		return Pane{}, err
 	}
+	var p Pane
 	if wrapped {
 		var resp struct {
 			Pane Pane `json:"pane"`
 		}
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			return Pane{}, fmt.Errorf("decode herdr pane current JSON: %w", err)
-		}
-		return resp.Pane, nil
+		err = json.Unmarshal(raw, &resp)
+		p = resp.Pane
+	} else {
+		err = json.Unmarshal(raw, &p)
 	}
-	var p Pane
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return Pane{}, fmt.Errorf("decode herdr pane current JSON: %w", err)
+	if err != nil {
+		return Pane{}, fmt.Errorf("decode herdr %s JSON: %w", command, err)
 	}
 	return p, nil
 }
 func (c *CLIClient) PaneRun(ctx context.Context, id, cmd string) error {
 	_, err := c.run(ctx, "pane", "run", id, cmd)
 	return err
+}
+func (c *CLIClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, error) {
+	args := []string{"pane", "split", r.PaneID, "--direction", r.Direction, "--no-focus"}
+	if r.Ratio != 0 {
+		args = append(args, "--ratio", strconv.FormatFloat(r.Ratio, 'f', -1, 32))
+	}
+	if r.CWD != "" {
+		args = append(args, "--cwd", r.CWD)
+	}
+	args = appendEnvArgs(args, r.Env)
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return Pane{}, err
+	}
+	p, err := decodePane(out, "pane split")
+	if err != nil {
+		return Pane{}, err
+	}
+	if p.ID == "" {
+		return Pane{}, errors.New("herdr pane split returned no pane id")
+	}
+	return p, nil
+}
+
+// redactEnvArgs hides --env values, which may hold secrets, from error text.
+func redactEnvArgs(args []string) []string {
+	out := slices.Clone(args)
+	for i := 1; i < len(out); i++ {
+		if out[i-1] == "--env" {
+			key, _, _ := strings.Cut(out[i], "=")
+			out[i] = key + "=<redacted>"
+		}
+	}
+	return out
+}
+
+// appendEnvArgs sorts keys so argument order is deterministic.
+func appendEnvArgs(args []string, env map[string]string) []string {
+	for _, key := range slices.Sorted(maps.Keys(env)) {
+		args = append(args, "--env", key+"="+env[key])
+	}
+	return args
 }
 func (c *CLIClient) PaneLayout(ctx context.Context, id string) (PaneLayout, error) {
 	out, err := c.run(ctx, "pane", "layout", "--pane", id)

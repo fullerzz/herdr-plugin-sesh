@@ -34,6 +34,20 @@ type WindowConfig struct {
 	Name          string `json:"name"                     toml:"name"`
 	StartupScript string `json:"startup_script,omitempty" toml:"startup_script"`
 	Path          string `json:"path,omitempty"           toml:"path"`
+	// Panes is native-only; the legacy Sesh window schema has no equivalent.
+	Panes []PaneConfig `json:"panes,omitempty" toml:"-"`
+}
+
+// PaneConfig describes one pane of a tab layout. The first pane reuses the
+// tab's root pane; later panes split the earlier pane named by SplitFrom.
+type PaneConfig struct {
+	Name      string            `json:"name"`
+	SplitFrom string            `json:"split_from,omitempty"`
+	Split     string            `json:"split,omitempty"`
+	Ratio     float64           `json:"ratio,omitempty"` // New pane's share of the split; 0 uses Herdr's default.
+	Path      string            `json:"path,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Startup   string            `json:"startup,omitempty"`
 }
 
 type Sessions struct {

@@ -311,7 +311,8 @@ can leave the source untouched.
     the remaining legacy keys. Remove the key or migrate the file.
 
 Legacy `tmux_command`, `tmuxp`, and `tmuxinator` fields have no Herdr
-equivalent; native decoding rejects them like any other unknown key.
+equivalent; native decoding rejects them like any other unknown key. Describe
+tab splits with native [pane layouts](#tabpane) instead.
 
 
 ## Settings
@@ -531,7 +532,74 @@ commands use the same explicit workspace, rule, then default order.
 | --- | --- |
 | `name` | Name referenced by a workspace or rule `tabs` list and used as the Herdr tab label. Must be non-empty and unique. |
 | `path` | Optional tab working directory. Without it, the workspace path is used; `~/` is expanded. |
-| `startup` | Command run in the new tab. `{}` is replaced with that tab's working directory. |
+| `startup` | Command run in the new tab. `{}` is replaced with that tab's working directory. Cannot be combined with `[[tab.pane]]` entries; set `startup` on each pane instead. |
+| `pane` | Optional `[[tab.pane]]` layout. See below. |
+
+### `[[tab.pane]]`
+
+Pane entries split a new tab into a layout. They apply only when herdr-sesh
+creates the workspace; selecting an existing workspace never changes its panes
+or reruns commands. Pane layouts use `herdr pane split` and `herdr tab create
+--env`, available since Herdr 0.8.2.
+
+```toml
+[[tab]]
+name = "development"
+
+[[tab.pane]]
+name = "editor"
+startup = "nvim"
+
+[[tab.pane]]
+name = "server"
+split_from = "editor"
+split = "right"
+ratio = 0.35
+path = "./web"
+env = { NODE_ENV = "development" }
+startup = "npm run dev"
+
+[[tab.pane]]
+name = "logs"
+split_from = "server"
+split = "down"
+ratio = 0.3
+startup = "tail -f development.log"
+```
+
+| Field | Runtime effect |
+| --- | --- |
+| `name` | Pane name referenced by later `split_from` values. Must be non-empty and unique within the tab. |
+| `split_from` | Earlier pane to split. Required for every pane after the first; forward and self references are rejected. |
+| `split` | `"right"` or `"down"`. Required for every pane after the first. |
+| `ratio` | Optional share of the split given to the new pane, from `0.1` to `0.9`. Without it, Herdr splits evenly. |
+| `path` | Optional working directory. Without it, the tab path is used; relative paths resolve against the tab path and `~/` is expanded. |
+| `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`. Values are passed to Herdr as arguments, not through a shell. Shell startup files run afterward and can override them. |
+| `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
+
+The first pane is the tab's root pane and cannot set `split_from`, `split`, or
+`ratio`; its `path` and `env` are applied when the tab is created. Later panes
+are created in declaration order, each split without taking focus, so the root
+pane stays focused. Herdr also creates the workspace's own initial tab; pane
+layouts apply only to configured tabs.
+
+When the first configured tab has panes, the workspace `startup` command runs
+in its root pane, joined to that pane's own `startup` as one shell line
+(`workspace; pane`). The shell runs the pane command after the workspace
+command exits, so an interactive pane command such as `nvim` does not receive
+the workspace command as input. Avoid ending the workspace command with a
+comment or `&`, which would break the joined line.
+
+With `connect --no-focus`, the workspace is created in the background and
+opens on Herdr's initial tab: Herdr cannot select a tab without also focusing
+its workspace.
+
+Layouts are validated when the configuration loads, before any workspace is
+created. If a Herdr call fails partway through a layout, herdr-sesh stops and
+reports the workspace, tab, pane, and failed operation. The partially created
+workspace is kept so no running process is terminated. Reconnecting focuses it
+without retrying the layout; close the workspace and connect again to rebuild
+it.
 
 ### `[[rule]]`
 
