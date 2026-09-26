@@ -11,8 +11,17 @@ A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and sess
 
 `herdr-sesh` combines running Herdr workspaces, configured sessions, and
 zoxide history in one searchable overlay. Selecting an item focuses its
-existing workspace or creates a new one with the configured startup command
-and tabs.
+existing workspace or creates a new one with the configured startup command,
+tabs, and pane layouts.
+
+!!! tip "Open a complete project layout from one picker entry"
+
+    Define reusable tabs with panes split right or down, custom split ratios,
+    and a working directory, environment, and startup command for each pane.
+    Open your editor, development server, and logs together; reconnecting keeps
+    the running layout intact. See the
+    [pane layout walkthrough and diagram](config.md#pane-layout-walkthrough)
+    for a complete configuration.
 
 ## Install
 

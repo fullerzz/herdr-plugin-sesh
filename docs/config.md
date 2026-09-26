@@ -6,6 +6,24 @@ Sesh-compatible files (no `version` key) still load during the migration
 period and print a deprecation warning on stderr; see
 [Legacy migration](#legacy-migration).
 
+Configure a workspace once, then select it in the picker to open its named tabs
+and split panes, each with its own working directory, environment, and command.
+Layouts run when a workspace is **created**; reconnecting preserves your running
+terminals.
+
+| To configure… | Start here |
+| --- | --- |
+| Picker appearance, sorting, and defaults | [Settings editor](#settings-editor) |
+| A project with a named tab | [Add a workspace with a tab](#add-a-workspace-with-a-tab) |
+| An editor, development server, and logs in split panes | [Pane layout walkthrough](#pane-layout-walkthrough) |
+| The same tabs for discovered projects under a directory | [Path rules](#rule) |
+
+Workspace, tab, and pane definitions are edited in the TOML file. A
+`[[workspace]]` selects reusable `[[tab]]` definitions through its `tabs` list;
+each tab can contain ordered `[[tab.pane]]` entries describing its splits.
+
+## Configuration file lookup
+
 Lookup order:
 
 1. `--config PATH`
@@ -167,7 +185,7 @@ workspace receives the named `git` tab and runs `git status` there. Selecting
 an existing workspace focuses it; it does not recreate its tabs or rerun startup
 commands.
 
-To open several panes inside a tab, follow the [pane layout example](#tabpane).
+To open several panes inside a tab, follow the [pane layout walkthrough](#pane-layout-walkthrough).
 
 ## Example
 
@@ -556,6 +574,8 @@ An older binary may fail after creating the workspace. Upgrade Herdr, then
 save any work before closing and recreating that partial workspace; reconnecting
 does not retry its layout.
 
+#### Pane layout walkthrough
+
 The following complete native configuration creates an editor on the left,
 with a server above logs on the right. Replace the workspace path with your
 project directory. This example assumes `nvim` is installed, `web/` contains
@@ -624,6 +644,55 @@ The new workspace opens on the `development` tab with the editor focused.
 The server initially gets 35% of the tab's width; splitting it downward gives
 logs 30% of that right-hand column's height.
 
+```text
+my-project workspace
+Tabs: [Herdr initial tab] [development (selected)]
+
+development tab — approximate proportions
+┌──────────────────────────────────────┬────────────────────┐
+│ editor (focused)                     │ server             │
+│ nvim                                 │ npm run dev        │
+│                                      │                    │
+│                                      │                    │
+│                                      │                    │
+│                                      │                    │
+│                                      ├────────────────────┤
+│                                      │ logs               │
+│                                      │ tail -f            │
+│                                      │ development.log    │
+└──────────────────────────────────────┴────────────────────┘
+              65% width                       35% width
+```
+
+Read the pane entries in order:
+
+1. **`editor`** uses the new tab's root pane. It has no split settings.
+2. **`server`** splits `editor` to the right, taking `0.35` (35%) of its width.
+3. **`logs`** splits `server` downward, taking `0.3` (30%) of that column's
+   height. The server keeps the upper 70%; the editor is unaffected.
+
+`ratio` always describes the **new pane's share of the pane being split**,
+not its share of the entire tab. Omitting it gives an even split.
+
+| Pane | Working directory | Pane-specific environment | Startup command |
+| --- | --- | --- | --- |
+| `editor` | `~/projects/my-project` | None added | `nvim` |
+| `server` | `~/projects/my-project/web` | `NODE_ENV=development` | `npm run dev` |
+| `logs` | `~/projects/my-project` | None added | `tail -f development.log` |
+
+The tab has no `path`, so it uses the workspace directory. A pane without
+`path` uses that **tab directory**, even when it splits a pane with a different
+directory. Relative pane paths resolve against the tab directory. For example,
+adding `path = "frontend"` to `[[tab]]` would make the server's `./web` resolve
+to `~/projects/my-project/frontend/web`. `~/` expands to the home directory;
+absolute paths are used directly.
+
+Herdr's initial tab remains alongside `development`, even when no workspace
+startup command is configured. If you set workspace `startup = "lazygit"`,
+it runs in that initial tab, independently of these three panes.
+
+#### Pane fields
+
 | Field | Runtime effect |
 | --- | --- |
 | `name` | Pane name referenced by later `split_from` values. Must be non-empty and unique within the tab. |
@@ -638,18 +707,16 @@ Pane `env` values are passed as `--env KEY=VALUE` command-line arguments and may
 be visible to other local users through process inspection such as `ps`, subject
 to OS permissions. Error-message redaction does not hide process arguments. Do
 not put secrets in these values; load them inside the pane through your shell's
-credential tooling instead.
-
-`split_from` selects where to split, not which path or environment to inherit.
-In the example, the server runs in `web/`, but logs runs in the project root
-because it has no `path`. `NODE_ENV` is set only for the server pane. Add
-`path = "./web"` or an `env` table to logs if it needs those settings too.
+credential tooling instead. `split_from` selects where to split; it does not
+copy the source pane's `path` or `env`. Set those on each pane that needs them.
 
 The first pane is the tab's root pane and cannot set `split_from`, `split`, or
 `ratio`; its `path` and `env` are applied when the tab is created. Later panes
 are created in declaration order, each split without taking focus, so the root
 pane stays focused. Herdr also creates the workspace's own initial tab; pane
 layouts apply only to configured tabs.
+
+#### Startup commands and focus
 
 Workspace startup runs in the initial workspace pane for both plain tabs and
 pane layouts. Each command is sent separately without an `eval` wrapper or shell
@@ -665,6 +732,12 @@ commands or layout creation; remove a pane's `startup` to leave it at a shell.
 With `connect --no-focus`, the workspace is created in the background and
 opens on Herdr's initial tab: Herdr cannot select a tab without also focusing
 its workspace.
+
+#### Reconnecting and recovering a partial layout
+
+Editing the configuration does not rearrange an open workspace. To try a changed
+layout, save your work, close that workspace, and select it again to create a new
+one. Reconnecting alone does not create missing panes or restart commands.
 
 Layouts are validated when the configuration loads, before any workspace is
 created. If a Herdr call fails partway through a layout, herdr-sesh stops and
