@@ -130,10 +130,10 @@ func TestApplyFindsMissingRootOnlyInCreatedTab(t *testing.T) {
 	for _, matching := range []bool{false, true} {
 		f := &tabWithoutRootClient{FakeClient: herdr.FakeClient{Panes: []herdr.Pane{
 			{ID: "wrong-tab", WorkspaceID: "ws1", TabID: "other-tab"},
-			{ID: "wrong-workspace", WorkspaceID: "other-workspace", TabID: "new-tab"},
+			{ID: "wrong-workspace", WorkspaceID: "other-workspace", TabID: "new-tab-1"},
 		}}}
 		if matching {
-			f.Panes = append(f.Panes, herdr.Pane{ID: "right-root", WorkspaceID: "ws1", TabID: "new-tab"})
+			f.Panes = append(f.Panes, herdr.Pane{ID: "right-root", WorkspaceID: "ws1", TabID: "new-tab-1"})
 		}
 		s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
 			{Name: "root", Path: "/tmp/app", Startup: "nvim"},

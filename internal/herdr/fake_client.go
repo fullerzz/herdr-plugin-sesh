@@ -38,7 +38,7 @@ func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
 func (f *FakeClient) TabList(context.Context, string) ([]Tab, error) { return f.Tabs, nil }
 func (f *FakeClient) TabCreate(_ context.Context, r TabCreateRequest) (Tab, error) {
 	f.CreatedTabs = append(f.CreatedTabs, r)
-	t := Tab{ID: "new-tab", WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
+	t := Tab{ID: fmt.Sprintf("new-tab-%d", len(f.Tabs)+1), WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
 	f.Tabs = append(f.Tabs, t)
 	if r.Focus {
 		f.setActiveTab(t)

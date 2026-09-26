@@ -179,7 +179,7 @@ func TestConnectRootStartupChangingDirectoryPreservesReconnect(t *testing.T) {
 				require.Len(t, f.Workspaces, 1)
 				// Model the command changing cwd after layout creation. Herdr reports
 				// it as ForegroundCWD only if the command's tab is active.
-				if len(f.RenamedTabs) > 0 || f.Workspaces[0].ActiveTabID == "new-tab" {
+				if len(f.RenamedTabs) > 0 || (len(f.Tabs) > 0 && f.Workspaces[0].ActiveTabID == f.Tabs[0].ID) {
 					f.Workspaces[0].ForegroundCWD = filepath.Join(path, "web")
 				}
 				live, err := sources.HerdrWorkspaces{Client: f}.List(context.Background())

@@ -34,3 +34,21 @@ func TestFakeClientTabFocusUpdatesWorkspaceThroughEitherEntryPoint(t *testing.T)
 		})
 	}
 }
+
+func TestFakeClientFocusesTheRequestedCreatedTab(t *testing.T) {
+	ctx := context.Background()
+	f := &FakeClient{Workspaces: []Workspace{{ID: "ws", CWD: "/repo"}}}
+	first, err := f.TabCreate(ctx, TabCreateRequest{WorkspaceID: "ws", CWD: "/repo/api"})
+	require.NoError(t, err)
+	second, err := f.TabCreate(ctx, TabCreateRequest{WorkspaceID: "ws", CWD: "/repo/web"})
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, second.ID)
+	for _, tab := range []Tab{second, first} {
+		require.NoError(t, f.TabFocus(ctx, tab.ID))
+		workspaces, err := f.WorkspaceList(ctx)
+		require.NoError(t, err)
+		require.Len(t, workspaces, 1)
+		assert.Equal(t, tab.ID, workspaces[0].ActiveTabID)
+		assert.Equal(t, tab.CWD, workspaces[0].ForegroundCWD)
+	}
+}
