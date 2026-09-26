@@ -41,19 +41,30 @@ func (f *FakeClient) TabCreate(_ context.Context, r TabCreateRequest) (Tab, erro
 	t := Tab{ID: "new-tab", WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
 	f.Tabs = append(f.Tabs, t)
 	if r.Focus {
-		for i := range f.Workspaces {
-			if f.Workspaces[i].ID == r.WorkspaceID {
-				f.Workspaces[i].ActiveTabID = t.ID
-				f.Workspaces[i].ForegroundCWD = r.CWD
-			}
-		}
+		f.setActiveTab(t)
 	}
 	return t, nil
 }
 func (f *FakeClient) TabFocus(_ context.Context, id string) error {
 	f.FocusedTabs = append(f.FocusedTabs, id)
+	for _, tab := range f.Tabs {
+		if tab.ID == id {
+			f.setActiveTab(tab)
+			break
+		}
+	}
 	return nil
 }
+
+func (f *FakeClient) setActiveTab(tab Tab) {
+	for i := range f.Workspaces {
+		if f.Workspaces[i].ID == tab.WorkspaceID {
+			f.Workspaces[i].ActiveTabID = tab.ID
+			f.Workspaces[i].ForegroundCWD = tab.CWD
+		}
+	}
+}
+
 func (f *FakeClient) TabRename(_ context.Context, id, label string) error {
 	f.RenamedTabs = append(f.RenamedTabs, id+":"+label)
 	return nil
