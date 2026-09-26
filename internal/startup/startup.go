@@ -14,8 +14,8 @@ type Plan struct {
 	WorkspaceID string
 	Path        string
 	Session     model.Session
-	// Focus lets the first configured tab take focus; background creation
-	// leaves it false so Herdr focus stays where it was.
+	// Focus lets the first configured tab take focus if its root keeps the
+	// workspace path; background creation leaves it false.
 	Focus      bool
 	InitialTab InitialTabPolicy
 }
@@ -95,9 +95,12 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 			// Herdr's tab focus also focuses the workspace, and it has no way to
 			// set a background workspace's active tab, so --no-focus leaves the
 			// workspace on its initial tab.
-			req := herdr.TabCreateRequest{WorkspaceID: p.WorkspaceID, Label: w.Name, Focus: p.Focus && i == 0}
+			req := herdr.TabCreateRequest{WorkspaceID: p.WorkspaceID, Label: w.Name}
 			// Herdr can only set a root pane's cwd and env when creating its tab.
 			req.CWD, req.Env = rootPane(w, path)
+			// Keep the initial tab active when the configured root is elsewhere:
+			// Herdr reports the active pane's directory for path-based reconnects.
+			req.Focus = p.Focus && i == 0 && filepath.Clean(req.CWD) == filepath.Clean(path)
 			if tab, err = client.TabCreate(ctx, req); err != nil {
 				err = fmt.Errorf("create tab: %w", err)
 			}

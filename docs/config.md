@@ -553,7 +553,8 @@ exactly its configured tabs. Plain workspaces without tabs keep Herdr's initial
 tab as is.
 
 If the first tab's `path` or first pane's `path` points elsewhere, the initial
-tab is kept at the workspace path and every configured tab is created after it.
+tab is kept active at the workspace path and every configured tab is created
+after it without taking focus, including with a normal focused `connect`.
 Herdr reports the active pane's directory as the workspace path, so this keeps
 `connect <path>` finding the open workspace.
 

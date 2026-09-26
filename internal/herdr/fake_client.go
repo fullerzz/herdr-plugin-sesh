@@ -40,6 +40,14 @@ func (f *FakeClient) TabCreate(_ context.Context, r TabCreateRequest) (Tab, erro
 	f.CreatedTabs = append(f.CreatedTabs, r)
 	t := Tab{ID: "new-tab", WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
 	f.Tabs = append(f.Tabs, t)
+	if r.Focus {
+		for i := range f.Workspaces {
+			if f.Workspaces[i].ID == r.WorkspaceID {
+				f.Workspaces[i].ActiveTabID = t.ID
+				f.Workspaces[i].ForegroundCWD = r.CWD
+			}
+		}
+	}
 	return t, nil
 }
 func (f *FakeClient) TabFocus(_ context.Context, id string) error {

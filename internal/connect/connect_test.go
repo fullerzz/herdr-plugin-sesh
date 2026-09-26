@@ -2,6 +2,8 @@ package connect
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -115,23 +117,33 @@ func TestConnectReusesInitialTabWithoutMovingFocus(t *testing.T) {
 }
 
 func TestConnectKeepsInitialTabWhenRootPaneLeavesWorkspacePath(t *testing.T) {
-	f := &herdr.FakeClient{}
-	session := model.Session{Source: "config", Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
-		{Name: "a", Path: "/tmp/api/web", Env: map[string]string{"EDITOR": "nvim"}},
-	}}}}
-	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: true})
-	require.NoError(t, err)
-	require.Len(t, f.CreatedWorkspaces, 1)
-	assert.Equal(t, herdr.WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api"}, f.CreatedWorkspaces[0])
-	assert.Empty(t, f.RenamedTabs)
-	require.Len(t, f.CreatedTabs, 1)
-	assert.Equal(t, "/tmp/api/web", f.CreatedTabs[0].CWD)
-	// The workspace keeps reporting its configured path, so path lookup reconnects.
-	live, err := sources.HerdrWorkspaces{Client: f}.List(context.Background())
-	require.NoError(t, err)
-	_, err = Connect(context.Background(), f, live.Ordered(), "/tmp/api", Options{NoFocus: true})
-	require.NoError(t, err)
-	assert.Len(t, f.CreatedWorkspaces, 1)
+	for _, noFocus := range []bool{false, true} {
+		for _, startup := range []string{"", "echo ready"} {
+			t.Run(fmt.Sprintf("noFocus=%t/startup=%q", noFocus, startup), func(t *testing.T) {
+				f := &herdr.FakeClient{}
+				path := t.TempDir()
+				rootPath := filepath.Join(path, "web")
+				session := model.Session{Source: "config", Name: "api", Path: path, StartupCommand: startup, WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+					{Name: "a", Path: rootPath, Env: map[string]string{"EDITOR": "nvim"}},
+				}}}}
+				_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: noFocus})
+				require.NoError(t, err)
+				require.Len(t, f.CreatedWorkspaces, 1)
+				assert.Equal(t, herdr.WorkspaceCreateRequest{CWD: path, Label: "api", Focus: !noFocus}, f.CreatedWorkspaces[0])
+				assert.Empty(t, f.RenamedTabs)
+				require.Len(t, f.CreatedTabs, 1)
+				assert.Equal(t, rootPath, f.CreatedTabs[0].CWD)
+				assert.False(t, f.CreatedTabs[0].Focus)
+				// The workspace keeps reporting its configured path, so path lookup reconnects.
+				live, err := sources.HerdrWorkspaces{Client: f}.List(context.Background())
+				require.NoError(t, err)
+				result, err := Connect(context.Background(), f, live.Ordered(), path, Options{NoFocus: noFocus})
+				require.NoError(t, err)
+				assert.False(t, result.Created)
+				assert.Len(t, f.CreatedWorkspaces, 1)
+			})
+		}
+	}
 }
 
 func TestConnectWorkspaceStartupKeepsSeparateInitialTab(t *testing.T) {
