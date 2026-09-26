@@ -16,31 +16,31 @@ type Plan struct {
 	Session     model.Session
 	// Focus lets the first configured tab take focus; background creation
 	// leaves it false so Herdr focus stays where it was.
-	Focus bool
-	// ReuseInitialTab turns Herdr's initial tab into the first configured tab.
-	// The caller must have created the workspace with InitialPaneEnv, and it
-	// only takes effect when ReuseInitialTab(Session) holds.
-	ReuseInitialTab bool
+	Focus      bool
+	InitialTab InitialTabPolicy
 }
 
-// ReuseInitialTab reports whether the first configured tab can take over the
+// InitialTabPolicy couples initial-tab reuse with the environment that must be
+// supplied to WorkspaceCreate. Pass the same policy to Apply in the Plan.
+type InitialTabPolicy struct {
+	Reuse bool
+	Env   map[string]string
+}
+
+// PlanInitialTab decides whether the first configured tab can take over the
 // initial tab. A workspace startup command keeps the initial tab to itself so
 // it never shares a terminal with a tab or pane startup command. The root pane
 // must also start in the workspace path: Herdr reports the active pane's
 // directory as the workspace path, which path lookups rely on.
-func ReuseInitialTab(s model.Session) bool {
+func PlanInitialTab(s model.Session) InitialTabPolicy {
 	if len(s.WindowConfigs) == 0 || runsWorkspaceStartup(s) {
-		return false
+		return InitialTabPolicy{}
 	}
-	cwd, _ := rootPane(s.WindowConfigs[0], s.Path)
-	return filepath.Clean(cwd) == filepath.Clean(s.Path)
-}
-
-// InitialPaneEnv returns the first configured tab's root pane env, which Herdr
-// can only set when creating the workspace.
-func InitialPaneEnv(s model.Session) map[string]string {
-	_, env := rootPane(s.WindowConfigs[0], s.Path)
-	return env
+	cwd, env := rootPane(s.WindowConfigs[0], s.Path)
+	if filepath.Clean(cwd) != filepath.Clean(s.Path) {
+		return InitialTabPolicy{}
+	}
+	return InitialTabPolicy{Reuse: true, Env: env}
 }
 
 func rootPane(w model.WindowConfig, path string) (string, map[string]string) {
@@ -80,7 +80,6 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 			return fmt.Errorf("workspace %q: run startup: %w", p.Session.Name, err)
 		}
 	}
-	reuse := p.ReuseInitialTab && ReuseInitialTab(p.Session)
 	for i, w := range p.Session.WindowConfigs {
 		cwd := path
 		if w.Path != "" {
@@ -88,7 +87,7 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 		}
 		var tab herdr.Tab
 		var err error
-		if i == 0 && reuse {
+		if i == 0 && p.InitialTab.Reuse {
 			// The initial tab is already active, including in a background
 			// workspace, so it needs no focus call.
 			tab, err = claimInitialTab(ctx, client, p.WorkspaceID, w.Name)
