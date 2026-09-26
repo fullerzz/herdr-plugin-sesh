@@ -157,8 +157,8 @@ func TestApplyReusesInitialTabForFirstConfiguredTab(t *testing.T) {
 	f := &herdr.FakeClient{Panes: []herdr.Pane{{ID: "initial-pane", WorkspaceID: "ws1", TabID: "initial-tab"}}}
 	s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{
 		{Name: "dev", Panes: []model.PaneConfig{
-			{Name: "editor", Path: "/tmp/app", Startup: "nvim"},
-			{Name: "shell", SplitFrom: "editor", Split: "right", Path: "/tmp/app"},
+			{Name: "editor", Path: "/tmp/app"},
+			{Name: "shell", SplitFrom: "editor", Split: "right", Path: "/tmp/app", Startup: "nvim"},
 		}},
 		{Name: "git", StartupScript: "lazygit"},
 	}}
@@ -168,7 +168,7 @@ func TestApplyReusesInitialTabForFirstConfiguredTab(t *testing.T) {
 	assert.Equal(t, herdr.TabCreateRequest{WorkspaceID: "ws1", CWD: "/tmp/app", Label: "git"}, f.CreatedTabs[0])
 	require.Len(t, f.Splits, 1)
 	assert.Equal(t, "initial-pane", f.Splits[0].PaneID)
-	assert.Equal(t, []string{"initial-pane:nvim", "new-pane:lazygit"}, f.PaneRuns)
+	assert.Equal(t, []string{"split-1:nvim", "new-pane:lazygit"}, f.PaneRuns)
 	assert.Empty(t, f.FocusedTabs, "the reused tab is already active")
 }
 
@@ -183,7 +183,7 @@ func TestApplyKeepsInitialTabForWorkspaceStartup(t *testing.T) {
 
 func TestApplyReportsInitialTabReuseFailure(t *testing.T) {
 	f := &herdr.FakeClient{}
-	s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", StartupScript: "nvim"}, {Name: "later"}}}
+	s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev"}, {Name: "later"}}}
 	err := Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s, InitialTab: PlanInitialTab(s)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `workspace "app" tab "dev": reuse initial tab: no pane available in workspace "ws1" (the workspace was kept)`)
@@ -208,4 +208,9 @@ func TestPlanInitialTabCouplesReuseAndRootEnvironment(t *testing.T) {
 	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(s), "workspace startup must not inherit the configured root environment")
 	s.DisableStartupCommand = true
 	assert.Equal(t, reuse, PlanInitialTab(s))
+	s.WindowConfigs[0].Panes[0].Startup = "git status"
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(s), "do not infer whether arbitrary shell commands change cwd")
+	s.WindowConfigs[0].Panes = nil
+	s.WindowConfigs[0].StartupScript = "run-dev"
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(s))
 }

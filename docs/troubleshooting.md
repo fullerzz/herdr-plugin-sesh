@@ -57,12 +57,15 @@ when focusing an existing one.
   commands.
 - With `connect --no-focus`, the new workspace stays on Herdr's initial tab.
   It is the first configured tab only when no workspace startup command applies
-  and that tab's root pane starts in the workspace directory. Otherwise, select
+  and that tab's root pane starts in the workspace directory without a startup
+  command. Otherwise, select
   the configured tab after switching to that workspace.
 - An extra initial tab means a workspace, rule, or `workspace_defaults.startup`
-  command applies, or the first tab's root pane `path` differs from the
-  workspace path. Reuse needs both: set `disable_startup = true` on the
-  workspace, and start the first tab's root pane in the workspace directory.
+  command applies, the first tab's root pane `path` differs from the workspace
+  path, or that root has a startup command. To allow reuse, suppress workspace
+  startup with `disable_startup = true`, leave the first root in the workspace
+  directory without startup, and put commands in other panes. Commands are not
+  inspected for directory changes; even `git status` keeps a separate initial tab.
 
 If creation fails partway through, the workspace and any running processes are
 kept. Correct the reported error, then save any work and stop processes before

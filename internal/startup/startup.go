@@ -14,8 +14,8 @@ type Plan struct {
 	WorkspaceID string
 	Path        string
 	Session     model.Session
-	// Focus lets the first configured tab take focus if its root keeps the
-	// workspace path; background creation leaves it false.
+	// Focus lets the first configured tab take focus subject to path protection;
+	// background creation leaves it false.
 	Focus      bool
 	InitialTab InitialTabPolicy
 }
@@ -31,13 +31,14 @@ type InitialTabPolicy struct {
 // initial tab. A workspace startup command keeps the initial tab to itself so
 // it never shares a terminal with a tab or pane startup command. The root pane
 // must also start in the workspace path: Herdr reports the active pane's
-// directory as the workspace path, which path lookups rely on.
+// directory as the workspace path, which path lookups rely on. Root startup
+// commands can change that directory, so they also keep a separate initial tab.
 func PlanInitialTab(s model.Session) InitialTabPolicy {
 	if len(s.WindowConfigs) == 0 || runsWorkspaceStartup(s) {
 		return InitialTabPolicy{}
 	}
 	cwd, env := rootPane(s.WindowConfigs[0], s.Path)
-	if filepath.Clean(cwd) != filepath.Clean(s.Path) {
+	if filepath.Clean(cwd) != filepath.Clean(s.Path) || rootHasStartup(s.WindowConfigs[0]) {
 		return InitialTabPolicy{}
 	}
 	return InitialTabPolicy{Reuse: true, Env: env}
@@ -59,6 +60,13 @@ func rootPane(w model.WindowConfig, path string) (string, map[string]string) {
 
 func runsWorkspaceStartup(s model.Session) bool {
 	return !s.DisableStartupCommand && s.StartupCommand != ""
+}
+
+func rootHasStartup(w model.WindowConfig) bool {
+	if len(w.Panes) > 0 {
+		return w.Panes[0].Startup != ""
+	}
+	return w.StartupScript != ""
 }
 
 func Apply(ctx context.Context, client herdr.Client, p Plan) error {
@@ -98,9 +106,11 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 			req := herdr.TabCreateRequest{WorkspaceID: p.WorkspaceID, Label: w.Name}
 			// Herdr can only set a root pane's cwd and env when creating its tab.
 			req.CWD, req.Env = rootPane(w, path)
-			// Keep the initial tab active when the configured root is elsewhere:
-			// Herdr reports the active pane's directory for path-based reconnects.
-			req.Focus = p.Focus && i == 0 && filepath.Clean(req.CWD) == filepath.Clean(path)
+			// A root startup command keeps a command-free initial tab active.
+			// With workspace startup, that initial pane can change cwd too, so
+			// retain the normal configured-tab focus when its path matches.
+			req.Focus = p.Focus && i == 0 && filepath.Clean(req.CWD) == filepath.Clean(path) &&
+				(runsWorkspaceStartup(p.Session) || !rootHasStartup(w))
 			if tab, err = client.TabCreate(ctx, req); err != nil {
 				err = fmt.Errorf("create tab: %w", err)
 			}
