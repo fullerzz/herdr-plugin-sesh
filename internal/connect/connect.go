@@ -47,13 +47,15 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 		}
 		return Result{Session: match}, nil
 	}
-	w, err := client.WorkspaceCreate(ctx, herdr.WorkspaceCreateRequest{CWD: match.Path, Label: match.Name, Focus: !opts.NoFocus})
+	initialTab := startup.PlanInitialTab(match)
+	req := herdr.WorkspaceCreateRequest{CWD: match.Path, Label: match.Name, Focus: !opts.NoFocus, Env: initialTab.Env}
+	w, err := client.WorkspaceCreate(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
 	match.WorkspaceID = w.ID
 	sources.AddPath(ctx, match.Path)
-	if err := startup.Apply(ctx, client, startup.Plan{WorkspaceID: w.ID, Session: match, Focus: !opts.NoFocus}); err != nil {
+	if err := startup.Apply(ctx, client, startup.Plan{WorkspaceID: w.ID, Session: match, Focus: !opts.NoFocus, InitialTab: initialTab}); err != nil {
 		return Result{}, err
 	}
 	return Result{Session: match, Created: true}, nil

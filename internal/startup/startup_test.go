@@ -130,10 +130,10 @@ func TestApplyFindsMissingRootOnlyInCreatedTab(t *testing.T) {
 	for _, matching := range []bool{false, true} {
 		f := &tabWithoutRootClient{FakeClient: herdr.FakeClient{Panes: []herdr.Pane{
 			{ID: "wrong-tab", WorkspaceID: "ws1", TabID: "other-tab"},
-			{ID: "wrong-workspace", WorkspaceID: "other-workspace", TabID: "new-tab"},
+			{ID: "wrong-workspace", WorkspaceID: "other-workspace", TabID: "new-tab-1"},
 		}}}
 		if matching {
-			f.Panes = append(f.Panes, herdr.Pane{ID: "right-root", WorkspaceID: "ws1", TabID: "new-tab"})
+			f.Panes = append(f.Panes, herdr.Pane{ID: "right-root", WorkspaceID: "ws1", TabID: "new-tab-1"})
 		}
 		s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
 			{Name: "root", Path: "/tmp/app", Startup: "nvim"},
@@ -151,4 +151,66 @@ func TestApplyFindsMissingRootOnlyInCreatedTab(t *testing.T) {
 		require.Len(t, f.Splits, 1)
 		assert.Equal(t, "right-root", f.Splits[0].PaneID)
 	}
+}
+
+func TestApplyReusesInitialTabForFirstConfiguredTab(t *testing.T) {
+	f := &herdr.FakeClient{Panes: []herdr.Pane{{ID: "initial-pane", WorkspaceID: "ws1", TabID: "initial-tab"}}}
+	s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{
+		{Name: "dev", Panes: []model.PaneConfig{
+			{Name: "editor", Path: "/tmp/app"},
+			{Name: "shell", SplitFrom: "editor", Split: "right", Path: "/tmp/app", Startup: "nvim"},
+		}},
+		{Name: "git", StartupScript: "lazygit"},
+	}}
+	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s, Focus: true, InitialTab: PlanInitialTab(s)}))
+	assert.Equal(t, []string{"initial-tab:dev"}, f.RenamedTabs)
+	require.Len(t, f.CreatedTabs, 1, "only tabs after the first are created")
+	assert.Equal(t, herdr.TabCreateRequest{WorkspaceID: "ws1", CWD: "/tmp/app", Label: "git"}, f.CreatedTabs[0])
+	require.Len(t, f.Splits, 1)
+	assert.Equal(t, "initial-pane", f.Splits[0].PaneID)
+	assert.Equal(t, []string{"split-1:nvim", "new-pane:lazygit"}, f.PaneRuns)
+	assert.Empty(t, f.FocusedTabs, "the reused tab is already active")
+}
+
+func TestApplyKeepsInitialTabForWorkspaceStartup(t *testing.T) {
+	f := &herdr.FakeClient{Panes: []herdr.Pane{{ID: "initial-pane", WorkspaceID: "ws1", TabID: "initial-tab"}}}
+	s := model.Session{Path: "/tmp/app", StartupCommand: "echo ws", WindowConfigs: []model.WindowConfig{{Name: "dev", StartupScript: "nvim"}}}
+	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s, InitialTab: PlanInitialTab(s)}))
+	assert.Empty(t, f.RenamedTabs)
+	assert.Len(t, f.CreatedTabs, 1)
+	assert.Equal(t, []string{"initial-pane:echo ws", "new-pane:nvim"}, f.PaneRuns)
+}
+
+func TestApplyReportsInitialTabReuseFailure(t *testing.T) {
+	f := &herdr.FakeClient{}
+	s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev"}, {Name: "later"}}}
+	err := Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s, InitialTab: PlanInitialTab(s)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `workspace "app" tab "dev": reuse initial tab: no pane available in workspace "ws1" (the workspace was kept)`)
+	assert.Empty(t, f.CreatedTabs)
+	assert.Empty(t, f.PaneRuns)
+}
+
+func TestPlanInitialTabCouplesReuseAndRootEnvironment(t *testing.T) {
+	root := func(tabPath, panePath string) model.Session {
+		return model.Session{Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", Path: tabPath, Panes: []model.PaneConfig{{Name: "root", Path: panePath, Env: map[string]string{"A": "1"}}}}}}
+	}
+	reuse := InitialTabPolicy{Reuse: true, Env: map[string]string{"A": "1"}}
+	assert.Equal(t, reuse, PlanInitialTab(root("", "")))
+	assert.Equal(t, reuse, PlanInitialTab(root("/tmp/sub", "/tmp/app/")))
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(root("/tmp/sub", "")))
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(root("", "/tmp/app/web")))
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(model.Session{Path: "/tmp/app"}))
+	assert.Equal(t, InitialTabPolicy{Reuse: true}, PlanInitialTab(model.Session{Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev"}}}))
+
+	s := root("", "")
+	s.StartupCommand = "lazygit"
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(s), "workspace startup must not inherit the configured root environment")
+	s.DisableStartupCommand = true
+	assert.Equal(t, reuse, PlanInitialTab(s))
+	s.WindowConfigs[0].Panes[0].Startup = "git status"
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(s), "do not infer whether arbitrary shell commands change cwd")
+	s.WindowConfigs[0].Panes = nil
+	s.WindowConfigs[0].StartupScript = "run-dev"
+	assert.Equal(t, InitialTabPolicy{}, PlanInitialTab(s))
 }

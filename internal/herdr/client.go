@@ -103,8 +103,10 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WorkspaceCreateRequest's Env applies only to the initial tab's root pane.
 type WorkspaceCreateRequest struct {
 	CWD, Label string
+	Env        map[string]string
 	Focus      bool
 }
 type TabCreateRequest struct {
@@ -128,6 +130,7 @@ type Client interface {
 	TabList(context.Context, string) ([]Tab, error)
 	TabCreate(context.Context, TabCreateRequest) (Tab, error)
 	TabFocus(context.Context, string) error
+	TabRename(context.Context, string, string) error
 	PaneList(context.Context, string) ([]Pane, error)
 	PaneCurrent(context.Context) (Pane, error)
 	PaneRun(context.Context, string, string) error
@@ -236,6 +239,7 @@ func (c *CLIClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 }
 func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateRequest) (Workspace, error) {
 	args := []string{"workspace", "create", "--cwd", r.CWD, "--label", r.Label}
+	args = appendEnvArgs(args, r.Env)
 	if !r.Focus {
 		args = append(args, "--no-focus")
 	}
@@ -363,6 +367,10 @@ func (c *CLIClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, err
 }
 func (c *CLIClient) TabFocus(ctx context.Context, id string) error {
 	_, err := c.run(ctx, "tab", "focus", id)
+	return err
+}
+func (c *CLIClient) TabRename(ctx context.Context, id, label string) error {
+	_, err := c.run(ctx, "tab", "rename", id, label)
 	return err
 }
 func (c *CLIClient) PaneList(ctx context.Context, wid string) ([]Pane, error) {

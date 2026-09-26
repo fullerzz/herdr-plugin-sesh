@@ -13,6 +13,7 @@ type FakeClient struct {
 	CreatedTabs       []TabCreateRequest
 	FocusedWorkspaces []string
 	FocusedTabs       []string
+	RenamedTabs       []string
 	PaneRuns          []string
 	Splits            []PaneSplitRequest
 	// SplitErr, when set, fails the split whose index equals SplitErrAt.
@@ -24,8 +25,10 @@ type FakeClient struct {
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
 func (f *FakeClient) WorkspaceCreate(_ context.Context, r WorkspaceCreateRequest) (Workspace, error) {
 	f.CreatedWorkspaces = append(f.CreatedWorkspaces, r)
-	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD}
+	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD, ActiveTabID: "initial-tab"}
 	f.Workspaces = append(f.Workspaces, w)
+	// Like Herdr, every new workspace starts with one tab and root pane.
+	f.Panes = append(f.Panes, Pane{ID: "initial-pane", WorkspaceID: w.ID, TabID: w.ActiveTabID, CWD: r.CWD})
 	return w, nil
 }
 func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
@@ -35,12 +38,35 @@ func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
 func (f *FakeClient) TabList(context.Context, string) ([]Tab, error) { return f.Tabs, nil }
 func (f *FakeClient) TabCreate(_ context.Context, r TabCreateRequest) (Tab, error) {
 	f.CreatedTabs = append(f.CreatedTabs, r)
-	t := Tab{ID: "new-tab", WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
+	t := Tab{ID: fmt.Sprintf("new-tab-%d", len(f.Tabs)+1), WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
 	f.Tabs = append(f.Tabs, t)
+	if r.Focus {
+		f.setActiveTab(t)
+	}
 	return t, nil
 }
 func (f *FakeClient) TabFocus(_ context.Context, id string) error {
 	f.FocusedTabs = append(f.FocusedTabs, id)
+	for _, tab := range f.Tabs {
+		if tab.ID == id {
+			f.setActiveTab(tab)
+			break
+		}
+	}
+	return nil
+}
+
+func (f *FakeClient) setActiveTab(tab Tab) {
+	for i := range f.Workspaces {
+		if f.Workspaces[i].ID == tab.WorkspaceID {
+			f.Workspaces[i].ActiveTabID = tab.ID
+			f.Workspaces[i].ForegroundCWD = tab.CWD
+		}
+	}
+}
+
+func (f *FakeClient) TabRename(_ context.Context, id, label string) error {
+	f.RenamedTabs = append(f.RenamedTabs, id+":"+label)
 	return nil
 }
 func (f *FakeClient) PaneList(context.Context, string) ([]Pane, error) { return f.Panes, nil }
