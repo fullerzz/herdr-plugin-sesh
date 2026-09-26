@@ -1,3 +1,29 @@
+## v0.13.0 (2026-09-26)
+
+### 🚀 Features
+
+- feat: add settings TUI by @fullerzz in [#129](https://github.com/fullerzz/herdr-plugin-sesh/pull/129) ([d7c9803](https://github.com/fullerzz/herdr-plugin-sesh/commit/d7c9803ee4d77e0a2015cfba4e39c58318529522))
+
+- feat: add native pane layouts for new workspaces by @fullerzz in [#130](https://github.com/fullerzz/herdr-plugin-sesh/pull/130) ([0743ce7](https://github.com/fullerzz/herdr-plugin-sesh/commit/0743ce71646c1870b1f4d613c9bb294c29f2223a))
+
+
+
+### 🛬 Dependency Updates
+
+- fix(go-deps): update golang.org/x/perf digest to 22c9c6c by @renovate[bot] in [#122](https://github.com/fullerzz/herdr-plugin-sesh/pull/122) ([3f3079a](https://github.com/fullerzz/herdr-plugin-sesh/commit/3f3079ac60354f932eb60eda8a44441ce11a87f1))
+
+- chore(python-deps): update python dependencies by @renovate[bot] in [#109](https://github.com/fullerzz/herdr-plugin-sesh/pull/109) ([6c3c67e](https://github.com/fullerzz/herdr-plugin-sesh/commit/6c3c67e7449dffa2c381907062ca56a62de60f41))
+
+- chore(deps): update mise tools by @renovate[bot] in [#118](https://github.com/fullerzz/herdr-plugin-sesh/pull/118) ([f62379b](https://github.com/fullerzz/herdr-plugin-sesh/commit/f62379ba8ba72a9793ac45a41da222b78d938261))
+
+
+
+### 📚 Documentation
+
+- docs: document Herdr 0.9.1 workspace history fix by @fullerzz in [#126](https://github.com/fullerzz/herdr-plugin-sesh/pull/126) ([45a8537](https://github.com/fullerzz/herdr-plugin-sesh/commit/45a85375d32521c2288305366a26672800bc3482))
+
+
+
 ## v0.12.0 (2026-09-13)
 
 ### 🚀 Features
@@ -104,7 +130,7 @@
 
 ### 🎡 Continuous Integration
 
-- ci(codspeed): run the benchmark suite with CodSpeed by @codspeed-hq[bot] in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99) ([af57466](https://github.com/fullerzz/herdr-plugin-sesh/commit/af574664396e9ecf0795e0561decdf76a45cff59))
+- ci(codspeed): run the benchmark suite with CodSpeed by @codspeed[bot] in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99) ([af57466](https://github.com/fullerzz/herdr-plugin-sesh/commit/af574664396e9ecf0795e0561decdf76a45cff59))
 
 
 
@@ -113,7 +139,7 @@
 
 * @cneller made their first contribution in [#104](https://github.com/fullerzz/herdr-plugin-sesh/pull/104)
 
-* @codspeed-hq[bot] made their first contribution in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99)
+* @codspeed[bot] made their first contribution in [#99](https://github.com/fullerzz/herdr-plugin-sesh/pull/99)
 
 ## v0.10.0 (2026-08-26)
 
