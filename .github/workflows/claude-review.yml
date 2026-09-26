@@ -1,0 +1,60 @@
+name: Claude Review
+
+# Reviews a PR once when it opens. Later pushes are only reviewed on an
+# "@claude review" comment from fullerzz.
+on:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Review pull request
+    # Fork PRs get no secrets and bot actors are rejected by the action, so
+    # those PRs skip the automatic review; "@claude review" still works on them.
+    if: >-
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.type != 'Bot') ||
+      (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@claude review') &&
+        github.event.comment.user.login == 'fullerzz')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The action deepens this to max(PR commits, 20) when it checks out
+          # the PR branch, so a larger depth here adds nothing.
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run Claude review
+        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1.0.235
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+
+            Review this pull request against the guidelines in AGENTS.md.
+            Focus on correctness bugs, regressions, security issues, and new
+            behavior that lacks a focused test. Skip formatting and style nits
+            that `just fmt-check` and `just lint` already catch.
+
+            Post each specific issue as an inline comment on the relevant line.
+            Put the overall summary in your progress comment.
+          claude_args: |
+            --model opus
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*)"
