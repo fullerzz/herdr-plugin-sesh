@@ -3,10 +3,6 @@ package startup
 import (
 	"context"
 	"errors"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -16,7 +12,7 @@ import (
 )
 
 func TestApplyCreatesTabsAndRunsCommands(t *testing.T) {
-	f := &herdr.FakeClient{}
+	f := &herdr.FakeClient{Panes: []herdr.Pane{{ID: "workspace-root", WorkspaceID: "ws1"}}}
 	s := model.Session{
 		Path: "/tmp/app", StartupCommand: "echo {}",
 		WindowConfigs: []model.WindowConfig{{Name: "git", StartupScript: "git -C {} status"}},
@@ -24,7 +20,7 @@ func TestApplyCreatesTabsAndRunsCommands(t *testing.T) {
 	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s}))
 	require.Len(t, f.CreatedTabs, 1)
 	require.Equal(t, "git", f.CreatedTabs[0].Label)
-	assert.Equal(t, []string{"new-pane:git -C /tmp/app status", "new-pane:echo /tmp/app"}, f.PaneRuns, "tabs without panes keep tab-then-workspace order")
+	assert.Equal(t, []string{"workspace-root:echo /tmp/app", "new-pane:git -C /tmp/app status"}, f.PaneRuns)
 }
 
 func TestApplySkipsDisabledStartup(t *testing.T) {
@@ -44,19 +40,19 @@ func TestApplyFailsClearlyWhenOnlyOffTargetPaneExists(t *testing.T) {
 }
 
 func TestApplyBuildsPaneLayout(t *testing.T) {
-	f := &herdr.FakeClient{}
+	f := &herdr.FakeClient{Panes: []herdr.Pane{{ID: "workspace-root", WorkspaceID: "ws1"}}}
 	s := model.Session{
 		Name: "app", Path: "/tmp/app", StartupCommand: "echo ws",
 		WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
-			{Name: "editor", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim"},
-			{Name: "server", SplitFrom: "editor", Split: "right", Ratio: 0.25, Path: "web dir", Env: map[string]string{"NODE_ENV": "dev"}, Startup: "cd {} && npm run dev; echo \"$NODE_ENV\""},
+			{Name: "editor", Path: "/tmp/app", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim"},
+			{Name: "server", SplitFrom: "editor", Split: "right", Ratio: 0.25, Path: "/tmp/app/web dir", Env: map[string]string{"NODE_ENV": "dev"}, Startup: "cd {} && npm run dev; echo \"$NODE_ENV\""},
 			{Name: "logs", SplitFrom: "server", Split: "down", Path: "/var/log"},
-			{Name: "shell", SplitFrom: "editor", Split: "down"},
+			{Name: "shell", SplitFrom: "editor", Split: "down", Path: "/tmp/app"},
 		}}},
 	}
 	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s, Focus: true}))
 	require.Len(t, f.CreatedTabs, 1)
-	// One pane run keeps "nvim" from receiving the workspace command as input.
+	// Separate panes keep interactive commands from receiving each other's input.
 	assert.Equal(t, herdr.TabCreateRequest{WorkspaceID: "ws1", CWD: "/tmp/app", Label: "dev", Env: map[string]string{"EDITOR": "nvim"}, Focus: true}, f.CreatedTabs[0])
 	assert.Equal(t, []herdr.PaneSplitRequest{
 		{PaneID: "new-pane", Direction: "right", Ratio: 0.75, CWD: "/tmp/app/web dir", Env: map[string]string{"NODE_ENV": "dev"}},
@@ -64,54 +60,47 @@ func TestApplyBuildsPaneLayout(t *testing.T) {
 		{PaneID: "new-pane", Direction: "down", CWD: "/tmp/app"},
 	}, f.Splits)
 	assert.Equal(t, []string{
-		"new-pane:eval 'echo ws'; eval nvim",
+		"workspace-root:echo ws",
+		"new-pane:nvim",
 		"split-1:cd '/tmp/app/web dir' && npm run dev; echo \"$NODE_ENV\"",
 	}, f.PaneRuns)
 }
 
 func TestApplyRootPanePathOverridesTabPath(t *testing.T) {
 	f := &herdr.FakeClient{}
-	s := model.Session{Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", Path: "/tmp/tab", Panes: []model.PaneConfig{{Name: "root", Path: "sub"}}}}}
+	s := model.Session{Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", Path: "/tmp/tab", Panes: []model.PaneConfig{{Name: "root", Path: "/tmp/tab/sub"}}}}}
 	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s}))
 	require.Len(t, f.CreatedTabs, 1)
 	assert.Equal(t, "/tmp/tab/sub", f.CreatedTabs[0].CWD)
 	assert.False(t, f.CreatedTabs[0].Focus)
 }
 
-func TestApplyComposesStartupCommandsPreservingShellSyntaxAndState(t *testing.T) {
-	for name, suffix := range map[string]string{
-		"comment":            "true # workspace setup",
-		"background command": "true &",
-		"trailing semicolon": "true;",
-		"multiline command":  "true\n# workspace setup",
-		"ordinary command":   "true",
-	} {
-		t.Run(name, func(t *testing.T) {
-			cwd := filepath.Join(t.TempDir(), "project dir")
-			require.NoError(t, os.Mkdir(cwd, 0700))
-			cwd, err := filepath.EvalSymlinks(cwd)
-			require.NoError(t, err)
-			f := &herdr.FakeClient{}
-			s := model.Session{
-				Path: cwd, StartupCommand: "cd {} && export LAYOUT_TEST_VALUE=\"it's ready\"; " + suffix,
-				WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
-					{Name: "root", Startup: `printf '%s:%s' "$LAYOUT_TEST_VALUE" "$PWD"`},
-				}}},
-			}
-			require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s}))
-			require.Len(t, f.PaneRuns, 1, "both commands must be sent as one shell input")
-			_, command, found := strings.Cut(f.PaneRuns[0], ":")
-			require.True(t, found)
-			//nolint:gosec // Execute only test-owned startup commands to verify shell syntax and state.
-			out, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", command).CombinedOutput()
-			require.NoError(t, err, "generated command: %s; output: %s", command, out)
-			assert.Equal(t, "it's ready:"+cwd, string(out))
-		})
+func TestApplyRunsStartupCommandsUnwrappedInSeparatePanes(t *testing.T) {
+	for _, kind := range []string{"tab", "layout"} {
+		for _, command := range []string{"lazygit", "true # setup", "true &", "true;", "let value = 42", "$env:VALUE = 'ready'"} {
+			t.Run(command+"/"+kind, func(t *testing.T) {
+				f := &herdr.FakeClient{Panes: []herdr.Pane{
+					{ID: "other", WorkspaceID: "other-workspace"},
+					{ID: "workspace-root", WorkspaceID: "ws1"},
+				}}
+				window := model.WindowConfig{Name: "dev", StartupScript: "nvim"}
+				if kind == "layout" {
+					window.StartupScript = ""
+					window.Panes = []model.PaneConfig{{Name: "root", Path: "/tmp/app", Startup: "nvim"}}
+				}
+				s := model.Session{
+					Path: "/tmp/app", StartupCommand: command,
+					WindowConfigs: []model.WindowConfig{window},
+				}
+				require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s}))
+				assert.Equal(t, []string{"workspace-root:" + command, "new-pane:nvim"}, f.PaneRuns)
+			})
+		}
 	}
 }
 
 func TestApplyStopsAndReportsMidLayoutFailure(t *testing.T) {
-	f := &herdr.FakeClient{SplitErr: errors.New("boom"), SplitErrAt: 1}
+	f := &herdr.FakeClient{SplitErr: errors.New("boom"), SplitErrAt: 1, Panes: []herdr.Pane{{ID: "workspace-root", WorkspaceID: "ws1"}}}
 	s := model.Session{Name: "app", Path: "/tmp/app", StartupCommand: "echo ws", WindowConfigs: []model.WindowConfig{
 		{Name: "dev", Panes: []model.PaneConfig{
 			{Name: "a"},
@@ -126,13 +115,40 @@ func TestApplyStopsAndReportsMidLayoutFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "reconnecting does not retry the layout")
 	assert.Len(t, f.Splits, 1)
 	assert.Len(t, f.CreatedTabs, 1, "later tabs are not created")
-	assert.Equal(t, []string{"new-pane:echo ws"}, f.PaneRuns)
+	assert.Equal(t, []string{"workspace-root:echo ws"}, f.PaneRuns)
 }
 
-func TestPanePathExpandsBareHome(t *testing.T) {
-	home, err := os.UserHomeDir()
-	require.NoError(t, err)
-	assert.Equal(t, home, panePath("/tmp/app", "~/"))
-	assert.Equal(t, filepath.Join(home, "logs"), panePath("/tmp/app", "~/logs"))
-	assert.Equal(t, "/tmp/app/web", panePath("/tmp/app", "./web"))
+type tabWithoutRootClient struct{ herdr.FakeClient }
+
+func (f *tabWithoutRootClient) TabCreate(ctx context.Context, req herdr.TabCreateRequest) (herdr.Tab, error) {
+	tab, err := f.FakeClient.TabCreate(ctx, req)
+	tab.PaneID = ""
+	return tab, err
+}
+
+func TestApplyFindsMissingRootOnlyInCreatedTab(t *testing.T) {
+	for _, matching := range []bool{false, true} {
+		f := &tabWithoutRootClient{FakeClient: herdr.FakeClient{Panes: []herdr.Pane{
+			{ID: "wrong-tab", WorkspaceID: "ws1", TabID: "other-tab"},
+			{ID: "wrong-workspace", WorkspaceID: "other-workspace", TabID: "new-tab"},
+		}}}
+		if matching {
+			f.Panes = append(f.Panes, herdr.Pane{ID: "right-root", WorkspaceID: "ws1", TabID: "new-tab"})
+		}
+		s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+			{Name: "root", Path: "/tmp/app", Startup: "nvim"},
+			{Name: "child", Path: "/tmp/app", SplitFrom: "root", Split: "right"},
+		}}}}
+		err := Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s})
+		if !matching {
+			require.Error(t, err)
+			assert.Empty(t, f.PaneRuns)
+			assert.Empty(t, f.Splits)
+			continue
+		}
+		require.NoError(t, err)
+		assert.Equal(t, []string{"right-root:nvim"}, f.PaneRuns)
+		require.Len(t, f.Splits, 1)
+		assert.Equal(t, "right-root", f.Splits[0].PaneID)
+	}
 }

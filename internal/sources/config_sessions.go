@@ -2,6 +2,8 @@ package sources
 
 import (
 	"context"
+	"path/filepath"
+	"slices"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -17,7 +19,6 @@ func (s ConfigSessions) List(context.Context) (model.Sessions, error) {
 	out := model.NewSessions()
 	win := map[string]model.WindowConfig{}
 	for _, w := range s.Config.WindowConfigs {
-		w.Path = config.ExpandHome(w.Path, s.Home)
 		win[w.Name] = w
 	}
 	for _, c := range s.Config.SessionConfigs {
@@ -25,7 +26,7 @@ func (s ConfigSessions) List(context.Context) (model.Sessions, error) {
 		sess := model.Session{Source: "config", Name: c.Name, Path: config.ExpandHome(c.Path, s.Home), StartupCommand: c.StartupCommand, PreviewCommand: c.PreviewCommand, DisableStartupCommand: disableStartup, DisableStartupSet: c.DisableStartCommand != nil, WindowNames: c.Windows}
 		for _, n := range c.Windows {
 			if w, ok := win[n]; ok {
-				sess.WindowConfigs = append(sess.WindowConfigs, w)
+				sess.WindowConfigs = append(sess.WindowConfigs, resolveWindowPaths(w, sess.Path, s.Home))
 			}
 		}
 		out.Add(sess)
@@ -36,7 +37,6 @@ func (s ConfigSessions) List(context.Context) (model.Sessions, error) {
 func ApplyConfig(sessions *model.Sessions, cfg config.Config, home string) {
 	windows := make(map[string]model.WindowConfig, len(cfg.WindowConfigs))
 	for _, window := range cfg.WindowConfigs {
-		window.Path = config.ExpandHome(window.Path, home)
 		windows[window.Name] = window
 	}
 	for key, session := range sessions.Directory {
@@ -62,10 +62,31 @@ func ApplyConfig(sessions *model.Sessions, cfg config.Config, home string) {
 			session.WindowConfigs = session.WindowConfigs[:0]
 			for _, name := range session.WindowNames {
 				if window, ok := windows[name]; ok {
-					session.WindowConfigs = append(session.WindowConfigs, window)
+					session.WindowConfigs = append(session.WindowConfigs, resolveWindowPaths(window, session.Path, home))
 				}
 			}
 		}
 		sessions.Directory[key] = session
 	}
+}
+
+// Resolve a copy for each session: named tabs can be shared by several workspaces.
+func resolveWindowPaths(window model.WindowConfig, workspacePath, home string) model.WindowConfig {
+	window.Path = resolveConfigPath(workspacePath, window.Path, home)
+	window.Panes = slices.Clone(window.Panes)
+	for i := range window.Panes {
+		window.Panes[i].Path = resolveConfigPath(window.Path, window.Panes[i].Path, home)
+	}
+	return window
+}
+
+func resolveConfigPath(parent, path, home string) string {
+	path = config.ExpandHome(path, home)
+	if path == "" {
+		return parent
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(parent, path)
 }
