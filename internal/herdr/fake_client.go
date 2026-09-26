@@ -3,6 +3,7 @@ package herdr
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type FakeClient struct {
@@ -20,6 +21,9 @@ type FakeClient struct {
 	SplitErr      error
 	SplitErrAt    int
 	OpenedPlugins []string
+	// Waits records "pane:match"; WaitErr fails every wait.
+	Waits   []string
+	WaitErr error
 }
 
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
@@ -86,6 +90,13 @@ func (f *FakeClient) PaneSplit(_ context.Context, r PaneSplitRequest) (Pane, err
 	}
 	f.Splits = append(f.Splits, r)
 	return Pane{ID: fmt.Sprintf("split-%d", len(f.Splits))}, nil
+}
+func (f *FakeClient) PaneWaitOutput(ctx context.Context, id, match string, _ time.Duration) error {
+	f.Waits = append(f.Waits, id+":"+match)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.WaitErr
 }
 func (f *FakeClient) PluginPaneOpen(_ context.Context, p, e, pl string) error {
 	f.OpenedPlugins = append(f.OpenedPlugins, p+":"+e+":"+pl)

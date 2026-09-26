@@ -11,6 +11,7 @@ import (
 
 	"syscall"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -246,6 +247,13 @@ func TestNativeFailures(t *testing.T) {
 		"bad env key":            {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nenv = { \"BAD-KEY\" = \"x\" }\n", "tab.pane.env"},
 		"tab startup with panes": {"version = 1\n[[tab]]\nname = \"t\"\nstartup = \"x\"\n[[tab.pane]]\nname = \"a\"\n", "tab.startup"},
 		"unknown pane field":     {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\ncwd = \"/x\"\n", "cwd"},
+		"wait without startup":   {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nwait_for = { match = \"ready\" }\n", "tab.pane.wait_for: pane \"a\" in tab \"t\" must set startup"},
+		"wait empty match":       {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { timeout_ms = 10 }\n", "tab.pane.wait_for.match: must not be empty"},
+		"wait multiline match":   {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { match = \"a\\nb\" }\n", "must be a single line"},
+		"wait match in startup":  {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"echo ready\"\nwait_for = { match = \"ready\" }\n", "must not appear in its startup command"},
+		"wait zero timeout":      {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { match = \"r\", timeout_ms = 0 }\n", "tab.pane.wait_for.timeout_ms"},
+		"wait timeout too long":  {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { match = \"r\", timeout_ms = 600001 }\n", "tab.pane.wait_for.timeout_ms"},
+		"wait unknown field":     {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { regex = \"r\" }\n", "regex"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -551,6 +559,7 @@ path = "~/code"
 name = "editor"
 env = { EDITOR = "nvim" }
 startup = "nvim"
+wait_for = { match = "ready" }
 
 [[tab.pane]]
 name = "server"
@@ -560,6 +569,7 @@ ratio = 0.35
 path = "./web"
 env = { NODE_ENV = "development" }
 startup = "npm run dev"
+wait_for = { match = "Local: http://localhost:3000", timeout_ms = 15000 }
 
 [[tab.pane]]
 name = "logs"
@@ -569,8 +579,8 @@ split = "down"
 	require.NoError(t, err)
 	require.Len(t, cfg.WindowConfigs, 1)
 	assert.Equal(t, []model.PaneConfig{
-		{Name: "editor", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim"},
-		{Name: "server", SplitFrom: "editor", Split: "right", Ratio: 0.35, Path: "./web", Env: map[string]string{"NODE_ENV": "development"}, Startup: "npm run dev"},
+		{Name: "editor", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim", WaitFor: &model.PaneWait{Match: "ready", Timeout: 30 * time.Second}},
+		{Name: "server", SplitFrom: "editor", Split: "right", Ratio: 0.35, Path: "./web", Env: map[string]string{"NODE_ENV": "development"}, Startup: "npm run dev", WaitFor: &model.PaneWait{Match: "Local: http://localhost:3000", Timeout: 15 * time.Second}},
 		{Name: "logs", SplitFrom: "editor", Split: "down"},
 	}, cfg.WindowConfigs[0].Panes)
 }

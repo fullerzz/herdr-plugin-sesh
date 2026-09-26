@@ -180,7 +180,8 @@ func findPane(ctx context.Context, client herdr.Client, workspaceID, tabID strin
 }
 
 // applyPanes reuses rootPane for the first pane, then splits earlier panes in
-// declaration order. Config validation guarantees every split_from is earlier.
+// declaration order. Config validation guarantees every split_from is earlier
+// and that every pane with WaitFor has a startup command.
 func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes []model.PaneConfig) error {
 	ids := make(map[string]string, len(panes))
 	for i, pane := range panes {
@@ -202,6 +203,13 @@ func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes
 		if cmd != "" {
 			if err := client.PaneRun(ctx, id, cmd); err != nil {
 				return fmt.Errorf("pane %q: run startup: %w", pane.Name, err)
+			}
+		}
+		// Herdr searches output printed before the wait starts, so an early
+		// match is not missed.
+		if w := pane.WaitFor; w != nil {
+			if err := client.PaneWaitOutput(ctx, id, w.Match, w.Timeout); err != nil {
+				return fmt.Errorf("pane %q: wait_for %q within %s: %w", pane.Name, w.Match, w.Timeout, err)
 			}
 		}
 	}

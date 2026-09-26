@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 type WorktreeRelation struct {
@@ -48,6 +49,14 @@ type PaneConfig struct {
 	Path      string            `json:"path,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Startup   string            `json:"startup,omitempty"`
+	// WaitFor, when set, holds later layout operations until Startup prints Match.
+	WaitFor *PaneWait `json:"wait_for,omitempty"`
+}
+
+// PaneWait is a one-time startup barrier, not a health check.
+type PaneWait struct {
+	Match   string        `json:"match"`
+	Timeout time.Duration `json:"timeout"`
 }
 
 type Sessions struct {

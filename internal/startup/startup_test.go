@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -116,6 +117,51 @@ func TestApplyStopsAndReportsMidLayoutFailure(t *testing.T) {
 	assert.Len(t, f.Splits, 1)
 	assert.Len(t, f.CreatedTabs, 1, "later tabs are not created")
 	assert.Equal(t, []string{"workspace-root:echo ws"}, f.PaneRuns)
+}
+
+func waitLayout() model.Session {
+	return model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{
+		{Name: "dev", Panes: []model.PaneConfig{
+			{Name: "server", Startup: "npm run dev", WaitFor: &model.PaneWait{Match: "Local:", Timeout: time.Second}},
+			{Name: "tests", SplitFrom: "server", Split: "right", Startup: "npm test"},
+		}},
+		{Name: "later", StartupScript: "lazygit"},
+	}}
+}
+
+func TestApplyWaitsForReadinessBeforeLaterPanes(t *testing.T) {
+	f := &herdr.FakeClient{}
+	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: waitLayout()}))
+	assert.Equal(t, []string{"new-pane:Local:"}, f.Waits)
+	assert.Len(t, f.Splits, 1)
+	assert.Equal(t, []string{"new-pane:npm run dev", "split-1:npm test", "new-pane:lazygit"}, f.PaneRuns)
+}
+
+func TestApplyStopsLayoutWhenReadinessFails(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, tc := range map[string]struct {
+		ctx     context.Context
+		waitErr error
+		want    error
+	}{
+		"timeout":   {context.Background(), errors.New("timed out"), nil},
+		"cancelled": {canceled, nil, context.Canceled},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &herdr.FakeClient{WaitErr: tc.waitErr}
+			err := Apply(tc.ctx, f, Plan{WorkspaceID: "ws1", Session: waitLayout()})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `workspace "app" tab "dev": pane "server": wait_for "Local:" within 1s`)
+			assert.Contains(t, err.Error(), "reconnecting does not retry the layout")
+			if tc.want != nil {
+				require.ErrorIs(t, err, tc.want)
+			}
+			assert.Empty(t, f.Splits, "later panes are not created")
+			assert.Len(t, f.CreatedTabs, 1, "later tabs are not created")
+			assert.Equal(t, []string{"new-pane:npm run dev"}, f.PaneRuns, "later startup commands do not run")
+		})
+	}
 }
 
 type tabWithoutRootClient struct{ herdr.FakeClient }

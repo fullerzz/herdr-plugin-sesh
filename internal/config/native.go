@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -87,12 +88,25 @@ type nativePane struct {
 	Path    string            `toml:"path,omitempty"`
 	Env     map[string]string `toml:"env,omitempty"`
 	Startup string            `toml:"startup,omitempty"`
+	WaitFor *nativeWait       `toml:"wait_for,omitempty"`
+}
+
+type nativeWait struct {
+	Match string `toml:"match"`
+	// Pointer distinguishes an absent timeout (the default) from an explicit zero.
+	TimeoutMS *int64 `toml:"timeout_ms,omitempty"`
 }
 
 // Herdr clamps split ratios to this range; reject values it would silently change.
 const (
 	minPaneRatio = 0.1
 	maxPaneRatio = 0.9
+)
+
+// Readiness waits are bounded so a missed match cannot stall layout creation forever.
+const (
+	defaultWaitTimeoutMS = 30_000
+	maxWaitTimeoutMS     = 600_000
 )
 
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -268,6 +282,9 @@ func (t nativeTab) validatePanes(fail func(key, format string, args ...any) erro
 				return fail("tab.pane.ratio", "pane %q in tab %q must be between %g and %g, got %g", p.Name, t.Name, minPaneRatio, maxPaneRatio, *p.Ratio)
 			}
 		}
+		if err := p.validateWait(t.Name, fail); err != nil {
+			return err
+		}
 		for key, value := range p.Env {
 			if !envKeyPattern.MatchString(key) {
 				return fail("tab.pane.env", "pane %q in tab %q has invalid variable name %q", p.Name, t.Name, key)
@@ -277,6 +294,31 @@ func (t nativeTab) validatePanes(fail func(key, format string, args ...any) erro
 			}
 		}
 		seen[p.Name] = true
+	}
+	return nil
+}
+
+func (p nativePane) validateWait(tab string, fail func(key, format string, args ...any) error) error {
+	w := p.WaitFor
+	if w == nil {
+		return nil
+	}
+	if p.Startup == "" {
+		return fail("tab.pane.wait_for", "pane %q in tab %q must set startup to wait for its output", p.Name, tab)
+	}
+	if w.Match == "" {
+		return fail("tab.pane.wait_for.match", "must not be empty for pane %q in tab %q", p.Name, tab)
+	}
+	// Herdr matches one line at a time, so a multi-line match could never succeed.
+	if strings.ContainsAny(w.Match, "\r\n") {
+		return fail("tab.pane.wait_for.match", "pane %q in tab %q must be a single line", p.Name, tab)
+	}
+	// The shell echoes the typed command, which would satisfy the wait at once.
+	if strings.Contains(p.Startup, w.Match) {
+		return fail("tab.pane.wait_for.match", "pane %q in tab %q must not appear in its startup command, which the pane echoes", p.Name, tab)
+	}
+	if w.TimeoutMS != nil && (*w.TimeoutMS < 1 || *w.TimeoutMS > maxWaitTimeoutMS) {
+		return fail("tab.pane.wait_for.timeout_ms", "pane %q in tab %q must be between 1 and %d, got %d", p.Name, tab, maxWaitTimeoutMS, *w.TimeoutMS)
 	}
 	return nil
 }
@@ -336,6 +378,13 @@ func (n nativeConfig) apply(cfg *Config) {
 			pane := model.PaneConfig{Name: p.Name, SplitFrom: p.SplitFrom, Split: p.Split, Path: p.Path, Env: p.Env, Startup: p.Startup}
 			if p.Ratio != nil {
 				pane.Ratio = *p.Ratio
+			}
+			if p.WaitFor != nil {
+				timeout := int64(defaultWaitTimeoutMS)
+				if p.WaitFor.TimeoutMS != nil {
+					timeout = *p.WaitFor.TimeoutMS
+				}
+				pane.WaitFor = &model.PaneWait{Match: p.WaitFor.Match, Timeout: time.Duration(timeout) * time.Millisecond}
 			}
 			w.Panes = append(w.Panes, pane)
 		}
