@@ -13,6 +13,7 @@ type FakeClient struct {
 	CreatedTabs       []TabCreateRequest
 	FocusedWorkspaces []string
 	FocusedTabs       []string
+	RenamedTabs       []string
 	PaneRuns          []string
 	Splits            []PaneSplitRequest
 	// SplitErr, when set, fails the split whose index equals SplitErrAt.
@@ -24,8 +25,10 @@ type FakeClient struct {
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
 func (f *FakeClient) WorkspaceCreate(_ context.Context, r WorkspaceCreateRequest) (Workspace, error) {
 	f.CreatedWorkspaces = append(f.CreatedWorkspaces, r)
-	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD}
+	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD, ActiveTabID: "initial-tab"}
 	f.Workspaces = append(f.Workspaces, w)
+	// Like Herdr, every new workspace starts with one tab and root pane.
+	f.Panes = append(f.Panes, Pane{ID: "initial-pane", WorkspaceID: w.ID, TabID: w.ActiveTabID, CWD: r.CWD})
 	return w, nil
 }
 func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
@@ -41,6 +44,10 @@ func (f *FakeClient) TabCreate(_ context.Context, r TabCreateRequest) (Tab, erro
 }
 func (f *FakeClient) TabFocus(_ context.Context, id string) error {
 	f.FocusedTabs = append(f.FocusedTabs, id)
+	return nil
+}
+func (f *FakeClient) TabRename(_ context.Context, id, label string) error {
+	f.RenamedTabs = append(f.RenamedTabs, id+":"+label)
 	return nil
 }
 func (f *FakeClient) PaneList(context.Context, string) ([]Pane, error) { return f.Panes, nil }

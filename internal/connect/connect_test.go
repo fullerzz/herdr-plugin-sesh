@@ -85,20 +85,66 @@ func TestConnectExistingWorkspaceSkipsPaneLayout(t *testing.T) {
 	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{})
 	require.NoError(t, err)
 	assert.Empty(t, f.CreatedTabs)
+	assert.Empty(t, f.RenamedTabs)
 	assert.Empty(t, f.Splits)
 	assert.Empty(t, f.PaneRuns)
 }
 
-func TestConnectNoFocusDoesNotFocusLayoutTab(t *testing.T) {
+func TestConnectReusesInitialTabWithoutMovingFocus(t *testing.T) {
+	for _, noFocus := range []bool{true, false} {
+		f := &herdr.FakeClient{}
+		session := model.Session{Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{
+			{Name: "dev", Panes: []model.PaneConfig{
+				{Name: "a", Path: "/tmp/api", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim"},
+				{Name: "b", SplitFrom: "a", Split: "right", Path: "/tmp/api/web"},
+			}},
+			{Name: "git"},
+		}}
+		_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: noFocus})
+		require.NoError(t, err)
+		require.Len(t, f.CreatedWorkspaces, 1)
+		assert.Equal(t, herdr.WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api", Env: map[string]string{"EDITOR": "nvim"}, Focus: !noFocus}, f.CreatedWorkspaces[0])
+		assert.Equal(t, []string{"initial-tab:dev"}, f.RenamedTabs)
+		require.Len(t, f.CreatedTabs, 1, "exactly the configured tabs exist")
+		assert.False(t, f.CreatedTabs[0].Focus)
+		assert.Empty(t, f.FocusedTabs)
+		require.Len(t, f.Splits, 1)
+		assert.Equal(t, "initial-pane", f.Splits[0].PaneID)
+		assert.Equal(t, []string{"initial-pane:nvim"}, f.PaneRuns)
+	}
+}
+
+func TestConnectKeepsInitialTabWhenRootPaneLeavesWorkspacePath(t *testing.T) {
 	f := &herdr.FakeClient{}
-	session := model.Session{Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
-		{Name: "a"},
-		{Name: "b", SplitFrom: "a", Split: "right"},
+	session := model.Session{Source: "config", Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+		{Name: "a", Path: "/tmp/api/web", Env: map[string]string{"EDITOR": "nvim"}},
 	}}}}
 	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: true})
 	require.NoError(t, err)
+	require.Len(t, f.CreatedWorkspaces, 1)
+	assert.Equal(t, herdr.WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api"}, f.CreatedWorkspaces[0])
+	assert.Empty(t, f.RenamedTabs)
 	require.Len(t, f.CreatedTabs, 1)
-	assert.False(t, f.CreatedTabs[0].Focus)
-	assert.Empty(t, f.FocusedTabs)
-	assert.Len(t, f.Splits, 1)
+	assert.Equal(t, "/tmp/api/web", f.CreatedTabs[0].CWD)
+	// The workspace keeps reporting its configured path, so path lookup reconnects.
+	live, err := sources.HerdrWorkspaces{Client: f}.List(context.Background())
+	require.NoError(t, err)
+	_, err = Connect(context.Background(), f, live.Ordered(), "/tmp/api", Options{NoFocus: true})
+	require.NoError(t, err)
+	assert.Len(t, f.CreatedWorkspaces, 1)
+}
+
+func TestConnectWorkspaceStartupKeepsSeparateInitialTab(t *testing.T) {
+	f := &herdr.FakeClient{}
+	session := model.Session{Name: "api", Path: "/tmp/api", StartupCommand: "echo ready", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
+		{Name: "a", Path: "/tmp/api/web", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim"},
+	}}}}
+	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: true})
+	require.NoError(t, err)
+	require.Len(t, f.CreatedWorkspaces, 1)
+	assert.Equal(t, herdr.WorkspaceCreateRequest{CWD: "/tmp/api", Label: "api"}, f.CreatedWorkspaces[0])
+	assert.Empty(t, f.RenamedTabs)
+	require.Len(t, f.CreatedTabs, 1)
+	assert.Equal(t, herdr.TabCreateRequest{WorkspaceID: "new-workspace", CWD: "/tmp/api/web", Label: "dev", Env: map[string]string{"EDITOR": "nvim"}}, f.CreatedTabs[0])
+	assert.Equal(t, []string{"initial-pane:echo ready", "new-pane:nvim"}, f.PaneRuns)
 }

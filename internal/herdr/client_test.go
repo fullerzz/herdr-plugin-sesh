@@ -225,3 +225,15 @@ func TestCLIClientRedactsEnvValuesInErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "s3cret")
 }
+
+func TestCLIClientWorkspaceCreatePassesEnvAndTabRename(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/tmp", Label: "api", Env: map[string]string{"EDITOR": "nvim"}})
+	require.NoError(t, err)
+	require.NoError(t, c.TabRename(context.Background(), "w1:t1", "dev"))
+	assert.Equal(t, [][]string{
+		{"/bin/herdr", "workspace", "create", "--cwd", "/tmp", "--label", "api", "--env", "EDITOR=nvim", "--no-focus"},
+		{"/bin/herdr", "tab", "rename", "w1:t1", "dev"},
+	}, rr.calls)
+}

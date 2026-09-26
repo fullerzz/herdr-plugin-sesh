@@ -545,11 +545,26 @@ Startup commands are selected in this order: the explicit workspace command,
 the first matching rule command, then `workspace_defaults.startup`. Preview
 commands use the same explicit workspace, rule, then default order.
 
-Workspace startup runs in Herdr's initial workspace pane before configured tabs
-are created. Tab and pane startup commands run in their own terminals, so an
-interactive workspace command such as `lazygit` does not receive a tab's `nvim`
-command as input. Workspace exports and directory changes do not carry into
-configured tabs; use their `path` and pane `env` settings instead.
+Herdr creates every workspace with one initial tab. When a new workspace has
+configured tabs and no workspace startup command, and the first tab's root pane
+starts in the workspace path, the first configured tab reuses that initial tab:
+it receives the tab's label and the first pane's `env`, so the workspace has
+exactly its configured tabs. Plain workspaces without tabs keep Herdr's initial
+tab as is.
+
+If the first tab's `path` or first pane's `path` points elsewhere, the initial
+tab is kept at the workspace path and every configured tab is created after it.
+Herdr reports the active pane's directory as the workspace path, so this keeps
+`connect <path>` finding the open workspace.
+
+A workspace startup command, including a rule or `workspace_defaults.startup`
+fallback, keeps the initial tab for itself: it runs in Herdr's initial
+workspace pane, and every configured tab is created after it. Tab and pane
+startup commands run in their own terminals, so an interactive workspace
+command such as `lazygit` does not receive a tab's `nvim` command as input. Set
+`disable_startup = true` on a workspace to drop an inherited startup command and
+reuse the initial tab. Workspace exports and directory changes do not carry
+into configured tabs; use their `path` and pane `env` settings instead.
 
 ### `[[tab]]`
 
@@ -645,7 +660,7 @@ logs 30% of that right-hand column's height.
 
 ```text
 my-project workspace
-Tabs: [Herdr initial tab] [development (selected)]
+Tabs: [development (selected)]
 
 development tab — approximate proportions
 ┌──────────────────────────────────────┬────────────────────┐
@@ -686,9 +701,10 @@ adding `path = "frontend"` to `[[tab]]` would make the server's `./web` resolve
 to `~/projects/my-project/frontend/web`. `~/` expands to the home directory;
 absolute paths are used directly.
 
-Herdr's initial tab remains alongside `development`, even when no workspace
-startup command is configured. If you set workspace `startup = "lazygit"`,
-it runs in that initial tab, independently of these three panes.
+`development` reuses Herdr's initial tab, so it is the workspace's only tab. If
+you set workspace `startup = "lazygit"` (or a rule or default startup applies),
+Herdr's initial tab is kept to run it, and `development` is created as a
+second tab, independently of that command.
 
 #### Pane fields
 
@@ -712,13 +728,13 @@ copy the source pane's `path` or `env`. Set those on each pane that needs them.
 The first pane is the tab's root pane and cannot set `split_from`, `split`, or
 `ratio`; its `path` and `env` are applied when the tab is created. Later panes
 are created in declaration order, each split without taking focus, so the root
-pane stays focused. Herdr also creates the workspace's own initial tab; pane
-layouts apply only to configured tabs.
+pane stays focused. When the first configured tab reuses Herdr's initial tab,
+its root pane's `env` is applied when the workspace is created.
 
 #### Startup commands and focus
 
-Workspace startup runs in the initial workspace pane for both plain tabs and
-pane layouts. Each command is sent separately without an `eval` wrapper or shell
+Workspace startup runs in the initial workspace pane, which then stays a
+separate tab, for both plain tabs and pane layouts. Each command is sent separately without an `eval` wrapper or shell
 composition. Layout creation does not wait for the workspace command to finish;
 it is not a dependency or readiness check. Commands must use the pane shell's
 syntax. The existing `{}` path substitution uses POSIX shell quoting; commands
@@ -730,7 +746,9 @@ commands or layout creation; remove a pane's `startup` to leave it at a shell.
 
 With `connect --no-focus`, the workspace is created in the background and
 opens on Herdr's initial tab: Herdr cannot select a tab without also focusing
-its workspace.
+its workspace. When the first configured tab reuses the initial tab (no
+workspace startup command, and its root pane starts in the workspace
+directory), the workspace opens on that tab.
 
 #### Reconnecting and recovering a partial layout
 

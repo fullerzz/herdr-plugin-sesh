@@ -3,6 +3,7 @@ package startup
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -16,6 +17,48 @@ type Plan struct {
 	// Focus lets the first configured tab take focus; background creation
 	// leaves it false so Herdr focus stays where it was.
 	Focus bool
+	// ReuseInitialTab turns Herdr's initial tab into the first configured tab.
+	// The caller must have created the workspace with InitialPaneEnv, and it
+	// only takes effect when ReuseInitialTab(Session) holds.
+	ReuseInitialTab bool
+}
+
+// ReuseInitialTab reports whether the first configured tab can take over the
+// initial tab. A workspace startup command keeps the initial tab to itself so
+// it never shares a terminal with a tab or pane startup command. The root pane
+// must also start in the workspace path: Herdr reports the active pane's
+// directory as the workspace path, which path lookups rely on.
+func ReuseInitialTab(s model.Session) bool {
+	if len(s.WindowConfigs) == 0 || runsWorkspaceStartup(s) {
+		return false
+	}
+	cwd, _ := rootPane(s.WindowConfigs[0], s.Path)
+	return filepath.Clean(cwd) == filepath.Clean(s.Path)
+}
+
+// InitialPaneEnv returns the first configured tab's root pane env, which Herdr
+// can only set when creating the workspace.
+func InitialPaneEnv(s model.Session) map[string]string {
+	_, env := rootPane(s.WindowConfigs[0], s.Path)
+	return env
+}
+
+func rootPane(w model.WindowConfig, path string) (string, map[string]string) {
+	cwd, env := path, map[string]string(nil)
+	if w.Path != "" {
+		cwd = w.Path
+	}
+	if len(w.Panes) > 0 {
+		env = w.Panes[0].Env
+		if w.Panes[0].Path != "" {
+			cwd = w.Panes[0].Path
+		}
+	}
+	return cwd, env
+}
+
+func runsWorkspaceStartup(s model.Session) bool {
+	return !s.DisableStartupCommand && s.StartupCommand != ""
 }
 
 func Apply(ctx context.Context, client herdr.Client, p Plan) error {
@@ -28,32 +71,40 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 	}
 	// Run workspace startup before creating tabs, in the initial workspace pane.
 	// Interactive workspace and tab commands must never share a terminal input.
-	if !p.Session.DisableStartupCommand && p.Session.StartupCommand != "" {
-		paneID, err := findPane(ctx, client, p.WorkspaceID, "")
+	if runsWorkspaceStartup(p.Session) {
+		pane, err := findPane(ctx, client, p.WorkspaceID, "")
 		if err != nil {
 			return err
 		}
-		if err := client.PaneRun(ctx, paneID, config.SubstitutePath(p.Session.StartupCommand, path)); err != nil {
+		if err := client.PaneRun(ctx, pane.ID, config.SubstitutePath(p.Session.StartupCommand, path)); err != nil {
 			return fmt.Errorf("workspace %q: run startup: %w", p.Session.Name, err)
 		}
 	}
+	reuse := p.ReuseInitialTab && ReuseInitialTab(p.Session)
 	for i, w := range p.Session.WindowConfigs {
 		cwd := path
 		if w.Path != "" {
 			cwd = w.Path
 		}
-		// Herdr's tab focus also focuses the workspace, and it has no way to
-		// set a background workspace's active tab, so --no-focus leaves the
-		// workspace on its initial tab.
-		req := herdr.TabCreateRequest{WorkspaceID: p.WorkspaceID, CWD: cwd, Label: w.Name, Focus: p.Focus && i == 0}
-		if len(w.Panes) > 0 {
+		var tab herdr.Tab
+		var err error
+		if i == 0 && reuse {
+			// The initial tab is already active, including in a background
+			// workspace, so it needs no focus call.
+			tab, err = claimInitialTab(ctx, client, p.WorkspaceID, w.Name)
+		} else {
+			// Herdr's tab focus also focuses the workspace, and it has no way to
+			// set a background workspace's active tab, so --no-focus leaves the
+			// workspace on its initial tab.
+			req := herdr.TabCreateRequest{WorkspaceID: p.WorkspaceID, Label: w.Name, Focus: p.Focus && i == 0}
 			// Herdr can only set a root pane's cwd and env when creating its tab.
-			req.CWD = w.Panes[0].Path
-			req.Env = w.Panes[0].Env
+			req.CWD, req.Env = rootPane(w, path)
+			if tab, err = client.TabCreate(ctx, req); err != nil {
+				err = fmt.Errorf("create tab: %w", err)
+			}
 		}
-		tab, err := client.TabCreate(ctx, req)
 		if err != nil {
-			return fmt.Errorf("workspace %q tab %q: create tab: %w (the workspace was kept)", p.Session.Name, w.Name, err)
+			return fmt.Errorf("workspace %q tab %q: %w (the workspace was kept)", p.Session.Name, w.Name, err)
 		}
 		if len(w.Panes) == 0 && w.StartupScript == "" {
 			continue
@@ -62,10 +113,11 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 			if tab.ID == "" {
 				return fmt.Errorf("workspace %q tab %q: Herdr returned neither tab nor root pane ID", p.Session.Name, w.Name)
 			}
-			tab.PaneID, err = findPane(ctx, client, p.WorkspaceID, tab.ID)
+			root, err := findPane(ctx, client, p.WorkspaceID, tab.ID)
 			if err != nil {
 				return fmt.Errorf("workspace %q tab %q: find root pane: %w", p.Session.Name, w.Name, err)
 			}
+			tab.PaneID = root.ID
 		}
 		if len(w.Panes) > 0 {
 			if err := applyPanes(ctx, client, tab.PaneID, w.Panes); err != nil {
@@ -82,21 +134,37 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 	return nil
 }
 
+// claimInitialTab labels the new workspace's only tab so it becomes the first
+// configured tab.
+func claimInitialTab(ctx context.Context, client herdr.Client, workspaceID, label string) (herdr.Tab, error) {
+	pane, err := findPane(ctx, client, workspaceID, "")
+	if err != nil {
+		return herdr.Tab{}, fmt.Errorf("reuse initial tab: %w", err)
+	}
+	if pane.TabID == "" {
+		return herdr.Tab{}, fmt.Errorf("reuse initial tab: Herdr returned no tab ID for pane %q", pane.ID)
+	}
+	if err := client.TabRename(ctx, pane.TabID, label); err != nil {
+		return herdr.Tab{}, fmt.Errorf("reuse initial tab: %w", err)
+	}
+	return herdr.Tab{ID: pane.TabID, WorkspaceID: workspaceID, Label: label, PaneID: pane.ID}, nil
+}
+
 // An empty tabID is used only before configured tabs are created.
-func findPane(ctx context.Context, client herdr.Client, workspaceID, tabID string) (string, error) {
+func findPane(ctx context.Context, client herdr.Client, workspaceID, tabID string) (herdr.Pane, error) {
 	panes, err := client.PaneList(ctx, workspaceID)
 	if err != nil {
-		return "", err
+		return herdr.Pane{}, err
 	}
 	for _, pane := range panes {
 		if pane.ID != "" && pane.WorkspaceID == workspaceID && (tabID == "" || pane.TabID == tabID) {
-			return pane.ID, nil
+			return pane, nil
 		}
 	}
 	if tabID != "" {
-		return "", fmt.Errorf("no pane available in workspace %q tab %q", workspaceID, tabID)
+		return herdr.Pane{}, fmt.Errorf("no pane available in workspace %q tab %q", workspaceID, tabID)
 	}
-	return "", fmt.Errorf("no pane available in workspace %q", workspaceID)
+	return herdr.Pane{}, fmt.Errorf("no pane available in workspace %q", workspaceID)
 }
 
 // applyPanes reuses rootPane for the first pane, then splits earlier panes in
