@@ -9,7 +9,7 @@ edit_uri = "edit/main/docs/"
 copyright = "Copyright &copy; 2026 Zach Fuller"
 
 nav = [
-  { "Overview" = "index.md" },
+  { "Get started" = "index.md" },
   { "Configuration" = "config.md" },
   { "Commands" = "commands.md" },
   { "Keybindings" = "keybindings.md" },

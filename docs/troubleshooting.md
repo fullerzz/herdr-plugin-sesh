@@ -99,7 +99,10 @@ History is scoped to the Herdr session and automatically removes closed
 workspaces. Use the installed `fullerzz.sesh.last` action to retain Herdr's
 plugin environment. Check logs if lifecycle tracking stops; a subsequent
 lifecycle hook can restart the watcher. Hiding the footer does not disable
-history. See [history behavior](config.md#workspace-history) and the
+history. If sidebar switches are missing from history on Herdr 0.9.0, upgrade
+the running Herdr server to 0.9.1 or newer; that release restores the focus
+events the plugin needs. Rebuilding the plugin alone cannot restore those
+events. See [history behavior](config.md#workspace-history) and the
 [reconnect limitations](development/workspace-history.md#failure-model).
 
 ## Report a reproducible problem

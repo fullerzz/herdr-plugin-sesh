@@ -1,3 +1,7 @@
+---
+icon: lucide/keyboard
+---
+
 # Keybindings
 
 ## Native picker controls

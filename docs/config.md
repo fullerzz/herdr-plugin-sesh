@@ -1,3 +1,7 @@
+---
+icon: lucide/settings
+---
+
 # Configuration
 
 `herdr-sesh` reads a versioned native TOML config. Every native file starts
@@ -116,54 +120,51 @@ message and safe exit controls. See [Settings controls](keybindings.md#settings-
 
 ## Create your configuration
 
-=== "Installed plugin"
+For a fresh installation, ask Herdr where this plugin keeps its configuration:
 
-    Run these commands in a shell with Herdr available. `jq` is used to read
-    the installed plugin path from Herdr's JSON output.
+```bash
+herdr plugin config-dir fullerzz.sesh
+```
 
-    ```bash
-    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    "$sesh_root/bin/herdr-sesh" config init
-    "$sesh_root/bin/herdr-sesh" config path
-    ```
+Use your editor to create `config.toml` in the printed directory. Herdr creates
+the plugin directory during installation; you do not need `jq` or the plugin
+binary to write your first config. If you already have a herdr-sesh or Sesh
+config, check the [lookup order](#configuration-file-lookup) and
+[legacy migration](#legacy-migration) before creating a file that could take
+precedence over it.
 
-=== "Local checkout"
-
-    From the repository root:
-
-    ```bash
-    just install-plugin
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    ./bin/herdr-sesh config init
-    ./bin/herdr-sesh config path
-    ```
-
-Herdr creates `HERDR_PLUGIN_CONFIG_DIR` and `HERDR_PLUGIN_STATE_DIR` for the
-plugin. Keep user configuration in the config directory and runtime state in
-the state directory.
+Herdr keeps runtime state in a separate `HERDR_PLUGIN_STATE_DIR` directory.
 
 ### Add a workspace with a tab
 
-Open the file printed by `config path`. Keep its `version = 1` line, then add
-the following entries, replacing the path with an existing Git checkout:
-
-If the existing file uses the legacy schema, [migrate it](#legacy-migration)
-before adding native entries. Use unique workspace and tab names if the file
-already defines them.
+Put this complete example in `config.toml`, replacing the path with an existing
+Git checkout:
 
 ```toml
+version = 1
+
 [[tab]]
 name = "git"
 startup = "git status"
 
 [[workspace]]
 name = "my-project"
-path = "~/projects/my-project"
+path = "/absolute/path/to/my-project"
 tabs = ["git"]
 ```
 
-Validate the file:
+If a native config already exists, add just the `[[tab]]` and `[[workspace]]`
+entries, using unique names; keep its single `version = 1` line. Migrate a
+legacy config before adding native entries.
+
+Open the picker, search for `my-project`, and press ++enter++. A newly created
+workspace receives the named `git` tab and runs `git status` there. Selecting
+an existing workspace focuses it; it does not recreate its tabs or rerun startup
+commands.
+
+To check the file from a shell before opening the picker, use `config validate`.
+The installed plugin keeps its binary in Herdr's managed checkout, so that
+option requires `jq` to locate it:
 
 === "Installed plugin"
 
@@ -175,15 +176,13 @@ Validate the file:
 
 === "Local checkout"
 
+    From the repository root:
+
     ```bash
+    just build
     export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
     ./bin/herdr-sesh config validate
     ```
-
-Open the picker, search for `my-project`, and press ++enter++. A newly created
-workspace receives the named `git` tab and runs `git status` there. Selecting
-an existing workspace focuses it; it does not recreate its tabs or rerun startup
-commands.
 
 To open several panes inside a tab, follow the [pane layout walkthrough](#pane-layout-walkthrough).
 
