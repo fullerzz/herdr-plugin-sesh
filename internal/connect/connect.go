@@ -53,7 +53,7 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	}
 	match.WorkspaceID = w.ID
 	sources.AddPath(ctx, match.Path)
-	if err := startup.Apply(ctx, client, startup.Plan{WorkspaceID: w.ID, Session: match}); err != nil {
+	if err := startup.Apply(ctx, client, startup.Plan{WorkspaceID: w.ID, Session: match, Focus: !opts.NoFocus}); err != nil {
 		return Result{}, err
 	}
 	return Result{Session: match, Created: true}, nil

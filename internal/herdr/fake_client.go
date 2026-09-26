@@ -1,6 +1,9 @@
 package herdr
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type FakeClient struct {
 	Workspaces        []Workspace
@@ -11,7 +14,11 @@ type FakeClient struct {
 	FocusedWorkspaces []string
 	FocusedTabs       []string
 	PaneRuns          []string
-	OpenedPlugins     []string
+	Splits            []PaneSplitRequest
+	// SplitErr, when set, fails the split whose index equals SplitErrAt.
+	SplitErr      error
+	SplitErrAt    int
+	OpenedPlugins []string
 }
 
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
@@ -46,6 +53,13 @@ func (f *FakeClient) PaneCurrent(context.Context) (Pane, error) {
 func (f *FakeClient) PaneRun(_ context.Context, id, cmd string) error {
 	f.PaneRuns = append(f.PaneRuns, id+":"+cmd)
 	return nil
+}
+func (f *FakeClient) PaneSplit(_ context.Context, r PaneSplitRequest) (Pane, error) {
+	if f.SplitErr != nil && len(f.Splits) == f.SplitErrAt {
+		return Pane{}, f.SplitErr
+	}
+	f.Splits = append(f.Splits, r)
+	return Pane{ID: fmt.Sprintf("split-%d", len(f.Splits))}, nil
 }
 func (f *FakeClient) PluginPaneOpen(_ context.Context, p, e, pl string) error {
 	f.OpenedPlugins = append(f.OpenedPlugins, p+":"+e+":"+pl)

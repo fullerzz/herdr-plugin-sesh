@@ -325,7 +325,7 @@ func ExpandHome(p, home string) string {
 	if p == "~" {
 		return home
 	}
-	if len(p) > 2 && p[:2] == "~/" {
+	if len(p) >= 2 && p[:2] == "~/" {
 		return filepath.Join(home, p[2:])
 	}
 	return p

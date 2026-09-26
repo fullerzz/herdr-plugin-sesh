@@ -33,7 +33,8 @@ tabs.
   draw tree branches in the native picker.
 - Focus an existing workspace or create one from a configured session or
   directory.
-- Apply startup commands, previews, and named Herdr tabs to new workspaces.
+- Apply startup commands, previews, named Herdr tabs, and
+  [pane layouts](docs/config.md#tabpane) to new workspaces.
 - Toggle between command previews and live active-pane previews with `Ctrl+O`,
   and drag the divider to resize side-by-side previews.
 - Filter, deduplicate, and optionally cache session results, with native
