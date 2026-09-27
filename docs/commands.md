@@ -78,6 +78,22 @@ For example:
 "$sesh_bin" config validate
 ```
 
-Consult [Configuration](config.md) before migrating. Use its lookup order to
-check which file is active; do not assume the current working directory selects
-the configuration.
+## Configuration commands
+
+Commands follow the [configuration lookup order](config.md#configuration-file-lookup),
+not the current directory. After the [shell setup](#run-the-binary-directly), use
+`"$sesh_bin"` with:
+
+- `config path`: print the active file, or the native `config.toml` destination
+  when none exists.
+- `config init`: create a native starter only when no config exists anywhere in
+  the lookup order. Otherwise print the existing path, including legacy files.
+  A missing `HERDR_SESH_CONFIG` path is created at that exact location.
+- `config validate [PATH]`: strictly validate the active or specified file and
+  print its resolved path. No file is an error; legacy files remain valid with
+  a deprecation warning.
+- `config edit --config PATH`: open a particular file in the settings editor.
+  A missing path can be created after review and confirmation, unlike normal
+  loading, which rejects missing explicit paths.
+
+For conversion and overwrite rules, see [Legacy migration](config.md#legacy-migration).

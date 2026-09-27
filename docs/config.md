@@ -4,10 +4,8 @@ icon: lucide/settings
 
 # Configuration
 
-`herdr-sesh` reads a versioned native TOML config. Every native file starts
-with `version = 1` and unknown keys are always rejected. Legacy
-Sesh-compatible files (no `version` key) still load during the migration
-period and print a deprecation warning on stderr; see
+`herdr-sesh` uses TOML configuration with `version = 1` and rejects unknown
+keys. Older Sesh files still load with a deprecation warning; see
 [Legacy migration](#legacy-migration).
 
 Configure a workspace once, then select it in the picker to open its named tabs
@@ -23,102 +21,6 @@ terminals.
 | An editor, development server, and logs in split panes | [Pane layout walkthrough](config/layouts.md#pane-layout-walkthrough) |
 | The same tabs for discovered projects under a directory | [Path rules](#rule) |
 
-Workspace, tab, and pane definitions are edited in the TOML file. A
-`[[workspace]]` selects reusable `[[tab]]` definitions through its `tabs` list;
-each tab can contain ordered `[[tab.pane]]` entries describing its splits.
-
-## Configuration file lookup
-
-Lookup order:
-
-1. `--config PATH`
-2. `HERDR_SESH_CONFIG` (an error if the file does not exist)
-3. `${HERDR_PLUGIN_CONFIG_DIR}/config.toml`
-4. `${HERDR_PLUGIN_CONFIG_DIR}/sesh.toml` as a legacy fallback
-5. `~/.config/herdr-sesh/config.toml`
-6. `~/.config/herdr-sesh/sesh.toml` as a legacy fallback
-7. `~/.config/sesh/sesh.toml` as a legacy fallback
-
-Explicit paths (`--config`, `HERDR_SESH_CONFIG`) may hold either schema: a
-top-level `version` key selects native decoding, otherwise the file is treated
-as legacy. `config path` prints the file that would load, or the native
-`config.toml` destination when none exists. `config init` writes a native
-starter file only when no config exists anywhere in the lookup order; an
-existing config (legacy included) is printed instead so init can never shadow
-it. With `HERDR_SESH_CONFIG` set to a missing path, init creates the starter
-at that exact path. `config validate [PATH]` strictly validates the active or
-specified config and prints its resolved path on success. It returns an error
-when no config exists; legacy files remain valid but emit the migration warning.
-
-## Settings editor
-
-Use **F2** in the native picker (**Ctrl+,** when preview cycling uses F2) or the
-**Sesh Settings** Herdr action:
-
-```bash
-herdr plugin action invoke fullerzz.sesh.open-settings
-```
-
-For standalone use from a local checkout:
-
-```bash
-just build
-./bin/herdr-sesh config edit
-# Select a particular file instead:
-./bin/herdr-sesh config edit --config /absolute/path/to/config.toml
-```
-
-The screen edits Picker, Lists (including source order and blacklist patterns),
-Naming, Keys, and Workspace Defaults. Workspace, tab, and rule definitions remain
-file-only. The editor shares the native picker's colors and honors
-`picker.herdr_theme_inherit`; theme changes apply after saving.
-
-Edits remain in memory until **Ctrl+S** opens a review and **Y** confirms it.
-Within text and list editors, **Ctrl+S** first applies the edit to the draft.
-Saving does not run startup or preview commands. Returning to the picker applies
-persisted settings and refreshes its sessions, keeping the search and selection
-when possible. Normal picker preview commands resume then.
-
-### Files, defaults, and conflicts
-
-The editor follows the lookup order above. If no config exists, it displays
-defaults and the proposed path, creating the file only after confirmation. An
-explicit missing path can be created through the editor; other commands retain
-their existing missing-path behavior. Untouched defaults are not written out.
-
-Only changed settings are patched. Unrelated definitions, comments, and line
-endings are preserved. Edited arrays are reformatted; their comments are retained
-but can move above the elements, which the review discloses. Native TOML tables,
-inline tables, dotted/quoted keys, and multiline strings are supported.
-
-Saves preserve existing file permission bits, use mode 0600 for new files, and
-replace the target atomically. Symlinks are followed without replacing the link;
-a changed target or changed file is rejected. A per-target `.settings.lock` file
-coordinates settings writers and intentionally remains after exit. Advisory
-locking cannot exclude arbitrary external editors.
-
-A conflict keeps the draft. Choose **R** on the error screen to review a reload
-confirmation; **Y** discards the draft and loads the current file. There is no
-force overwrite or automatic merge. Other save errors also preserve the draft.
-The plugin's session-list cache is invalidated when its state directory is
-available; a cache cleanup failure is reported separately from a successful save.
-
-### Legacy conversion
-
-Opening a legacy config offers a separate migration review showing source and
-destination. Conversion flattens imports and may normalize formatting/defaults.
-Only confirmation creates the native file. Legacy files are preserved, existing
-destinations are never overwritten, and source/import changes invalidate the
-prepared conversion. Invalid configs are reported without automatic repair.
-
-After conversion the editor and returning picker use the new native path. If
-`HERDR_SESH_CONFIG` or an explicit argument still selects the legacy file on future
-launches, follow the displayed path instruction; the editor does not change your
-environment. Declining later draft edits does not undo a confirmed migration or save.
-
-The form supports 80×24 and a compact 60×18 layout. Smaller terminals show a resize
-message and safe exit controls. See [Settings controls](keybindings.md#settings-controls).
-
 ## Create your configuration
 
 For a fresh installation, ask Herdr where this plugin keeps its configuration:
@@ -127,12 +29,9 @@ For a fresh installation, ask Herdr where this plugin keeps its configuration:
 herdr plugin config-dir fullerzz.sesh
 ```
 
-Use your editor to create `config.toml` in the printed directory. Herdr creates
-the plugin directory during installation; you do not need `jq` or the plugin
-binary to write your first config. If you already have a herdr-sesh or Sesh
-config, check the [lookup order](#configuration-file-lookup) and
-[legacy migration](#legacy-migration) before creating a file that could take
-precedence over it.
+Create `config.toml` in the printed directory. If you already have a config,
+check the [lookup order](#configuration-file-lookup) and
+[migration instructions](#legacy-migration) before creating a higher-priority file.
 
 Herdr keeps runtime state in a separate `HERDR_PLUGIN_STATE_DIR` directory.
 
@@ -158,134 +57,195 @@ If a native config already exists, add just the `[[tab]]` and `[[workspace]]`
 entries, using unique names; keep its single `version = 1` line. Migrate a
 legacy config before adding native entries.
 
-Open the picker, search for `my-project`, and press ++enter++. A newly created
+Open the picker from Herdr:
+
+```bash
+herdr plugin action invoke fullerzz.sesh.open-picker
+```
+
+Search for `my-project` and press ++enter++. A newly created
 workspace receives the named `git` tab and runs `git status` there. Selecting
 an existing workspace focuses it; it does not recreate its tabs or rerun startup
 commands. For a new workspace, Herdr initially shows a separate shell tab;
 select `git` to see the command. See [Initial tab behavior](config/layouts.md#initial-tab-behavior)
 for when a configured tab can reuse that first tab.
 
-To check the file from a shell before opening the picker, use `config validate`.
-The installed plugin keeps its binary in Herdr's managed checkout, so that
-option requires `jq` to locate it:
+For optional shell validation, follow the [CLI setup](commands.md#run-the-binary-directly)
+and run `"$sesh_bin" config validate`. For splits, continue with the
+[pane layout walkthrough](config/layouts.md#pane-layout-walkthrough).
 
-=== "Installed plugin"
+## Settings editor
 
-    ```bash
-    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    "$sesh_root/bin/herdr-sesh" config validate
-    ```
+Press **F2** in the native picker (**Ctrl+,** if preview cycling uses F2), or run:
 
-=== "Local checkout"
+```bash
+herdr plugin action invoke fullerzz.sesh.open-settings
+```
 
-    From the repository root:
+Edit Picker, Lists (source order and blacklist), Naming, Keys, and Workspace
+Defaults here. Workspace, tab, pane, and rule definitions remain file-only.
+For standalone use, see [`config edit`](commands.md#command-reference).
 
-    ```bash
-    just build
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    ./bin/herdr-sesh config validate
-    ```
+Press **Ctrl+S** to review changes, then **Y** to save. In text/list editors,
+**Ctrl+S** first applies the edit to the draft. Saving runs no startup or preview
+commands. Returning to the picker applies saved settings, refreshes sessions,
+resumes previews, and preserves search/selection when possible. The editor uses
+the picker's colors; theme changes apply after saving.
 
-To open several panes inside a tab, follow the [pane layout walkthrough](config/layouts.md#pane-layout-walkthrough).
+Save errors keep your draft. On a conflict, **R** opens a reload confirmation;
+**Y** discards the draft and loads the current file. There is no force overwrite
+or automatic merge.
 
-## Example
+The form supports 80×24 and compact 60×18 terminals; smaller sizes show resize
+instructions and safe exit controls. See [Settings controls](keybindings.md#settings-controls).
 
-This is a customization example, not a dump of the defaults. Omitted settings
-use the defaults described in [Settings](#settings) and [Picker](config/picker.md).
+### Files, defaults, and conflicts
+
+??? info "File handling details"
+
+    The editor follows the [lookup order](#configuration-file-lookup). Missing
+    files, including explicit paths, are created only after confirmation;
+    untouched defaults are omitted.
+
+    Only changed settings are patched. Unrelated definitions, comments, and line
+    endings survive. Edited arrays are reformatted and their comments may move
+    above elements, as disclosed in review. Native tables, inline tables,
+    dotted/quoted keys, and multiline strings are supported.
+
+    Saves are atomic, preserve existing permissions, and use `0600` for new files.
+    Symlinks are followed without replacing the link; changed files or targets
+    cause a conflict. The per-target `.settings.lock` remains after exit and
+    coordinates settings writers, but cannot exclude arbitrary external editors.
+    When a state directory is available, saving invalidates the session-list
+    cache; cleanup failures are reported separately from a successful save.
+
+### Legacy conversion
+
+Opening a legacy file offers a separate migration review. Confirming preserves
+the source and creates a native file, then switches the editor and returning
+picker to it. Existing destinations are never overwritten.
+
+??? info "Conversion details"
+
+    Conversion flattens imports and may normalize formatting/defaults; see
+    [Legacy migration](#legacy-migration). Source/import changes invalidate the
+    prepared conversion. Invalid configs are reported without automatic repair.
+    Update any explicit argument or `HERDR_SESH_CONFIG` that still selects the
+    old file for future launches; the editor does not change your environment.
+    Discarding later edits does not undo a confirmed conversion or save.
+
+## Configuration file lookup
+
+Lookup order:
+
+1. `--config PATH`
+2. `HERDR_SESH_CONFIG` (an error if the file does not exist)
+3. `${HERDR_PLUGIN_CONFIG_DIR}/config.toml`
+4. `${HERDR_PLUGIN_CONFIG_DIR}/sesh.toml` as a legacy fallback
+5. `~/.config/herdr-sesh/config.toml`
+6. `~/.config/herdr-sesh/sesh.toml` as a legacy fallback
+7. `~/.config/sesh/sesh.toml` as a legacy fallback
+
+Explicit paths may use either schema: a top-level `version` selects native
+decoding; otherwise they are legacy. See [config commands](commands.md#configuration-commands)
+for `path`, `init`, `validate`, and missing-file exceptions.
+
+## Settings
+
+Picker shortcuts, appearance, sorting, and history are documented in
+[Picker](config/picker.md).
+
+### `[list]`
+
+| Field | Runtime effect |
+| --- | --- |
+| `cache` | Default `false`. Caches normal deduplicated `list` results for five seconds in `HERDR_PLUGIN_STATE_DIR`, scoped to the resolved config file. It does not cache `list --blacklisted`, `list --hide-duplicates=false`, `picker`, or `connect`. |
+| `source_order` | Default order: `herdr`, `config`, `zoxide`, `dir`. Reorder these sources; unknown or duplicate names are rejected and omitted sources are appended. |
+| `blacklist` | Default `[]`. Treats each value as a regular expression matched against workspace names. Normal listings hide matches; `list --blacklisted` shows them. Invalid regexes are rejected. |
+
+### `[naming]`
+
+| Field | Runtime effect |
+| --- | --- |
+| `path_components` | Sets the number of path components used by the directory-name fallback for a newly created direct-path workspace. Git repositories keep their repository-derived name. Must be at least `1` (the default). |
+
+### `[workspace_defaults]`
+
+| Field | Runtime effect |
+| --- | --- |
+| `startup` | Default: none. Fallback command run after a new Herdr workspace is created. `{}` is replaced with the workspace path. |
+| `preview` | Fallback command used by `preview` and the native picker. `{}` is replaced with the workspace path. Absent or empty values use `eza --icons=always --color=always -la {}`. |
+
+### `[[workspace]]`
+
+| Field | Runtime effect |
+| --- | --- |
+| `name` | Required workspace label and connect target. Must be non-empty and unique. |
+| `path` | Required workspace path; `~/` is expanded before it is sent to Herdr. Must be non-empty. |
+| `startup` | Startup override; absent or empty uses the rule/default fallback. |
+| `preview` | Preview override; absent or empty uses the rule/default fallback. |
+| `disable_startup` | Suppresses the workspace startup command, including rule/default fallbacks, when `true`; unset inherits the rule, while explicit `false` overrides it. Tab and pane startup commands still run. |
+| `tabs` | Default `[]`. Names of `[[tab]]` entries to create as Herdr tabs. Every referenced tab must exist. |
+
+Startup commands are selected in this order: the explicit workspace command,
+the first matching rule command, then `workspace_defaults.startup`. Preview
+commands use the same explicit workspace, rule, then default order.
+
+### Layouts
+
+For named tabs, pane splits, startup behavior, and recovery, see
+[Layouts](config/layouts.md).
+
+### `[[rule]]`
+
+Rule startup, preview, and disable settings apply to every matching workspace
+when the corresponding explicit workspace field is unset. Rule tabs apply only
+to discovered or direct-path workspaces. The first matching rule wins.
+
+| Field | Runtime effect |
+| --- | --- |
+| `path_glob` | Path glob. `*`, `?`, and character classes use `filepath.Match` semantics; a trailing `/**` matches the base directory and all descendants. Must be non-empty and compile. |
+| `startup` | Startup command for a matching path. |
+| `preview` | Preview command for a matching path. |
+| `disable_startup` | Suppresses rule and default startup behavior for a matching path when `true`. |
+| `tabs` | `[[tab]]` entries created for a matching discovered or direct-path workspace, not a configured workspace. |
+
+For example, append this rule to a native config containing the `git` tab above:
 
 ```toml
-version = 1 # (1)!
-
-[list]
-cache = true
-source_order = ["herdr", "config", "zoxide", "dir"] # (2)!
-blacklist = ["^scratch$"]
-
-[naming]
-path_components = 1
-
-[picker]
-show_icons = true
-show_path = true
-show_preview = true
-preview_mode = "command"
-prioritize_home = false
-herdr_theme_inherit = true
-replace_worktree_icon = true
-prompt = "Sesh> "
-placeholder = "Search workspaces"
-separator_aware = true
-workspace_sort = "agent"
-show_last_workspace = true
-show_last_workspace_path = false
-
-[workspace_defaults]
-startup = "git status"
-preview = "eza --icons=always --color=always -la {}"
-
-[[tab]]
-name = "git"
-startup = "git status"
-
-[[workspace]]
-name = "brain"
-path = "~/brain"
-disable_startup = true
-tabs = ["git"] # (3)!
-
 [[rule]]
 path_glob = "~/projects/**"
-startup = "git status"
-preview = "eza --icons=always --color=always -la {}"
 tabs = ["git"]
 ```
 
-1. Native configuration requires this schema version; unknown keys are rejected.
-2. Source order controls how results are combined; picker sorting affects Herdr rows.
-3. Tab names refer to `[[tab]]` definitions. They are created when the workspace is new.
+Discovered projects under `~/projects` then receive that tab when created.
+Omitted rule commands fall back to workspace defaults; `disable_startup` defaults
+to `false` and `tabs` to `[]`.
 
 ## Legacy migration
 
-Legacy Sesh-compatible files keep loading for at least one released version.
-Run `config migrate` to convert the active legacy file automatically:
+Legacy files remain supported for at least one released version. To convert,
+use the [settings editor](#legacy-conversion), or follow the
+[CLI setup](commands.md#run-the-binary-directly) and run
+`"$sesh_bin" config migrate`. Add `--config PATH` (or positional `PATH`) to select
+a particular file.
 
-=== "Local checkout"
+Migration flattens imports into native `config.toml`, preserves the source, and
+prints the new path. Check the result before optionally deleting the legacy
+file. First update `HERDR_SESH_CONFIG` or explicit arguments that select the old
+path. A legacy file already named `config.toml` must be renamed before migration;
+in-place conversion is not supported, even with `--force`.
 
-    ```bash
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    ./bin/herdr-sesh config migrate
-    ```
+??? info "Conversion and overwrite rules"
 
-=== "Installed plugin"
+    Unspecified legacy `tui.show_icons` becomes enabled. The old colorless default
+    preview becomes `eza --icons=always --color=always -la {}`. Explicit icon
+    choices and custom preview commands survive; comments and key order do not.
 
-    ```bash
-    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    "$sesh_root/bin/herdr-sesh" config migrate
-    ```
-
-Conversion intentionally modernizes two defaults: when
-`tui.show_icons` was never set, the native config enables icons; and the former
-colorless default preview (`eza --icons=always -la {}`) is replaced by the
-color-forced runtime default. Explicit icon settings and custom preview commands
-are preserved. The command flattens any `import` files into a native
-`config.toml`, leaves the legacy file untouched, and prints the new path.
-
-Pass `--config PATH` to convert a specific file. The command refuses to
-overwrite an existing native file unless `--force` is passed; even with
-`--force`, unrelated or invalid `config.toml` files are never replaced. The
-native file is installed atomically with `0600` permissions. A specific file can
-also be supplied positionally, for example
-`herdr-sesh config migrate ~/.config/sesh/sesh.toml --force`. Values the native
-schema rejects (invalid regexes, duplicate names, missing tab references) fail
-with an error before anything is written. Comments and key order do not survive
-conversion.
-Delete the legacy file once the native one looks right. If
-`HERDR_SESH_CONFIG` selects the legacy file, point it at the printed native path
-before deleting the legacy file. A legacy file already named `config.toml`
-cannot be migrated in place, even with `--force`; rename it first so migration
-can leave the source untouched.
+    Invalid regexes, duplicate names, missing tab references, and other native
+    validation errors stop conversion before writing. Output is installed
+    atomically with `0600` permissions. CLI `--force` permits replacing an existing
+    native destination, but never an unrelated or invalid `config.toml`.
 
 ??? info "Manual migration: legacy → native key reference"
 
@@ -335,64 +295,3 @@ can leave the source untouched.
 Legacy `tmux_command`, `tmuxp`, and `tmuxinator` fields have no Herdr
 equivalent; native decoding rejects them like any other unknown key. Describe
 tab splits with native [pane layouts](config/layouts.md#tabpane) instead.
-
-
-## Settings
-
-Picker shortcuts, appearance, sorting, and history are documented in
-[Picker](config/picker.md).
-
-### `[list]`
-
-| Field | Runtime effect |
-| --- | --- |
-| `cache` | Caches normal deduplicated `list` results for five seconds in `HERDR_PLUGIN_STATE_DIR`, scoped to the resolved config file. It does not cache `list --blacklisted`, `list --hide-duplicates=false`, `picker`, or `connect`. |
-| `source_order` | Orders sources among `herdr`, `config`, `zoxide`, and `dir`. Unknown or duplicated names are rejected; sources omitted from the list are appended. |
-| `blacklist` | Treats each value as a regular expression matched against workspace names. Normal listings hide matches; `list --blacklisted` shows them. Invalid regexes are rejected. |
-
-### `[naming]`
-
-| Field | Runtime effect |
-| --- | --- |
-| `path_components` | Sets the number of path components used by the directory-name fallback for a newly created direct-path workspace. Git repositories keep their repository-derived name. Must be at least `1` (the default). |
-
-### `[workspace_defaults]`
-
-| Field | Runtime effect |
-| --- | --- |
-| `startup` | Fallback command run after a new Herdr workspace is created. `{}` is replaced with the workspace path. |
-| `preview` | Fallback command used by `preview` and the native picker. `{}` is replaced with the workspace path. Absent or empty values use the built-in `eza` preview. |
-
-### `[[workspace]]`
-
-| Field | Runtime effect |
-| --- | --- |
-| `name` | Workspace label and connect target. Must be non-empty and unique. |
-| `path` | Workspace path; `~/` is expanded before it is sent to Herdr. Must be non-empty. |
-| `startup` | Workspace-specific startup command. |
-| `preview` | Workspace-specific preview command. |
-| `disable_startup` | Suppresses the workspace startup command, including rule/default fallbacks, when `true`. Tab and pane startup commands still run. |
-| `tabs` | Names of `[[tab]]` entries to create as Herdr tabs. Every referenced tab must exist. |
-
-Startup commands are selected in this order: the explicit workspace command,
-the first matching rule command, then `workspace_defaults.startup`. Preview
-commands use the same explicit workspace, rule, then default order.
-
-### Layouts
-
-For named tabs, pane splits, startup behavior, and recovery, see
-[Layouts](config/layouts.md).
-
-### `[[rule]]`
-
-Rule startup, preview, and disable settings apply to every matching workspace
-when the corresponding explicit workspace field is unset. Rule tabs apply only
-to discovered or direct-path workspaces. The first matching rule wins.
-
-| Field | Runtime effect |
-| --- | --- |
-| `path_glob` | Path glob. `*`, `?`, and character classes use `filepath.Match` semantics; a trailing `/**` matches the base directory and all descendants. Must be non-empty and compile. |
-| `startup` | Startup command for a matching path. |
-| `preview` | Preview command for a matching path. |
-| `disable_startup` | Suppresses rule and default startup behavior for a matching path when `true`. |
-| `tabs` | `[[tab]]` entries created for a matching discovered or direct-path workspace, not a configured workspace. |

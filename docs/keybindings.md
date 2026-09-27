@@ -33,32 +33,16 @@ the native picker; the experimental fzf picker uses its own controls.
 
 ## Native picker previews
 
-In the native picker, press ++ctrl+o++ by default to switch between the configured preview
-and **Pane** mode. Pane mode shows the visible terminal contents of the selected
-Herdr workspace's active pane, in its active tab, and refreshes once per second.
-It works for background workspaces without changing focus. Press ++ctrl+o++ again
-to return to the configured preview. ++ctrl+v++ pastes into the filter.
+Press **Ctrl+O** to switch between command and active-pane previews. The heading
+shows the current shortcut; configure another key or disable cycling through
+[`keys.cycle_preview_mode`](config/picker.md#keys). Switching modes does not save
+the choice; set [`picker.preview_mode`](config/picker.md#preview-controls) to
+change the initial mode. Cycling is disabled when `show_preview = false`.
 
-Override the shortcut in the herdr-sesh `config.toml`:
-
-```toml
-[keys]
-cycle_preview_mode = "alt+p" # default: "ctrl+o"; "" disables cycling
-```
-
-The preview heading shows the configured shortcut, or no shortcut when disabled.
-See [picker keys](config/picker.md#keys) for key syntax and binding precedence.
-
-Set `[picker].preview_mode = "pane"` in `config.toml` to start in Pane mode;
-the default is `"command"`. Switching modes in the picker does not change the file.
-
-Configured sessions and directories have no running pane and display an
-unavailable message in Pane mode. The toggle is disabled when
-`[picker].show_preview = false` and does not affect the fzf picker.
-
-When the preview is beside the list, drag the vertical divider with the left
-mouse button to resize it. The width resets when the picker closes; narrow
-terminals show a stacked preview instead.
+For side-by-side previews, drag the vertical divider with the left mouse button.
+Both panels keep a minimum width; the chosen width resets when the picker closes.
+Narrow terminals stack the preview below the list. These controls apply to the
+native picker, not fzf.
 
 ## Herdr actions
 
