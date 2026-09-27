@@ -55,27 +55,15 @@ when focusing an existing one.
 - Layouts apply only when creating a workspace. Reopening the picker or
   reconnecting to an existing workspace does not rebuild its panes or rerun
   commands.
-- With `connect --no-focus`, the new workspace stays on Herdr's initial tab.
-  It is the first configured tab only when no workspace startup command applies
-  and that tab's root pane starts in the workspace directory without a startup
-  command. Otherwise, select
-  the configured tab after switching to that workspace.
-- An extra initial tab means a workspace, rule, or `workspace_defaults.startup`
-  command applies, the first tab's root pane `path` differs from the workspace
-  path, or that root has a startup command. To allow reuse, suppress workspace
-  startup with `disable_startup = true`, leave the first root in the workspace
-  directory without startup, and put commands in other panes. Commands are not
-  inspected for directory changes; even `git status` keeps a separate initial tab.
+- An extra initial tab or unexpected active tab depends on workspace startup
+  and the first root pane's path/command. Check the
+  [initial-tab decision table](config/layouts.md#initial-tab-behavior).
 
-If creation fails partway through, the workspace and any running processes are
-kept. Correct the reported error, then save any work and stop processes before
-closing the partially created workspace in Herdr. Connect again to create it
-with the corrected layout; reconnecting while it remains open does not retry.
-Use the same close-and-recreate process to apply layout changes to an existing
-workspace.
-
-See the [complete pane layout example and field reference](config.md#tabpane)
-for split directions, ratios, working directories, and startup behavior.
+If creation failed, correct the reported error first. To apply changes or
+rebuild the layout, save your work, stop processes
+as needed, close the workspace, and select it again. Running processes are
+preserved after failures; reconnecting does not retry the layout. See
+[layout recovery](config/layouts.md#reconnecting-and-recovering-a-partial-layout).
 
 ## Preview is unavailable or reports an error
 
@@ -100,7 +88,7 @@ to use source labels. The default `eza` preview has its own icon flag; customize
 the preview command separately if its glyphs are missing.
 
 Set `HERDR_SESH_REDUCE_MOTION=1` in the environment inherited by Herdr to disable
-the cursor trail. See [cursor settings](config.md#cursor-and-status-indicators).
+the cursor trail. See [cursor settings](config/picker.md#cursor-and-status-indicators).
 
 ## Previous workspace is unexpected
 
@@ -111,7 +99,7 @@ lifecycle hook can restart the watcher. Hiding the footer does not disable
 history. If sidebar switches are missing from history on Herdr 0.9.0, upgrade
 the running Herdr server to 0.9.1 or newer; that release restores the focus
 events the plugin needs. Rebuilding the plugin alone cannot restore those
-events. See [history behavior](config.md#workspace-history) and the
+events. See [history behavior](config/picker.md#workspace-history) and the
 [reconnect limitations](development/workspace-history.md#failure-model).
 
 ## Report a reproducible problem

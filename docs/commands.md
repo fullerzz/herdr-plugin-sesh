@@ -63,7 +63,7 @@ Use `"$sesh_bin"` followed by a command from this table:
 | `clone [--cmdDir PATH] [--dir PATH] REPOSITORY` | Clone a repository and connect to it, optionally choosing Git's working directory and the destination. |
 | `root [--connect]` | Print the current Git repository root, or connect to it. |
 | `window [PATH]` | List tabs, or create a tab for a path. |
-| `config path` | Print the resolved config path, or the destination when none exists. |
+| `config path` | Print the resolved config path, or the destination when none exists; a missing explicit override is an error. |
 | `config init` | Create a native starter config only when no config exists. |
 | `config edit [--config PATH]` | Open the global settings editor; review and confirm before saving. |
 | `config validate [PATH]` | Validate the active or specified configuration. |
@@ -78,6 +78,23 @@ For example:
 "$sesh_bin" config validate
 ```
 
-Consult [Configuration](config.md) before migrating. Use its lookup order to
-check which file is active; do not assume the current working directory selects
-the configuration.
+## Configuration commands
+
+Commands follow the [configuration lookup order](config.md#configuration-file-lookup),
+not the current directory. After the [shell setup](#run-the-binary-directly), use
+`"$sesh_bin"` with:
+
+- `config path`: print the active file, or the native `config.toml` destination
+  when none exists. If `HERDR_SESH_CONFIG` selects a missing file, the command
+  errors instead; the explicit override must exist.
+- `config init`: create a native starter only when no config exists anywhere in
+  the lookup order. Otherwise print the existing path, including legacy files.
+  A missing `HERDR_SESH_CONFIG` path is created at that exact location.
+- `config validate [PATH]`: strictly validate the active or specified file and
+  print its resolved path. No file is an error; legacy files remain valid with
+  a deprecation warning.
+- `config edit --config PATH`: open a particular file in the settings editor.
+  A missing path can be created after review and confirmation, unlike normal
+  loading, which rejects missing explicit paths.
+
+For conversion and overwrite rules, see [Legacy migration](config.md#legacy-migration).

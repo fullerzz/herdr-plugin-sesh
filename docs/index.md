@@ -30,7 +30,7 @@ tabs, and pane layouts run only when a workspace is created.
     and a working directory, environment, and startup command for each pane.
     Open your editor, development server, and logs together; reconnecting keeps
     the running layout intact. See the
-    [pane layout walkthrough and diagram](config.md#pane-layout-walkthrough)
+    [pane layout walkthrough and diagram](config/layouts.md#pane-layout-walkthrough)
     for a complete configuration.
 
 ## Requirements
@@ -67,7 +67,7 @@ new workspace from the picker.
 
 - [Bind the picker and previous-workspace actions to keys](keybindings.md#herdr-actions).
 - [Switch previews or change their shortcut](keybindings.md#native-picker-previews).
-- [Open a project with named tabs and split panes](config.md#pane-layout-walkthrough).
+- [Open a project with named tabs and split panes](config/layouts.md#pane-layout-walkthrough).
 - [Use direct CLI commands](commands.md#command-reference).
 - [Diagnose a missing workspace or unexpected result](troubleshooting.md).
 
@@ -82,8 +82,9 @@ For changes in each release, see the
 
 ### Reference
 
-- [Configuration](config.md) explains config discovery, picker behavior,
-  workspaces, tabs, [pane layouts](config.md#tabpane), and legacy Sesh migration.
+- [Configuration](config.md) explains config discovery, workspaces, and legacy
+  Sesh migration. [Picker](config/picker.md) covers appearance, sorting, and
+  shortcuts. [Layouts](config/layouts.md) covers named tabs and split panes.
 - [Keybindings](keybindings.md) shows how to invoke the picker and related
   actions from Herdr.
 - [Commands](commands.md) covers direct CLI use and installed-binary setup.
