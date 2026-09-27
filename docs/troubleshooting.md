@@ -65,6 +65,59 @@ as needed, close the workspace, and select it again. Running processes are
 preserved after failures; reconnecting does not retry the layout. See
 [layout recovery](config/layouts.md#reconnecting-and-recovering-a-partial-layout).
 
+## Startup command text appears before the shell banner
+
+This is the shell-readiness limitation tracked in
+[issue #137](https://github.com/fullerzz/herdr-plugin-sesh/issues/137).
+Startup input can reach the terminal while the interactive shell is still
+initializing. The terminal can echo that input before the banner, and the shell
+can display it again at its prompt. Two appearances do not prove two executions.
+
+An isolated zsh PTY reproduction with a one-second delay in `.zshrc` and a visible
+banner confirmed this sequence: one command submission was echoed before the
+banner, then executed once after initialization. A file append counted executions
+independently of terminal output. This verifies the early-echo mechanism; the
+full slow-shell scenario inside Herdr has not yet been verified.
+
+### Upstream dependency
+
+The installed Herdr 0.9.1 CLI and upstream source at
+[`04682e57`](https://github.com/fullerzz/herdr/tree/04682e57e60ae4276761e95271a7ef1845127180)
+provide no supported shell-readiness wait.
+[`pane run`](https://github.com/fullerzz/herdr/blob/04682e57e60ae4276761e95271a7ef1845127180/src/cli/pane.rs#L929)
+submits text and Enter through `pane.send_input`; its
+[handler](https://github.com/fullerzz/herdr/blob/04682e57e60ae4276761e95271a7ef1845127180/src/app/api/panes.rs#L1424)
+queues input without waiting for shell initialization.
+[Pane and process metadata](https://github.com/fullerzz/herdr/blob/04682e57e60ae4276761e95271a7ef1845127180/src/api/schema/panes.rs#L342)
+do not expose a shell-ready state. A foreground shell process alone does not
+prove its startup files have finished.
+
+The preferred fix is a Herdr-owned, bounded, cancellable startup submission that
+waits for an explicit shell-integration readiness signal and submits input once.
+Herdr owns the PTY and shell lifecycle, so it can synchronize these operations
+for every client. This is a required upstream capability, **not an existing API**;
+no minimum supporting Herdr version or required shell-integration installation
+can be specified until it ships. Fixed sleeps, matching prompt text, and
+application-output `wait_for` rules cannot establish shell readiness reliably.
+
+### Current behavior and completion requirements
+
+For now, workspace, plain-tab, and pane-layout startup commands continue to use
+immediate submission, including newly created tabs/splits and any reused initial
+pane. There is no readiness guarantee for any shell. If this affects your setup,
+remove the affected `startup` command and run it manually after the prompt appears.
+Reconnecting to an existing workspace does not rerun startup commands.
+
+Once Herdr provides the capability, the plugin should use it for all three
+startup paths. Unsupported servers or shells must produce an actionable error
+before startup input is sent, rather than silently falling back to a delay or
+immediate submission. Timeout or cancellation must identify the affected
+workspace, tab, and pane, stop subsequent startup work, and retain the partial
+workspace. Separate workspace/tab terminals, `--no-focus`, and creation-only
+behavior must remain intact. Completion requires focused ordering, timeout,
+cancellation, and single-submission tests, plus a live Herdr check with a slow
+shell and visible banner.
+
 ## Preview is unavailable or reports an error
 
 Pane mode requires a running Herdr workspace. A configured session or directory
