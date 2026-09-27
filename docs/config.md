@@ -17,9 +17,10 @@ terminals.
 
 | To configure… | Start here |
 | --- | --- |
-| Picker appearance, sorting, and defaults | [Settings editor](#settings-editor) |
+| Picker appearance, sorting, and shortcuts | [Picker](config/picker.md) |
+| Edit settings in the picker | [Settings editor](#settings-editor) |
 | A project with a named tab | [Add a workspace with a tab](#add-a-workspace-with-a-tab) |
-| An editor, development server, and logs in split panes | [Pane layout walkthrough](#pane-layout-walkthrough) |
+| An editor, development server, and logs in split panes | [Pane layout walkthrough](config/layouts.md#pane-layout-walkthrough) |
 | The same tabs for discovered projects under a directory | [Path rules](#rule) |
 
 Workspace, tab, and pane definitions are edited in the TOML file. A
@@ -160,7 +161,9 @@ legacy config before adding native entries.
 Open the picker, search for `my-project`, and press ++enter++. A newly created
 workspace receives the named `git` tab and runs `git status` there. Selecting
 an existing workspace focuses it; it does not recreate its tabs or rerun startup
-commands.
+commands. For a new workspace, Herdr initially shows a separate shell tab;
+select `git` to see the command. See [Initial tab behavior](config/layouts.md#initial-tab-behavior)
+for when a configured tab can reuse that first tab.
 
 To check the file from a shell before opening the picker, use `config validate`.
 The installed plugin keeps its binary in Herdr's managed checkout, so that
@@ -184,12 +187,12 @@ option requires `jq` to locate it:
     ./bin/herdr-sesh config validate
     ```
 
-To open several panes inside a tab, follow the [pane layout walkthrough](#pane-layout-walkthrough).
+To open several panes inside a tab, follow the [pane layout walkthrough](config/layouts.md#pane-layout-walkthrough).
 
 ## Example
 
 This is a customization example, not a dump of the defaults. Omitted settings
-use the defaults described in [Settings](#settings).
+use the defaults described in [Settings](#settings) and [Picker](config/picker.md).
 
 ```toml
 version = 1 # (1)!
@@ -331,10 +334,13 @@ can leave the source untouched.
 
 Legacy `tmux_command`, `tmuxp`, and `tmuxinator` fields have no Herdr
 equivalent; native decoding rejects them like any other unknown key. Describe
-tab splits with native [pane layouts](#tabpane) instead.
+tab splits with native [pane layouts](config/layouts.md#tabpane) instead.
 
 
 ## Settings
+
+Picker shortcuts, appearance, sorting, and history are documented in
+[Picker](config/picker.md).
 
 ### `[list]`
 
@@ -349,179 +355,6 @@ tab splits with native [pane layouts](#tabpane) instead.
 | Field | Runtime effect |
 | --- | --- |
 | `path_components` | Sets the number of path components used by the directory-name fallback for a newly created direct-path workspace. Git repositories keep their repository-derived name. Must be at least `1` (the default). |
-
-### `[keys]`
-
-```toml
-[keys]
-cycle_preview_mode = "ctrl+o"
-```
-
-`cycle_preview_mode` changes the native picker's preview-mode shortcut. Omit it
-for `"ctrl+o"`, choose a key such as `"alt+p"` or `"f2"`, or set it to `""` to
-disable cycling and hide the shortcut hint. Key names use Bubble Tea's exact,
-case-sensitive spelling: a single printable character or a named key, with
-modifiers joined by `+` in `ctrl`, `alt`, `shift`, `meta`, `hyper`, `super` order.
-Unsupported names, duplicate modifiers, and incorrect modifier order are rejected
-as configuration errors. For shifted printable keys, configure the resulting
-character (`"P"` rather than `"shift+p"`, or `"?"` rather than `"shift+/"`).
-Shift-only printable spellings are rejected because key events report the text;
-combinations such as `"ctrl+shift+p"` and `"shift+f2"` remain valid. When Shift is
-combined with other modifiers, use the unshifted base key: `"ctrl+shift+p"`, not
-`"ctrl+shift+P"`, and `"alt+shift+/"`, not `"alt+shift+?"`.
-The configured shortcut
-takes precedence over other native picker bindings, so choose an unused key.
-Disabling cycling leaves the initial `[picker].preview_mode` in effect and
-returns keys to their normal picker/input handling. This does not affect fzf or
-configure shortcuts in Herdr itself.
-
-### `[picker]`
-
-| Field | Runtime effect |
-| --- | --- |
-| `show_icons` | Shows Nerd Font source icons in the native picker. The default is `false`; source names remain visible when icons are hidden. |
-| `show_path` | Shows the path column in the native picker when space permits (default `true`). Set it to `false` to hide the column and give the side-by-side preview 50% of the available width initially. The divider remains draggable; narrow terminals keep stacked previews. This does not affect path matching, the last-workspace footer, or fzf. |
-| `show_preview` | Shows the preview panel in the native picker. The default is `true`; set it to `false` to give the workspace list the full available width and height without running preview commands. This does not change fzf preview behavior. |
-| `preview_mode` | Sets the native picker's initial preview to `command` (the configured preview command or built-in fallback, the default) or `pane` (the active pane of the selected Herdr workspace, refreshed once per second). Press ++ctrl+o++ (or `keys.cycle_preview_mode`) to switch modes while the picker is open. `show_preview = false` still disables previews. This does not affect fzf or `herdr-sesh preview`. |
-| `prioritize_home` | Controls exact case-insensitive `home` searches in the native picker. The default is `true`, which promotes the actual home-directory session ahead of real-name and ordinary path matches. Set it to `false` to keep real-name matches first, then path matches in their existing order; the actual home-directory session remains searchable through the exact `home` alias. |
-| `herdr_theme_inherit` | Inherits colors from Herdr's active theme. The default is `true`; set it to `false` to keep the native picker's built-in colors. |
-| `replace_worktree_icon` | Replaces the Herdr sheep icon with `↳` for linked worktree rows. The default is `true`. Set it to `false` to keep the sheep icon (or plain `[herdr]` when icons are hidden); the purple type color and tree branches remain. |
-| `prompt` | Replaces the picker prompt. An empty value uses `Sesh> `. |
-| `placeholder` | Replaces the picker placeholder. An empty value uses `Filter workspaces`. |
-| `separator_aware` | Makes native and fzf picker searches treat `-`, `_`, `/`, and `.` as spaces. |
-| `workspace_sort` | Sets the native picker's initial Herdr workspace order to `workspace` (Herdr's order, the default), `recent` (most recently visited first), or `agent` (agent-status priority). Press ++ctrl+r++ to cycle `workspace` → `recent` → `agent` while the picker is open. This setting does not affect fzf or JSON output. |
-| `show_last_workspace` | Shows the workspace targeted by `herdr-sesh last` in the picker footer. The default is `true`; set it to `false` to hide the footer without disabling history tracking or the `last` command. |
-| `show_last_workspace_path` | Shows the Herdr workspace working directory beside the last workspace name. The default is `true`; set it to `false` to show only the workspace name. |
-
-#### Search ranking
-
-The native picker matches names and paths case-insensitively and places name
-matches before path-only matches, retaining the existing order within each
-group. For example, searching `api` puts a workspace named `api` ahead of one
-named `web` whose path contains `/api/`. `workspace_sort` determines the Herdr
-workspace order within these match groups.
-
-An exact `home` query also matches the actual home-directory session, even if
-its name does not contain `home`. With `prioritize_home = true` (the default),
-that session comes first. With `false`, it stays in the path-match group.
-These ranking rules apply only to the native picker; fzf uses its own ranking.
-
-#### Preview controls
-
-When the native picker shows the preview beside the workspace list, click and
-drag the vertical divider with the left mouse button to resize it. Both panels
-keep a minimum width. The chosen width lasts until the picker closes; narrow
-terminals continue to show the preview below the list.
-
-See [Keybindings](keybindings.md) for switching between command and active-pane
-previews. Pane mode reads visible terminal contents without focusing the selected
-workspace or running its configured preview command.
-
-#### Workspace history
-
-`herdr-sesh last`, the previous-workspace footer, and recent sorting use history
-that also tracks workspace switches made through Herdr's own controls or CLI.
-The installed plugin starts tracking automatically through startup, focus, and
-close hooks; no additional keybinding or configuration is required. Closed
-workspaces are removed from history.
-
-!!! warning "Herdr 0.9.0 sidebar navigation"
-
-    Herdr 0.9.0 suppresses lifecycle focus events for client navigation, so
-    sidebar switches can leave history stale and make `last` select the wrong
-    workspace. Use a running Herdr server on 0.9.1 or newer for the upstream
-    fix; rebuilding herdr-sesh alone does not fix the missing events.
-    See [issue #125](https://github.com/fullerzz/herdr-plugin-sesh/issues/125).
-
-History is separate for each Herdr session, using `HERDR_SOCKET_PATH` to select
-`${HERDR_PLUGIN_STATE_DIR}/history/<socket-hash>/history.json`. Existing unscoped
-history is copied on first use for the default session only; named sessions
-start with their own history. Hiding the footer with `show_last_workspace = false`
-does not disable history tracking or the `last` command.
-
-See [Workspace history tracking](development/workspace-history.md) for lifecycle,
-persistence, and reconnect limitations.
-
-#### Cursor and status indicators
-
-Set `HERDR_SESH_SMEAR_PRESET` to choose the cursor animation:
-
-| Preset | Effect |
-| --- | --- |
-| `crisp` | Fast cyan rail with a short violet line trail. This is the default. |
-| `gooey` | Slower block cursor with a longer shaded trail and eased movement. |
-| `ghost` | Soft diamond cursor with a dotted, low-contrast trail. |
-
-Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) to keep cursor movement
-instantaneous without drawing any preset's trail.
-
-Open Herdr workspaces show the agent state reported by Herdr: an animated amber
-Jump spinner (`⢄⢂⢁⡁⡈⡐⡠`) while working, red `◉` when blocked, green `✓` when idle,
-and teal `●` when done. Workspaces with an unknown state have no indicator.
-Herdr calls an actively running agent `working`.
-
-The native picker's `agent` sort mode orders recognized states as blocked →
-done → working → idle, followed by workspaces with no agent or an unknown
-state. Ties retain Herdr's original workspace order, including unrecognized
-future states. Live status refreshes update this order without changing the
-selected workspace. Sorting only rearranges Herdr rows within their configured
-source-order slots; it does not move them ahead of `config`, `zoxide`, or `dir`
-rows when `list.source_order` puts those sources first.
-
-### Picker colors
-
-By default, the native picker inherits colors from Herdr's own theme so it
-matches the running Herdr UI. Disable inheritance to keep the picker's built-in
-colors:
-
-```toml
-[picker]
-herdr_theme_inherit = false
-```
-
-When enabled, it reads the same config file Herdr uses (`HERDR_CONFIG_PATH`,
-then `$XDG_CONFIG_HOME/herdr/config.toml`, then
-`~/.config/herdr/config.toml`) and resolves `[theme] name` against Herdr's
-built-in themes:
-
-`catppuccin` (default), `catppuccin-latte`, `tokyo-night`, `tokyo-night-day`,
-`dracula`, `nord`, `gruvbox`, `gruvbox-light`, `one-dark`, `one-light`,
-`solarized`, `solarized-light`, `kanagawa`, `kanagawa-lotus`, `rose-pine`,
-`rose-pine-dawn`, and `vesper`. Common aliases (`catppuccin-mocha`,
-`tokyonight`, `onedark`, …) are accepted, as are `[theme.custom]` overrides on
-top of any base theme.
-
-| Herdr token | Picker role |
-| --- | --- |
-| `accent` | Prompt, cursor, and selection rail |
-| `mauve` | Title, section headers, search matches, smear trail |
-| `text` | Row labels |
-| `subtext0` | Paths, counts, help text |
-| `green` | Idle agents (`✓`) |
-| `yellow` | Working agents (spinner) and the empty-state message |
-| `red` | Blocked agents (`◉`) |
-| `overlay1` | Ghost cursor trail |
-
-Custom tokens that are unknown or not a `#RGB`/`#RRGGBB` hex value leave that
-role's built-in color in place, so partial `[theme.custom]` tables only affect
-the roles they define. The ANSI-based `terminal` theme has no fixed palette to
-inherit; the picker keeps its built-in colors there unless you add explicit
-overrides.
-
-The native picker marks a linked Git worktree workspace with a purple
-`↳ herdr` type label, replacing the normal Herdr sheep icon, and groups it
-immediately beneath its open parent workspace in workspace, recent, and agent
-sort modes, matching Herdr's sidebar. In agent mode, the highest-priority status
-on any family member ranks the whole family; the parent remains first and its
-children follow in agent-priority order. With icons disabled, the label is `[↳ herdr]`.
-When the parent is visible, `├─` and `└─` branches reinforce the family in the
-workspace-name column. Wide layouts show the worktree path in the secondary
-column when space permits; narrow layouts retain the purple type label. This is
-automatic and does not depend on `show_icons`. Set
-`picker.replace_worktree_icon = false` to retain the normal sheep icon or plain
-`[herdr]` label while keeping the other child-worktree cues. If Herdr reports a
-linked worktree but no single open parent can be resolved, the row remains
-ungrouped rather than inventing a parent.
 
 ### `[workspace_defaults]`
 
@@ -545,296 +378,10 @@ Startup commands are selected in this order: the explicit workspace command,
 the first matching rule command, then `workspace_defaults.startup`. Preview
 commands use the same explicit workspace, rule, then default order.
 
-Herdr creates every workspace with one initial tab. When a new workspace has
-configured tabs and no workspace startup command, and the first tab's root pane
-starts in the workspace path with no startup command, the first configured tab reuses that initial tab:
-it receives the tab's label and the first pane's `env`, so the workspace has
-exactly its configured tabs. Plain workspaces without tabs keep Herdr's initial
-tab as is.
+### Layouts
 
-If the first tab's `path` or first pane's `path` points elsewhere, the initial
-tab is kept active at the workspace path and every configured tab is created
-after it without taking focus, including with a normal focused `connect`.
-Herdr reports the active pane's directory as the workspace path, so this keeps
-`connect <path>` finding the open workspace.
-
-The same fallback applies when the first tab has a `startup` command, or its
-first pane has one. Any command can change the shell or foreground process's
-directory, including through a script or function, so commands are not parsed
-to guess whether they are safe. Even `git status` or `nvim` keeps a separate
-initial tab. Startup commands on non-root panes or later tabs do not prevent
-reuse. To reuse the initial tab, leave the first root at a shell and put startup
-commands in other panes. Manually changing directories or selecting another
-pane afterward can still change the workspace path reported by Herdr.
-
-If workspace startup also runs, its initial pane is not a stable path anchor
-either. In focused mode, the first configured tab still takes focus when its
-root starts in the workspace directory, even if it has a startup command.
-With `--no-focus`, the initial tab remains active. When both roots run commands,
-neither is guaranteed to retain the workspace path; reconnect by workspace name
-or ID if the active process changes directory.
-
-A workspace startup command, including a rule or `workspace_defaults.startup`
-fallback, keeps the initial tab for itself: it runs in Herdr's initial
-workspace pane, and every configured tab is created after it. Tab and pane
-startup commands run in their own terminals, so an interactive workspace
-command such as `lazygit` does not receive a tab's `nvim` command as input. Set
-`disable_startup = true` on a workspace to drop an inherited startup command and
-allow reuse when the root also meets the path and startup conditions above.
-Workspace exports and directory changes do not carry
-into configured tabs; use their `path` and pane `env` settings instead.
-
-### `[[tab]]`
-
-| Field | Runtime effect |
-| --- | --- |
-| `name` | Name referenced by a workspace or rule `tabs` list and used as the Herdr tab label. Must be non-empty and unique. |
-| `path` | Optional tab working directory. Without it, the workspace path is used; relative paths resolve against the workspace path and `~/` is expanded. |
-| `startup` | Command run in the new tab. `{}` is replaced with that tab's working directory. Cannot be combined with `[[tab.pane]]` entries; set `startup` on each pane instead. |
-| `pane` | Optional `[[tab.pane]]` layout. See below. |
-
-### `[[tab.pane]]`
-
-Pane entries split a new tab into a layout. They apply only when herdr-sesh
-creates the workspace; selecting an existing workspace never changes its panes
-or reruns commands. Pane layouts use `herdr pane split` and `herdr tab create
---env`, available since Herdr 0.8.2.
-
-The plugin manifest requires Herdr 0.8.2 or newer. Direct CLI invocation does
-not perform a version preflight; check `herdr --version` before using layouts.
-An older binary may fail after creating the workspace. Upgrade Herdr, then
-save any work before closing and recreating that partial workspace; reconnecting
-does not retry its layout.
-
-#### Pane layout walkthrough
-
-The following complete native configuration creates an editor on the left,
-with a server above logs on the right. Replace the workspace path with your
-project directory. This example assumes `nvim` is installed, `web/` contains
-an npm project with a `dev` script, and `development.log` exists in the project
-root; replace the commands to suit your project.
-
-Edit the file printed by `config path`; pane definitions are file-only and
-cannot be edited in the settings TUI. When adding this example to an existing
-native config, keep its single top-level `version = 1` line and use unique tab
-and workspace names. [Migrate legacy configs](#legacy-migration) first.
-
-```toml
-version = 1
-
-[[tab]]
-name = "development"
-
-[[tab.pane]]
-name = "editor"
-startup = "nvim"
-
-[[tab.pane]]
-name = "server"
-split_from = "editor"
-split = "right"
-ratio = 0.35
-path = "./web"
-env = { NODE_ENV = "development" }
-startup = "npm run dev"
-
-[[tab.pane]]
-name = "logs"
-split_from = "server"
-split = "down"
-ratio = 0.3
-startup = "tail -f development.log"
-
-[[workspace]]
-name = "my-project"
-path = "~/projects/my-project"
-tabs = ["development"]
-```
-
-The workspace's `tabs` list activates the layout; defining a tab alone does
-not create it. Validate and connect from a shell in the intended Herdr session:
-
-=== "Installed plugin"
-
-    ```bash
-    sesh_root="$(herdr plugin list --plugin fullerzz.sesh --json | jq -r '.result.plugins[0].plugin_root')"
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    "$sesh_root/bin/herdr-sesh" config validate && "$sesh_root/bin/herdr-sesh" connect my-project
-    ```
-
-=== "Local checkout"
-
-    ```bash
-    just build
-    export HERDR_PLUGIN_CONFIG_DIR="$(herdr plugin config-dir fullerzz.sesh)"
-    ./bin/herdr-sesh config validate && ./bin/herdr-sesh connect my-project
-    ```
-
-Alternatively, open the picker and select `my-project` after validation. Use a
-workspace that is not already open: reconnecting never reapplies a layout.
-The new workspace opens on a separate initial tab because the editor root has
-a startup command. Select `development` to see the layout with the editor focused.
-The server initially gets 35% of the tab's width; splitting it downward gives
-logs 30% of that right-hand column's height.
-
-```text
-my-project workspace
-Tabs: [Herdr initial tab (selected)] [development]
-
-development tab — approximate proportions
-┌──────────────────────────────────────┬────────────────────┐
-│ editor (focused)                     │ server             │
-│ nvim                                 │ npm run dev        │
-│                                      │                    │
-│                                      │                    │
-│                                      │                    │
-│                                      │                    │
-│                                      ├────────────────────┤
-│                                      │ logs               │
-│                                      │ tail -f            │
-│                                      │ development.log    │
-└──────────────────────────────────────┴────────────────────┘
-              65% width                       35% width
-```
-
-Read the pane entries in order:
-
-1. **`editor`** uses the new tab's root pane. It has no split settings.
-2. **`server`** splits `editor` to the right, taking `0.35` (35%) of its width.
-3. **`logs`** splits `server` downward, taking `0.3` (30%) of that column's
-   height. The server keeps the upper 70%; the editor is unaffected.
-
-`ratio` always describes the **new pane's share of the pane being split**,
-not its share of the entire tab. Omitting it gives an even split.
-
-| Pane | Working directory | Pane-specific environment | Startup command |
-| --- | --- | --- | --- |
-| `editor` | `~/projects/my-project` | None added | `nvim` |
-| `server` | `~/projects/my-project/web` | `NODE_ENV=development` | `npm run dev` |
-| `logs` | `~/projects/my-project` | None added | `tail -f development.log` |
-
-The tab has no `path`, so it uses the workspace directory. A pane without
-`path` uses that **tab directory**, even when it splits a pane with a different
-directory. Relative pane paths resolve against the tab directory. For example,
-adding `path = "frontend"` to `[[tab]]` would make the server's `./web` resolve
-to `~/projects/my-project/frontend/web`. `~/` expands to the home directory;
-absolute paths are used directly.
-
-`development` has its own tab because its root starts `nvim`. Remove the
-editor's `startup` to allow reuse, provided no workspace startup applies.
-If you set workspace `startup = "lazygit"` (or a rule or default startup applies),
-it runs in Herdr's initial tab independently of the layout commands.
-
-#### Pane fields
-
-| Field | Runtime effect |
-| --- | --- |
-| `name` | Pane name referenced by later `split_from` values. Must be non-empty and unique within the tab. |
-| `split_from` | Earlier pane to split. Required for every pane after the first; forward and self references are rejected. |
-| `split` | `"right"` or `"down"`. Required for every pane after the first. |
-| `ratio` | Optional share of the split given to the new pane, from `0.1` to `0.9`. Without it, Herdr splits evenly. |
-| `path` | Optional working directory. Without it, the tab path is used; relative paths resolve against the tab path and `~/` is expanded. |
-| `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`. Values are passed to Herdr as arguments, not through a shell. Shell startup files run afterward and can override them. |
-| `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
-| `wait_for` | Optional readiness check: `{ match = "...", timeout_ms = 15000 }`. Requires `startup`. See [Waiting for a pane to become ready](#waiting-for-a-pane-to-become-ready). |
-
-Pane `env` values are passed as `--env KEY=VALUE` command-line arguments and may
-be visible to other local users through process inspection such as `ps`, subject
-to OS permissions. Error-message redaction does not hide process arguments. Do
-not put secrets in these values; load them inside the pane through your shell's
-credential tooling instead. `split_from` selects where to split; it does not
-copy the source pane's `path` or `env`. Set those on each pane that needs them.
-
-The first pane is the tab's root pane and cannot set `split_from`, `split`, or
-`ratio`; its `path` and `env` are applied when the tab is created. Later panes
-are created in declaration order, each split without taking focus, so the root
-pane stays focused. When the first configured tab reuses Herdr's initial tab,
-its root pane's `env` is applied when the workspace is created.
-
-#### Startup commands and focus
-
-Workspace startup runs in the initial workspace pane, which then stays a
-separate tab, for both plain tabs and pane layouts. Each command is sent separately without an `eval` wrapper or shell
-composition. Layout creation does not wait for the workspace command to finish;
-it is not a dependency or readiness check. To hold later panes until a pane is
-ready, use [`wait_for`](#waiting-for-a-pane-to-become-ready). Commands must use the pane shell's
-syntax. The existing `{}` path substitution uses POSIX shell quoting; commands
-for other shells should avoid that placeholder when its quoting is incompatible.
-
-`disable_startup = true` on a workspace suppresses its workspace startup
-command, including rule/default fallbacks. It does not suppress pane startup
-commands or layout creation; remove a pane's `startup` to leave it at a shell.
-
-With `connect --no-focus`, the workspace is created in the background and
-opens on Herdr's initial tab: Herdr cannot select a tab without also focusing
-its workspace. When the first configured tab reuses the initial tab (no
-workspace startup command, and its root pane starts in the workspace
-directory without a startup command), the workspace opens on that tab.
-
-#### Waiting for a pane to become ready
-
-Pane startup commands are sent in declaration order without waiting for them to
-finish. When a later pane depends on an earlier one, such as integration tests
-that need a development server, add `wait_for` to the earlier pane:
-
-```toml
-[[tab]]
-name = "development"
-
-[[tab.pane]]
-name = "server"
-startup = "npm run dev"
-wait_for = { match = "Local: http://localhost:3000", timeout_ms = 15000 }
-
-[[tab.pane]]
-name = "tests"
-split_from = "server"
-split = "right"
-startup = "npm run test:integration"
-```
-
-After sending the server's startup command, herdr-sesh waits until a line of
-that pane's recent output contains the literal `match` text. Only then does it
-create the `tests` pane, run its command, and continue with later panes and
-tabs. Herdr also searches output printed before the wait starts, so a fast
-command cannot slip past it.
-
-| Field | Meaning |
-| --- | --- |
-| `match` | Literal text to find on a single output line. A line that wraps at the pane's edge still counts as one line. Required and non-empty. It must not appear in `startup`, because the pane echoes the typed command. ANSI styling is ignored. |
-| `timeout_ms` | Optional wait limit in milliseconds, from `1` to `600000` (10 minutes). Defaults to `30000`. |
-
-The `startup` check runs when the configuration loads. If `startup` uses `{}`,
-herdr-sesh checks again after replacing it with the pane's final path, just
-before sending the command. If the path contains `match`, the layout stops at
-that pane, like a failed wait.
-
-Readiness checks use `herdr pane wait-output`, available in every Herdr version
-the plugin supports (0.8.2 or newer).
-
-If the text does not appear within the timeout or the wait fails, herdr-sesh
-stops the layout and reports the workspace, tab, pane, and `wait_for` check
-that failed. Interrupting herdr-sesh during the wait also stops the layout. In
-either case, no later panes, commands, or tabs are created. The workspace and its running processes are kept, as with other
-[partial layouts](#reconnecting-and-recovering-a-partial-layout); reconnecting
-neither reruns commands nor retries the check.
-
-`wait_for` is a one-time startup barrier, not a health check. A match only means
-the text was printed once; the service can still fail afterward, and nothing is
-restarted or monitored. Panes without `wait_for` keep the default behavior.
-
-#### Reconnecting and recovering a partial layout
-
-Editing the configuration does not rearrange an open workspace. To try a changed
-layout, save your work, close that workspace, and select it again to create a new
-one. Reconnecting alone does not create missing panes or restart commands.
-
-Layouts are validated when the configuration loads, before any workspace is
-created. If a Herdr call fails partway through a layout, herdr-sesh stops and
-reports the workspace, tab, pane, and failed operation. The partially created
-workspace is kept so no running process is terminated. Reconnecting focuses it
-without retrying the layout; close the workspace and connect again to rebuild
-it.
+For named tabs, pane splits, startup behavior, and recovery, see
+[Layouts](config/layouts.md).
 
 ### `[[rule]]`
 

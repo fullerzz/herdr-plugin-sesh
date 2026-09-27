@@ -47,7 +47,7 @@ cycle_preview_mode = "alt+p" # default: "ctrl+o"; "" disables cycling
 ```
 
 The preview heading shows the configured shortcut, or no shortcut when disabled.
-See [picker keys](config.md#keys) for key syntax and binding precedence.
+See [picker keys](config/picker.md#keys) for key syntax and binding precedence.
 
 Set `[picker].preview_mode = "pane"` in `config.toml` to start in Pane mode;
 the default is `"command"`. Switching modes in the picker does not change the file.
@@ -65,7 +65,7 @@ terminals show a stacked preview instead.
 The `fullerzz.sesh.last` action switches to the previously focused workspace,
 including switches made outside the picker. History is separate for each Herdr
 session and closed workspaces are pruned automatically. See
-[Workspace history](config.md#workspace-history) for details.
+[Workspace history](config/picker.md#workspace-history) for details.
 
 !!! note "Prerequisite"
 

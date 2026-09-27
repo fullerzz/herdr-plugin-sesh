@@ -74,7 +74,7 @@ with the corrected layout; reconnecting while it remains open does not retry.
 Use the same close-and-recreate process to apply layout changes to an existing
 workspace.
 
-See the [complete pane layout example and field reference](config.md#tabpane)
+See the [complete pane layout example and field reference](config/layouts.md#pane-layout-walkthrough)
 for split directions, ratios, working directories, and startup behavior.
 
 ## Preview is unavailable or reports an error
@@ -100,7 +100,7 @@ to use source labels. The default `eza` preview has its own icon flag; customize
 the preview command separately if its glyphs are missing.
 
 Set `HERDR_SESH_REDUCE_MOTION=1` in the environment inherited by Herdr to disable
-the cursor trail. See [cursor settings](config.md#cursor-and-status-indicators).
+the cursor trail. See [cursor settings](config/picker.md#cursor-and-status-indicators).
 
 ## Previous workspace is unexpected
 
@@ -111,7 +111,7 @@ lifecycle hook can restart the watcher. Hiding the footer does not disable
 history. If sidebar switches are missing from history on Herdr 0.9.0, upgrade
 the running Herdr server to 0.9.1 or newer; that release restores the focus
 events the plugin needs. Rebuilding the plugin alone cannot restore those
-events. See [history behavior](config.md#workspace-history) and the
+events. See [history behavior](config/picker.md#workspace-history) and the
 [reconnect limitations](development/workspace-history.md#failure-model).
 
 ## Report a reproducible problem

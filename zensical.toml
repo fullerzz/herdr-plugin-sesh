@@ -10,7 +10,11 @@ copyright = "Copyright &copy; 2026 Zach Fuller"
 
 nav = [
   { "Get started" = "index.md" },
-  { "Configuration" = "config.md" },
+  { "Configuration" = [
+    { "Overview" = "config.md" },
+    { "Picker" = "config/picker.md" },
+    { "Layouts" = "config/layouts.md" },
+  ] },
   { "Commands" = "commands.md" },
   { "Keybindings" = "keybindings.md" },
   { "Troubleshooting" = "troubleshooting.md" },

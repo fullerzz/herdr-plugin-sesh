@@ -34,11 +34,11 @@ tabs.
 - Focus an existing workspace or create one from a configured session or
   directory.
 - Apply startup commands, previews, named Herdr tabs, and
-  [pane layouts](docs/config.md#tabpane) to new workspaces.
+  [pane layouts](docs/config/layouts.md#tabpane) to new workspaces.
 - Toggle between command previews and live active-pane previews with `Ctrl+O`,
   and drag the divider to resize side-by-side previews.
 - Filter, deduplicate, and optionally cache session results, with native
-  [workspace, recent, and agent-priority sorting](docs/config.md#picker).
+  [workspace, recent, and agent-priority sorting](docs/config/picker.md#picker).
 - Jump directly to the previously focused workspace, including switches made
   outside the plugin, with separate history for each Herdr session.
 - Clone a Git repository and connect to it in one command.
