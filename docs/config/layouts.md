@@ -156,7 +156,8 @@ creates the workspace in the background:
 | Runs | Workspace directory, with or without startup | No | First configured / initial |
 | Either | Another directory | No | Initial / initial |
 
-A [focus marker](#choosing-the-focused-pane) replaces the normal column's result.
+A [focus marker](#choosing-the-focused-pane) replaces the normal column's result
+when the target's configured directory matches the workspace directory.
 
 Workspace startup includes rule/default fallbacks unless `disable_startup = true`.
 The root uses the tab's `path`, overridden by the first pane's `path`. Later
@@ -187,9 +188,11 @@ leave it at a shell.
 ### Choosing the focused pane
 
 Set `focus = true` on one pane to focus it, and its tab, after the new
-workspace's layout is built. Any pane can be the target, including one in a
-later tab. In the [walkthrough](#pane-layout-walkthrough), this focuses the
-server pane instead of leaving the initial tab active:
+workspace's layout is built. The target can be in a later tab, but its resolved
+configured directory must match the workspace directory. Markers on panes in
+other directories are skipped, preserving the normal focus behavior and
+path-based reconnects. Both the pane's `path` and an inherited tab `path` count.
+For example, this selects a server pane that runs from the workspace directory:
 
 ```toml
 [[tab.pane]]
@@ -207,12 +210,14 @@ can share the same marked tab.
 
 `connect --no-focus` ignores the marker and keeps your current focus. The
 marker applies only when the layout completes; reconnecting to an open
-workspace never moves its focus. Herdr then reports the focused pane's
-directory as the workspace path; reconnect by name or ID if it differs.
+workspace never reapplies the marker. Startup commands can still change a
+pane's directory after creation; reconnect by name or ID if that happens.
 
 Focus uses Herdr's `pane.focus` socket API through `HERDR_SOCKET_PATH`, which
 Herdr sets for the picker, plugin actions, and its panes. Run direct CLI
-commands from a Herdr pane.
+commands from a Herdr pane to use explicit focus. If the socket is unavailable
+or focus fails, the command reports a warning and keeps the completed layout.
+Connect still succeeds and records the workspace switch in history.
 
 ## Waiting for a pane to become ready
 

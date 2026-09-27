@@ -1,6 +1,7 @@
 package startup
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -19,6 +20,8 @@ type Plan struct {
 	// then focuses a configured focus pane; background creation leaves it false.
 	Focus      bool
 	InitialTab InitialTabPolicy
+	// Warnf reports optional focus failures without failing a completed layout.
+	Warnf func(string, ...any)
 }
 
 // InitialTabPolicy couples initial-tab reuse with the environment that must be
@@ -134,7 +137,7 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 			tab.PaneID = root.ID
 		}
 		if len(w.Panes) > 0 {
-			focused, err := applyPanes(ctx, client, tab.PaneID, w.Panes)
+			focused, err := applyPanes(ctx, client, tab.PaneID, w, path)
 			if err != nil {
 				return fmt.Errorf("workspace %q tab %q: %w (the workspace was kept; reconnecting does not retry the layout)", p.Session.Name, w.Name, err)
 			}
@@ -151,8 +154,8 @@ func Apply(ctx context.Context, client herdr.Client, p Plan) error {
 	}
 	// Focus once the whole layout exists; splits never take focus.
 	if p.Focus && focusPane != "" {
-		if err := client.PaneFocus(ctx, focusPane); err != nil {
-			return fmt.Errorf("workspace %q tab %q: %w (the workspace was kept)", p.Session.Name, focusTab, err)
+		if err := client.PaneFocus(ctx, focusPane); err != nil && p.Warnf != nil {
+			p.Warnf("workspace %q tab %q: could not focus pane: %v (the layout is complete)", p.Session.Name, focusTab, err)
 		}
 	}
 	return nil
@@ -192,13 +195,14 @@ func findPane(ctx context.Context, client herdr.Client, workspaceID, tabID strin
 }
 
 // applyPanes reuses rootPane for the first pane, then splits earlier panes in
-// declaration order, and returns the ID of the pane marked Focus, if any.
+// declaration order, and returns the ID of the pane marked Focus, if its
+// configured directory matches the workspace path.
 // Config validation guarantees every split_from is earlier, that every pane
 // with WaitFor has a startup command, and that at most one pane is marked Focus.
-func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes []model.PaneConfig) (string, error) {
-	ids := make(map[string]string, len(panes))
+func applyPanes(ctx context.Context, client herdr.Client, rootPane string, tab model.WindowConfig, workspacePath string) (string, error) {
+	ids := make(map[string]string, len(tab.Panes))
 	focused := ""
-	for i, pane := range panes {
+	for i, pane := range tab.Panes {
 		id := rootPane
 		if i > 0 {
 			req := herdr.PaneSplitRequest{PaneID: ids[pane.SplitFrom], Direction: pane.Split, CWD: pane.Path, Env: pane.Env}
@@ -213,7 +217,8 @@ func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes
 			id = created.ID
 		}
 		ids[pane.Name] = id
-		if pane.Focus {
+		// Preserve path-based reconnects: Herdr reports the focused pane's cwd.
+		if pane.Focus && filepath.Clean(cmp.Or(pane.Path, tab.Path, workspacePath)) == filepath.Clean(workspacePath) {
 			focused = id
 		}
 		cmd := config.SubstitutePath(pane.Startup, pane.Path)

@@ -376,6 +376,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return err
 	}
 	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
+		Warnf: a.warnf,
 		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) },
 	})
 	if err != nil {
@@ -474,7 +475,7 @@ func (a *App) connect(ctx context.Context, args []string) error {
 		return err
 	}
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), sessions, target, connectpkg.Options{NoFocus: *noFocus, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
+	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), sessions, target, connectpkg.Options{NoFocus: *noFocus, Warnf: a.warnf, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
 	if err != nil {
 		return err
 	}
