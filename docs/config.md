@@ -736,6 +736,7 @@ it runs in Herdr's initial tab independently of the layout commands.
 | `path` | Optional working directory. Without it, the tab path is used; relative paths resolve against the tab path and `~/` is expanded. |
 | `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`. Values are passed to Herdr as arguments, not through a shell. Shell startup files run afterward and can override them. |
 | `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
+| `wait_for` | Optional readiness check: `{ match = "...", timeout_ms = 15000 }`. Requires `startup`. See [Waiting for a pane to become ready](#waiting-for-a-pane-to-become-ready). |
 
 Pane `env` values are passed as `--env KEY=VALUE` command-line arguments and may
 be visible to other local users through process inspection such as `ps`, subject
@@ -755,7 +756,8 @@ its root pane's `env` is applied when the workspace is created.
 Workspace startup runs in the initial workspace pane, which then stays a
 separate tab, for both plain tabs and pane layouts. Each command is sent separately without an `eval` wrapper or shell
 composition. Layout creation does not wait for the workspace command to finish;
-it is not a dependency or readiness check. Commands must use the pane shell's
+it is not a dependency or readiness check. To hold later panes until a pane is
+ready, use [`wait_for`](#waiting-for-a-pane-to-become-ready). Commands must use the pane shell's
 syntax. The existing `{}` path substitution uses POSIX shell quoting; commands
 for other shells should avoid that placeholder when its quoting is incompatible.
 
@@ -768,6 +770,58 @@ opens on Herdr's initial tab: Herdr cannot select a tab without also focusing
 its workspace. When the first configured tab reuses the initial tab (no
 workspace startup command, and its root pane starts in the workspace
 directory without a startup command), the workspace opens on that tab.
+
+#### Waiting for a pane to become ready
+
+Pane startup commands are sent in declaration order without waiting for them to
+finish. When a later pane depends on an earlier one, such as integration tests
+that need a development server, add `wait_for` to the earlier pane:
+
+```toml
+[[tab]]
+name = "development"
+
+[[tab.pane]]
+name = "server"
+startup = "npm run dev"
+wait_for = { match = "Local: http://localhost:3000", timeout_ms = 15000 }
+
+[[tab.pane]]
+name = "tests"
+split_from = "server"
+split = "right"
+startup = "npm run test:integration"
+```
+
+After sending the server's startup command, herdr-sesh waits until a line of
+that pane's recent output contains the literal `match` text. Only then does it
+create the `tests` pane, run its command, and continue with later panes and
+tabs. Herdr also searches output printed before the wait starts, so a fast
+command cannot slip past it.
+
+| Field | Meaning |
+| --- | --- |
+| `match` | Literal text to find on a single output line. A line that wraps at the pane's edge still counts as one line. Required and non-empty. It must not appear in `startup`, because the pane echoes the typed command. ANSI styling is ignored. |
+| `timeout_ms` | Optional wait limit in milliseconds, from `1` to `600000` (10 minutes). Defaults to `30000`. |
+
+The `startup` check runs when the configuration loads. If `startup` uses `{}`,
+herdr-sesh checks again after replacing it with the pane's final path, just
+before sending the command. If the path contains `match`, the layout stops at
+that pane, like a failed wait.
+
+Readiness checks use `herdr pane wait-output`, available in every Herdr version
+the plugin supports (0.8.2 or newer).
+
+If the text does not appear within the timeout or the wait fails, herdr-sesh
+stops the layout and reports the workspace, tab, pane, and `wait_for` check
+that failed. Interrupting herdr-sesh during the wait also stops the layout. In
+either case, no later panes, commands, or tabs are created. The workspace and its running processes are kept, as with other
+[partial layouts](#reconnecting-and-recovering-a-partial-layout); reconnecting
+neither reruns commands nor retries the check.
+
+`wait_for` is a one-time startup barrier, not a health check. A match only means
+the text was printed once; the service can still fail afterward, and nothing is
+restarted or monitored. Panes without `wait_for` keep the default behavior.
 
 #### Reconnecting and recovering a partial layout
 

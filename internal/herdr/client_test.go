@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -194,6 +195,22 @@ func TestCLIClientConstructsPaneSplit(t *testing.T) {
 	require.NoError(t, err)
 	want := [][]string{{"/bin/herdr", "pane", "split", "w1-1", "--direction", "right", "--no-focus", "--ratio", "0.65", "--cwd", "/tmp/web", "--env", "A=a b", "--env", "Z=last"}}
 	assert.Equal(t, want, rr.calls)
+}
+
+func TestCLIClientConstructsPaneWaitOutput(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	require.NoError(t, c.PaneWaitOutput(context.Background(), "w1-2", "--ready", 15*time.Second))
+	want := [][]string{{"/bin/herdr", "pane", "wait-output", "w1-2", "--match=--ready", "--source=recent-unwrapped", "--timeout=15000"}}
+	assert.Equal(t, want, rr.calls)
+}
+
+func TestCLIClientReportsCanceledWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{err: errors.New("signal: killed")}}
+	err := c.PaneWaitOutput(ctx, "w1-2", "ready", time.Second)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestCLIClientDecodesPaneSplitEnvelope(t *testing.T) {

@@ -135,6 +135,9 @@ type Client interface {
 	PaneCurrent(context.Context) (Pane, error)
 	PaneRun(context.Context, string, string) error
 	PaneSplit(context.Context, PaneSplitRequest) (Pane, error)
+	// PaneWaitOutput waits until a line of the pane's recent output, including
+	// output printed before the call, contains match.
+	PaneWaitOutput(ctx context.Context, paneID, match string, timeout time.Duration) error
 	PluginPaneOpen(context.Context, string, string, string) error
 }
 type Runner interface {
@@ -182,16 +185,24 @@ func NewCLIClient() *CLIClient {
 	return &CLIClient{Bin: bin, Runner: ExecRunner{}, Timeout: 10 * time.Second}
 }
 func (c *CLIClient) run(ctx context.Context, args ...string) ([]byte, error) {
+	return c.runFor(ctx, 0, args...)
+}
+
+// runFor extends the command timeout by extra for commands that block by design.
+func (c *CLIClient) runFor(ctx context.Context, extra time.Duration, args ...string) ([]byte, error) {
 	if c.Runner == nil {
 		c.Runner = ExecRunner{}
 	}
 	if c.Timeout == 0 {
 		c.Timeout = 10 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout+extra)
 	defer cancel()
 	out, stderr, err := c.Runner.Run(ctx, c.Bin, args...)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return out, fmt.Errorf("herdr %s: %w", strings.Join(redactEnvArgs(args), " "), ctxErr)
+		}
 		return out, fmt.Errorf("herdr %s: %w: %s", strings.Join(redactEnvArgs(args), " "), err, strings.TrimSpace(string(stderr)))
 	}
 	return out, nil
@@ -461,6 +472,15 @@ func (c *CLIClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 		return Pane{}, errors.New("herdr pane split returned no pane id")
 	}
 	return p, nil
+}
+
+// PaneWaitOutput leaves the timeout to Herdr so its error explains the failure.
+func (c *CLIClient) PaneWaitOutput(ctx context.Context, id, match string, timeout time.Duration) error {
+	// --flag=value keeps a match starting with "-" from parsing as an option.
+	// recent-unwrapped joins soft-wrapped lines, so a narrow pane cannot split
+	// the match; Herdr's CLI help still lists recent as the default.
+	_, err := c.runFor(ctx, timeout, "pane", "wait-output", id, "--match="+match, "--source=recent-unwrapped", "--timeout="+strconv.FormatInt(timeout.Milliseconds(), 10))
+	return err
 }
 
 // redactEnvArgs hides --env values, which may hold secrets, from error text.

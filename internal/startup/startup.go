@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -180,7 +181,8 @@ func findPane(ctx context.Context, client herdr.Client, workspaceID, tabID strin
 }
 
 // applyPanes reuses rootPane for the first pane, then splits earlier panes in
-// declaration order. Config validation guarantees every split_from is earlier.
+// declaration order. Config validation guarantees every split_from is earlier
+// and that every pane with WaitFor has a startup command.
 func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes []model.PaneConfig) error {
 	ids := make(map[string]string, len(panes))
 	for i, pane := range panes {
@@ -199,9 +201,21 @@ func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes
 		}
 		ids[pane.Name] = id
 		cmd := config.SubstitutePath(pane.Startup, pane.Path)
+		// Config validation checks the template, but {} becomes the resolved
+		// path only here, and the pane echoes the command it runs.
+		if w := pane.WaitFor; w != nil && strings.Contains(cmd, w.Match) {
+			return fmt.Errorf("pane %q: wait_for match %q appears in its startup command after {} expands to %q, which the pane echoes", pane.Name, w.Match, pane.Path)
+		}
 		if cmd != "" {
 			if err := client.PaneRun(ctx, id, cmd); err != nil {
 				return fmt.Errorf("pane %q: run startup: %w", pane.Name, err)
+			}
+		}
+		// Herdr searches output printed before the wait starts, so an early
+		// match is not missed.
+		if w := pane.WaitFor; w != nil {
+			if err := client.PaneWaitOutput(ctx, id, w.Match, w.Timeout); err != nil {
+				return fmt.Errorf("pane %q: wait_for %q within %s: %w", pane.Name, w.Match, w.Timeout, err)
 			}
 		}
 	}

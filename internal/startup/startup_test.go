@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/sources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -116,6 +119,89 @@ func TestApplyStopsAndReportsMidLayoutFailure(t *testing.T) {
 	assert.Len(t, f.Splits, 1)
 	assert.Len(t, f.CreatedTabs, 1, "later tabs are not created")
 	assert.Equal(t, []string{"workspace-root:echo ws"}, f.PaneRuns)
+}
+
+func waitLayout() model.Session {
+	return model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{
+		{Name: "dev", Panes: []model.PaneConfig{
+			{Name: "server", Startup: "npm run dev", WaitFor: &model.PaneWait{Match: "Local:", Timeout: time.Second}},
+			{Name: "tests", SplitFrom: "server", Split: "right", Startup: "npm test"},
+		}},
+		{Name: "later", StartupScript: "lazygit"},
+	}}
+}
+
+func TestApplyWaitsForReadinessBeforeLaterPanes(t *testing.T) {
+	f := &herdr.FakeClient{}
+	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: waitLayout()}))
+	assert.Equal(t, []string{
+		"create tab dev",
+		"run new-pane:npm run dev",
+		"wait new-pane:Local:",
+		"split new-pane",
+		"run split-1:npm test",
+		"create tab later",
+		"run new-pane:lazygit",
+	}, f.Ops)
+}
+
+func TestApplyRejectsMatchEchoedByResolvedStartup(t *testing.T) {
+	cfg := config.Config{
+		SessionConfigs: []config.SessionConfig{{Name: "app", Path: "/tmp/ready-api", Windows: []string{"dev", "later"}}},
+		WindowConfigs: []model.WindowConfig{
+			{Name: "dev", Panes: []model.PaneConfig{
+				{Name: "server", Startup: "cd {} && npm run dev", WaitFor: &model.PaneWait{Match: "ready", Timeout: time.Second}},
+				{Name: "tests", SplitFrom: "server", Split: "right", Startup: "npm test"},
+			}},
+			{Name: "later", StartupScript: "lazygit"},
+		},
+	}
+	for path, wantErr := range map[string]bool{"/tmp/ready-api": true, "/tmp/api": false} {
+		t.Run(path, func(t *testing.T) {
+			cfg.SessionConfigs[0].Path = path
+			// The pane path comes from the workspace, as a raw-config check cannot see.
+			got, err := sources.ConfigSessions{Config: cfg}.List(context.Background())
+			require.NoError(t, err)
+			f := &herdr.FakeClient{}
+			err = Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: got.Ordered()[0]})
+			if !wantErr {
+				require.NoError(t, err)
+				assert.Equal(t, []string{"new-pane:ready"}, f.Waits)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `workspace "app" tab "dev": pane "server": wait_for match "ready" appears in its startup command after {} expands to "/tmp/ready-api"`)
+			assert.Contains(t, err.Error(), "reconnecting does not retry the layout")
+			assert.Equal(t, []string{"create tab dev"}, f.Ops, "nothing runs, waits, or splits after the collision")
+		})
+	}
+}
+
+func TestApplyStopsLayoutWhenReadinessFails(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, tc := range map[string]struct {
+		ctx     context.Context
+		waitErr error
+		want    error
+	}{
+		"timeout":   {context.Background(), errors.New("timed out"), nil},
+		"cancelled": {canceled, nil, context.Canceled},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &herdr.FakeClient{WaitErr: tc.waitErr}
+			err := Apply(tc.ctx, f, Plan{WorkspaceID: "ws1", Session: waitLayout()})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `workspace "app" tab "dev": pane "server": wait_for "Local:" within 1s`)
+			assert.Contains(t, err.Error(), "reconnecting does not retry the layout")
+			if tc.want != nil {
+				require.ErrorIs(t, err, tc.want)
+			}
+			assert.Empty(t, f.Splits, "later panes are not created")
+			assert.Len(t, f.CreatedTabs, 1, "later tabs are not created")
+			assert.Equal(t, []string{"new-pane:npm run dev"}, f.PaneRuns, "later startup commands do not run")
+		})
+	}
 }
 
 type tabWithoutRootClient struct{ herdr.FakeClient }

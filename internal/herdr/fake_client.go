@@ -3,6 +3,7 @@ package herdr
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type FakeClient struct {
@@ -20,6 +21,11 @@ type FakeClient struct {
 	SplitErr      error
 	SplitErrAt    int
 	OpenedPlugins []string
+	// Waits records "pane:match"; WaitErr fails every wait.
+	Waits   []string
+	WaitErr error
+	// Ops records tab creation, runs, splits, and waits in call order.
+	Ops []string
 }
 
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
@@ -38,6 +44,7 @@ func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
 func (f *FakeClient) TabList(context.Context, string) ([]Tab, error) { return f.Tabs, nil }
 func (f *FakeClient) TabCreate(_ context.Context, r TabCreateRequest) (Tab, error) {
 	f.CreatedTabs = append(f.CreatedTabs, r)
+	f.Ops = append(f.Ops, "create tab "+r.Label)
 	t := Tab{ID: fmt.Sprintf("new-tab-%d", len(f.Tabs)+1), WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD, PaneID: "new-pane"}
 	f.Tabs = append(f.Tabs, t)
 	if r.Focus {
@@ -78,6 +85,7 @@ func (f *FakeClient) PaneCurrent(context.Context) (Pane, error) {
 }
 func (f *FakeClient) PaneRun(_ context.Context, id, cmd string) error {
 	f.PaneRuns = append(f.PaneRuns, id+":"+cmd)
+	f.Ops = append(f.Ops, "run "+id+":"+cmd)
 	return nil
 }
 func (f *FakeClient) PaneSplit(_ context.Context, r PaneSplitRequest) (Pane, error) {
@@ -85,7 +93,16 @@ func (f *FakeClient) PaneSplit(_ context.Context, r PaneSplitRequest) (Pane, err
 		return Pane{}, f.SplitErr
 	}
 	f.Splits = append(f.Splits, r)
+	f.Ops = append(f.Ops, "split "+r.PaneID)
 	return Pane{ID: fmt.Sprintf("split-%d", len(f.Splits))}, nil
+}
+func (f *FakeClient) PaneWaitOutput(ctx context.Context, id, match string, _ time.Duration) error {
+	f.Waits = append(f.Waits, id+":"+match)
+	f.Ops = append(f.Ops, "wait "+id+":"+match)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.WaitErr
 }
 func (f *FakeClient) PluginPaneOpen(_ context.Context, p, e, pl string) error {
 	f.OpenedPlugins = append(f.OpenedPlugins, p+":"+e+":"+pl)
