@@ -228,6 +228,7 @@ Configuration is validated before workspace creation. If a Herdr operation
 fails during layout creation, the error identifies the workspace, tab, pane,
 and operation; the workspace and running processes are kept.
 
-To apply edits or rebuild a partial layout, save your work, stop processes as
+If creation failed, correct the reported error first. To apply edits or rebuild
+a partial layout, save your work, stop processes as
 needed, close the workspace, and select it again. Reconnecting to an open
 workspace never rearranges panes, reruns commands, or retries readiness checks.

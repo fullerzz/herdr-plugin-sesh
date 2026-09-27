@@ -59,7 +59,8 @@ when focusing an existing one.
   and the first root pane's path/command. Check the
   [initial-tab decision table](config/layouts.md#initial-tab-behavior).
 
-To apply changes or recover after creation fails, save your work, stop processes
+If creation failed, correct the reported error first. To apply changes or
+rebuild the layout, save your work, stop processes
 as needed, close the workspace, and select it again. Running processes are
 preserved after failures; reconnecting does not retry the layout. See
 [layout recovery](config/layouts.md#reconnecting-and-recovering-a-partial-layout).

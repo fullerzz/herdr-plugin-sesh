@@ -32,7 +32,7 @@ applies to fzf. Picker sorting does not change JSON output.
 | `prompt` | `"Sesh> "` | Prompt text; empty uses the default. |
 | `placeholder` | `"Filter workspaces"` | Placeholder text; empty uses the default. |
 | `separator_aware` | `false` | Treat `-`, `_`, `/`, and `.` as spaces in native and fzf searches. |
-| `workspace_sort` | `"workspace"` | Herdr order (`workspace`), most recently visited first (`recent`), or status priority (`agent`). |
+| `workspace_sort` | `"workspace"` | Herdr order (`workspace`), most recently visited first (`recent`), or status priority (`agent`). Press ++ctrl+r++ to cycle `workspace` → `recent` → `agent`. |
 | `show_last_workspace` | `true` | Show the previous-workspace footer. Hiding it does not disable history or `last`. |
 | `show_last_workspace_path` | `true` | Include the previous workspace's working directory in the footer. |
 
@@ -48,7 +48,7 @@ Agent sorting uses blocked → done → working → idle → unknown/no agent, r
 Herdr order for ties and unrecognized states. Live updates preserve the selected
 workspace. Sorting rearranges only Herdr rows within their `list.source_order`
 slots; it cannot move them ahead of sources ordered first. Linked worktrees
-[sort as families](#linked-worktrees). Use ++ctrl+r++ to cycle sort modes.
+[sort as families](#linked-worktrees).
 
 ### Preview controls
 

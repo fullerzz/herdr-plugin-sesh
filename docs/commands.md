@@ -63,7 +63,7 @@ Use `"$sesh_bin"` followed by a command from this table:
 | `clone [--cmdDir PATH] [--dir PATH] REPOSITORY` | Clone a repository and connect to it, optionally choosing Git's working directory and the destination. |
 | `root [--connect]` | Print the current Git repository root, or connect to it. |
 | `window [PATH]` | List tabs, or create a tab for a path. |
-| `config path` | Print the resolved config path, or the destination when none exists. |
+| `config path` | Print the resolved config path, or the destination when none exists; a missing explicit override is an error. |
 | `config init` | Create a native starter config only when no config exists. |
 | `config edit [--config PATH]` | Open the global settings editor; review and confirm before saving. |
 | `config validate [PATH]` | Validate the active or specified configuration. |
@@ -85,7 +85,8 @@ not the current directory. After the [shell setup](#run-the-binary-directly), us
 `"$sesh_bin"` with:
 
 - `config path`: print the active file, or the native `config.toml` destination
-  when none exists.
+  when none exists. If `HERDR_SESH_CONFIG` selects a missing file, the command
+  errors instead; the explicit override must exist.
 - `config init`: create a native starter only when no config exists anywhere in
   the lookup order. Otherwise print the existing path, including legacy files.
   A missing `HERDR_SESH_CONFIG` path is created at that exact location.

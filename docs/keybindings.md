@@ -33,7 +33,7 @@ the native picker; the experimental fzf picker uses its own controls.
 
 ## Native picker previews
 
-Press **Ctrl+O** to switch between command and active-pane previews. The heading
+By default, press ++ctrl+o++ to switch between command and active-pane previews. The heading
 shows the current shortcut; configure another key or disable cycling through
 [`keys.cycle_preview_mode`](config/picker.md#keys). Switching modes does not save
 the choice; set [`picker.preview_mode`](config/picker.md#preview-controls) to
