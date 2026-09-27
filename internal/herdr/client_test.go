@@ -201,7 +201,7 @@ func TestCLIClientConstructsPaneWaitOutput(t *testing.T) {
 	rr := &recRunner{}
 	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
 	require.NoError(t, c.PaneWaitOutput(context.Background(), "w1-2", "--ready", 15*time.Second))
-	want := [][]string{{"/bin/herdr", "pane", "wait-output", "w1-2", "--match=--ready", "--timeout=15000"}}
+	want := [][]string{{"/bin/herdr", "pane", "wait-output", "w1-2", "--match=--ready", "--source=recent-unwrapped", "--timeout=15000"}}
 	assert.Equal(t, want, rr.calls)
 }
 

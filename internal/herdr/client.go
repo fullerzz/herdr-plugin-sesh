@@ -477,7 +477,9 @@ func (c *CLIClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 // PaneWaitOutput leaves the timeout to Herdr so its error explains the failure.
 func (c *CLIClient) PaneWaitOutput(ctx context.Context, id, match string, timeout time.Duration) error {
 	// --flag=value keeps a match starting with "-" from parsing as an option.
-	_, err := c.runFor(ctx, timeout, "pane", "wait-output", id, "--match="+match, "--timeout="+strconv.FormatInt(timeout.Milliseconds(), 10))
+	// recent-unwrapped joins soft-wrapped lines, so a narrow pane cannot split
+	// the match; Herdr's CLI help still lists recent as the default.
+	_, err := c.runFor(ctx, timeout, "pane", "wait-output", id, "--match="+match, "--source=recent-unwrapped", "--timeout="+strconv.FormatInt(timeout.Milliseconds(), 10))
 	return err
 }
 

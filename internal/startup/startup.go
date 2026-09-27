@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -200,6 +201,11 @@ func applyPanes(ctx context.Context, client herdr.Client, rootPane string, panes
 		}
 		ids[pane.Name] = id
 		cmd := config.SubstitutePath(pane.Startup, pane.Path)
+		// Config validation checks the template, but {} becomes the resolved
+		// path only here, and the pane echoes the command it runs.
+		if w := pane.WaitFor; w != nil && strings.Contains(cmd, w.Match) {
+			return fmt.Errorf("pane %q: wait_for match %q appears in its startup command after {} expands to %q, which the pane echoes", pane.Name, w.Match, pane.Path)
+		}
 		if cmd != "" {
 			if err := client.PaneRun(ctx, id, cmd); err != nil {
 				return fmt.Errorf("pane %q: run startup: %w", pane.Name, err)

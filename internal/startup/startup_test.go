@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/sources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -132,9 +134,47 @@ func waitLayout() model.Session {
 func TestApplyWaitsForReadinessBeforeLaterPanes(t *testing.T) {
 	f := &herdr.FakeClient{}
 	require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: waitLayout()}))
-	assert.Equal(t, []string{"new-pane:Local:"}, f.Waits)
-	assert.Len(t, f.Splits, 1)
-	assert.Equal(t, []string{"new-pane:npm run dev", "split-1:npm test", "new-pane:lazygit"}, f.PaneRuns)
+	assert.Equal(t, []string{
+		"create tab dev",
+		"run new-pane:npm run dev",
+		"wait new-pane:Local:",
+		"split new-pane",
+		"run split-1:npm test",
+		"create tab later",
+		"run new-pane:lazygit",
+	}, f.Ops)
+}
+
+func TestApplyRejectsMatchEchoedByResolvedStartup(t *testing.T) {
+	cfg := config.Config{
+		SessionConfigs: []config.SessionConfig{{Name: "app", Path: "/tmp/ready-api", Windows: []string{"dev", "later"}}},
+		WindowConfigs: []model.WindowConfig{
+			{Name: "dev", Panes: []model.PaneConfig{
+				{Name: "server", Startup: "cd {} && npm run dev", WaitFor: &model.PaneWait{Match: "ready", Timeout: time.Second}},
+				{Name: "tests", SplitFrom: "server", Split: "right", Startup: "npm test"},
+			}},
+			{Name: "later", StartupScript: "lazygit"},
+		},
+	}
+	for path, wantErr := range map[string]bool{"/tmp/ready-api": true, "/tmp/api": false} {
+		t.Run(path, func(t *testing.T) {
+			cfg.SessionConfigs[0].Path = path
+			// The pane path comes from the workspace, as a raw-config check cannot see.
+			got, err := sources.ConfigSessions{Config: cfg}.List(context.Background())
+			require.NoError(t, err)
+			f := &herdr.FakeClient{}
+			err = Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: got.Ordered()[0]})
+			if !wantErr {
+				require.NoError(t, err)
+				assert.Equal(t, []string{"new-pane:ready"}, f.Waits)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `workspace "app" tab "dev": pane "server": wait_for match "ready" appears in its startup command after {} expands to "/tmp/ready-api"`)
+			assert.Contains(t, err.Error(), "reconnecting does not retry the layout")
+			assert.Equal(t, []string{"create tab dev"}, f.Ops, "nothing runs, waits, or splits after the collision")
+		})
+	}
 }
 
 func TestApplyStopsLayoutWhenReadinessFails(t *testing.T) {

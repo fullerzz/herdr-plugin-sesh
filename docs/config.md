@@ -801,8 +801,13 @@ command cannot slip past it.
 
 | Field | Meaning |
 | --- | --- |
-| `match` | Literal text to find on a single output line. Required and non-empty. It must not appear in `startup`, because the pane echoes the typed command. ANSI styling is ignored. |
+| `match` | Literal text to find on a single output line. A line that wraps at the pane's edge still counts as one line. Required and non-empty. It must not appear in `startup`, because the pane echoes the typed command. ANSI styling is ignored. |
 | `timeout_ms` | Optional wait limit in milliseconds, from `1` to `600000` (10 minutes). Defaults to `30000`. |
+
+The `startup` check runs when the configuration loads. If `startup` uses `{}`,
+herdr-sesh checks again after replacing it with the pane's final path, just
+before sending the command. If the path contains `match`, the layout stops at
+that pane, like a failed wait.
 
 Readiness checks use `herdr pane wait-output`, available in every Herdr version
 the plugin supports (0.8.2 or newer).
