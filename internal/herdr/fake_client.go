@@ -14,6 +14,7 @@ type FakeClient struct {
 	CreatedTabs       []TabCreateRequest
 	FocusedWorkspaces []string
 	FocusedTabs       []string
+	FocusedPanes      []string
 	RenamedTabs       []string
 	PaneRuns          []string
 	Splits            []PaneSplitRequest
@@ -24,7 +25,7 @@ type FakeClient struct {
 	// Waits records "pane:match"; WaitErr fails every wait.
 	Waits   []string
 	WaitErr error
-	// Ops records tab creation, runs, splits, and waits in call order.
+	// Ops records tab creation, runs, splits, waits, and pane focus in call order.
 	Ops []string
 }
 
@@ -95,6 +96,11 @@ func (f *FakeClient) PaneSplit(_ context.Context, r PaneSplitRequest) (Pane, err
 	f.Splits = append(f.Splits, r)
 	f.Ops = append(f.Ops, "split "+r.PaneID)
 	return Pane{ID: fmt.Sprintf("split-%d", len(f.Splits))}, nil
+}
+func (f *FakeClient) PaneFocus(_ context.Context, id string) error {
+	f.FocusedPanes = append(f.FocusedPanes, id)
+	f.Ops = append(f.Ops, "focus "+id)
+	return nil
 }
 func (f *FakeClient) PaneWaitOutput(ctx context.Context, id, match string, _ time.Duration) error {
 	f.Waits = append(f.Waits, id+":"+match)

@@ -208,6 +208,26 @@ func TestNativeEmptyPreviewFallsBackToDefault(t *testing.T) {
 	assert.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
 }
 
+// focusTabs defines two tabs with focused panes and one without.
+const focusTabs = `version = 1
+[[tab]]
+name = "t"
+[[tab.pane]]
+name = "a"
+focus = true
+[[tab]]
+name = "plain"
+[[tab]]
+name = "u"
+[[tab.pane]]
+name = "root"
+[[tab.pane]]
+name = "b"
+split_from = "root"
+split = "down"
+focus = true
+`
+
 func TestNativeFailures(t *testing.T) {
 	tests := map[string]struct {
 		body string
@@ -254,6 +274,10 @@ func TestNativeFailures(t *testing.T) {
 		"wait zero timeout":      {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { match = \"r\", timeout_ms = 0 }\n", "tab.pane.wait_for.timeout_ms"},
 		"wait timeout too long":  {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { match = \"r\", timeout_ms = 600001 }\n", "tab.pane.wait_for.timeout_ms"},
 		"wait unknown field":     {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nstartup = \"x\"\nwait_for = { regex = \"r\" }\n", "regex"},
+		"two focused panes":      {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\nfocus = true\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"right\"\nfocus = true\n", `tab.pane.focus: tab "t" can focus only one pane, but sets focus on "a" and "b"`},
+		"workspace focus clash":  {focusTabs + "[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"t\", \"plain\", \"u\"]\n", `workspace.tabs: workspace "x" can focus only one pane, but sets focus on pane "a" in tab "t" and pane "b" in tab "u"`},
+		"rule focus clash":       {focusTabs + "[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"u\", \"t\"]\n", `rule.tabs: rule "/x/**" can focus only one pane, but sets focus on pane "b" in tab "u" and pane "a" in tab "t"`},
+		"focus tab listed twice": {focusTabs + "[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"t\", \"t\"]\n", `workspace "x" can focus only one pane, but sets focus on pane "a" in tab "t" and pane "a" in tab "t"`},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -575,12 +599,32 @@ wait_for = { match = "Local: http://localhost:3000", timeout_ms = 15000 }
 name = "logs"
 split_from = "editor"
 split = "down"
+focus = true
 `)
 	require.NoError(t, err)
 	require.Len(t, cfg.WindowConfigs, 1)
 	assert.Equal(t, []model.PaneConfig{
 		{Name: "editor", Env: map[string]string{"EDITOR": "nvim"}, Startup: "nvim", WaitFor: &model.PaneWait{Match: "ready", Timeout: 30 * time.Second}},
 		{Name: "server", SplitFrom: "editor", Split: "right", Ratio: 0.35, Path: "./web", Env: map[string]string{"NODE_ENV": "development"}, Startup: "npm run dev", WaitFor: &model.PaneWait{Match: "Local: http://localhost:3000", Timeout: 15 * time.Second}},
-		{Name: "logs", SplitFrom: "editor", Split: "down"},
+		{Name: "logs", SplitFrom: "editor", Split: "down", Focus: true},
 	}, cfg.WindowConfigs[0].Panes)
+}
+
+func TestNativeFocusedTabsCanBeSharedAcrossTabLists(t *testing.T) {
+	_, err := loadNative(t, focusTabs+`
+[[workspace]]
+name = "x"
+path = "/x"
+tabs = ["t", "plain"]
+
+[[workspace]]
+name = "y"
+path = "/y"
+tabs = ["plain", "u"]
+
+[[rule]]
+path_glob = "/z/**"
+tabs = ["t"]
+`)
+	require.NoError(t, err)
 }

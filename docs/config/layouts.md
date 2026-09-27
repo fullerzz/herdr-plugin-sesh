@@ -130,6 +130,7 @@ may leave a partial workspace; upgrade, then follow [recovery](#reconnecting-and
 | `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values cannot contain NUL bytes. Values pass as arguments, not through a shell. Shell startup files can override them. |
 | `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
 | `wait_for` | Optional readiness check: `{ match = "...", timeout_ms = 15000 }`. Requires `startup`. See [Waiting for a pane to become ready](#waiting-for-a-pane-to-become-ready). |
+| `focus` | Optional `true` to focus this pane once a new workspace's layout is built. See [Choosing the focused pane](#choosing-the-focused-pane). |
 
 !!! warning "Do not put secrets in pane environment values"
 
@@ -154,6 +155,8 @@ creates the workspace in the background:
 | None | Workspace directory, with startup | No | Initial / initial |
 | Runs | Workspace directory, with or without startup | No | First configured / initial |
 | Either | Another directory | No | Initial / initial |
+
+A [focus marker](#choosing-the-focused-pane) replaces the normal column's result.
 
 Workspace startup includes rule/default fallbacks unless `disable_startup = true`.
 The root uses the tab's `path`, overridden by the first pane's `path`. Later
@@ -180,6 +183,36 @@ quoting, so avoid it with incompatible shells.
 `disable_startup = true` suppresses only workspace startup, including rule/default
 fallbacks. Tabs and panes still run their commands; omit a pane's `startup` to
 leave it at a shell.
+
+### Choosing the focused pane
+
+Set `focus = true` on one pane to focus it, and its tab, after the new
+workspace's layout is built. Any pane can be the target, including one in a
+later tab. In the [walkthrough](#pane-layout-walkthrough), this focuses the
+server pane instead of leaving the initial tab active:
+
+```toml
+[[tab.pane]]
+name = "server"
+split_from = "editor"
+split = "right"
+startup = "npm run dev"
+focus = true
+```
+
+Without a marker, focus follows the table above. Each workspace or rule `tabs`
+list may reach only one marked pane: config load rejects two markers in one
+tab, two marked tabs in one list, or a marked tab listed twice. Several lists
+can share the same marked tab.
+
+`connect --no-focus` ignores the marker and keeps your current focus. The
+marker applies only when the layout completes; reconnecting to an open
+workspace never moves its focus. Herdr then reports the focused pane's
+directory as the workspace path; reconnect by name or ID if it differs.
+
+Focus uses Herdr's `pane.focus` socket API through `HERDR_SOCKET_PATH`, which
+Herdr sets for the picker, plugin actions, and its panes. Run direct CLI
+commands from a Herdr pane.
 
 ## Waiting for a pane to become ready
 

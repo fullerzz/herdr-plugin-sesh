@@ -89,6 +89,7 @@ type nativePane struct {
 	Env     map[string]string `toml:"env,omitempty"`
 	Startup string            `toml:"startup,omitempty"`
 	WaitFor *nativeWait       `toml:"wait_for,omitempty"`
+	Focus   bool              `toml:"focus,omitempty"`
 }
 
 type nativeWait struct {
@@ -193,7 +194,7 @@ func (n nativeConfig) validate(path string) error {
 			return fail("list.blacklist", "invalid regex %q: %v", expr, err)
 		}
 	}
-	tabNames, err := n.validateTabs(fail)
+	focusedPanes, err := n.validateTabs(fail)
 	if err != nil {
 		return err
 	}
@@ -210,9 +211,12 @@ func (n nativeConfig) validate(path string) error {
 		}
 		workspaceNames[w.Name] = true
 		for _, ref := range w.Tabs {
-			if !tabNames[ref] {
+			if _, ok := focusedPanes[ref]; !ok {
 				return fail("workspace.tabs", "workspace %q references unknown tab %q", w.Name, ref)
 			}
+		}
+		if conflict := focusConflict(w.Tabs, focusedPanes); conflict != "" {
+			return fail("workspace.tabs", "workspace %q %s", w.Name, conflict)
 		}
 	}
 	for _, r := range n.Rules {
@@ -224,78 +228,109 @@ func (n nativeConfig) validate(path string) error {
 			return fail("rule.path_glob", "invalid glob %q: %v", r.PathGlob, err)
 		}
 		for _, ref := range r.Tabs {
-			if !tabNames[ref] {
+			if _, ok := focusedPanes[ref]; !ok {
 				return fail("rule.tabs", "rule %q references unknown tab %q", r.PathGlob, ref)
 			}
+		}
+		if conflict := focusConflict(r.Tabs, focusedPanes); conflict != "" {
+			return fail("rule.tabs", "rule %q %s", r.PathGlob, conflict)
 		}
 	}
 	return nil
 }
 
-func (n nativeConfig) validateTabs(fail func(key, format string, args ...any) error) (map[string]bool, error) {
-	tabNames := map[string]bool{}
+// focusConflict describes a tab list that would focus more than one pane, or
+// returns "". A tab listed twice creates its focused pane twice.
+func focusConflict(tabs []string, focusedPanes map[string]string) string {
+	first := ""
+	for _, tab := range tabs {
+		pane := focusedPanes[tab]
+		if pane == "" {
+			continue
+		}
+		target := fmt.Sprintf("pane %q in tab %q", pane, tab)
+		if first != "" {
+			return fmt.Sprintf("can focus only one pane, but sets focus on %s and %s", first, target)
+		}
+		first = target
+	}
+	return ""
+}
+
+// validateTabs maps every tab name to its focused pane, or "" when it has none.
+func (n nativeConfig) validateTabs(fail func(key, format string, args ...any) error) (map[string]string, error) {
+	focusedPanes := map[string]string{}
 	for _, t := range n.Tabs {
 		if t.Name == "" {
 			return nil, fail("tab.name", "must not be empty")
 		}
-		if tabNames[t.Name] {
+		if _, ok := focusedPanes[t.Name]; ok {
 			return nil, fail("tab.name", "duplicate tab %q", t.Name)
 		}
-		tabNames[t.Name] = true
-		if err := t.validatePanes(fail); err != nil {
+		focused, err := t.validatePanes(fail)
+		if err != nil {
 			return nil, err
 		}
+		focusedPanes[t.Name] = focused
 	}
-	return tabNames, nil
+	return focusedPanes, nil
 }
 
 // validatePanes checks the complete layout up front so a bad layout fails at
-// config load instead of after a workspace has been created.
-func (t nativeTab) validatePanes(fail func(key, format string, args ...any) error) error {
+// config load instead of after a workspace has been created. It returns the
+// focused pane's name, or "".
+func (t nativeTab) validatePanes(fail func(key, format string, args ...any) error) (string, error) {
 	if len(t.Panes) > 0 && t.Startup != "" {
-		return fail("tab.startup", "tab %q cannot combine startup with panes; set startup on each pane", t.Name)
+		return "", fail("tab.startup", "tab %q cannot combine startup with panes; set startup on each pane", t.Name)
 	}
 	seen := map[string]bool{}
+	focused := ""
 	for i, p := range t.Panes {
 		if p.Name == "" {
-			return fail("tab.pane.name", "must not be empty in tab %q", t.Name)
+			return "", fail("tab.pane.name", "must not be empty in tab %q", t.Name)
 		}
 		if seen[p.Name] {
-			return fail("tab.pane.name", "duplicate pane %q in tab %q", p.Name, t.Name)
+			return "", fail("tab.pane.name", "duplicate pane %q in tab %q", p.Name, t.Name)
+		}
+		if p.Focus {
+			if focused != "" {
+				return "", fail("tab.pane.focus", "tab %q can focus only one pane, but sets focus on %q and %q", t.Name, focused, p.Name)
+			}
+			focused = p.Name
 		}
 		if i == 0 {
 			if p.SplitFrom != "" || p.Split != "" || p.Ratio != nil {
-				return fail("tab.pane", "first pane %q in tab %q reuses the tab's root pane and cannot set split_from, split, or ratio", p.Name, t.Name)
+				return "", fail("tab.pane", "first pane %q in tab %q reuses the tab's root pane and cannot set split_from, split, or ratio", p.Name, t.Name)
 			}
 		} else {
 			if p.SplitFrom == "" {
-				return fail("tab.pane.split_from", "pane %q in tab %q must name an earlier pane", p.Name, t.Name)
+				return "", fail("tab.pane.split_from", "pane %q in tab %q must name an earlier pane", p.Name, t.Name)
 			}
 			if !seen[p.SplitFrom] {
-				return fail("tab.pane.split_from", "pane %q in tab %q references %q, which is not an earlier pane", p.Name, t.Name, p.SplitFrom)
+				return "", fail("tab.pane.split_from", "pane %q in tab %q references %q, which is not an earlier pane", p.Name, t.Name, p.SplitFrom)
 			}
 			if p.Split != "right" && p.Split != "down" {
-				return fail("tab.pane.split", "pane %q in tab %q must be \"right\" or \"down\", got %q", p.Name, t.Name, p.Split)
+				return "", fail("tab.pane.split", "pane %q in tab %q must be \"right\" or \"down\", got %q", p.Name, t.Name, p.Split)
 			}
 			// NaN fails both comparisons, so this also rejects non-finite values.
 			if p.Ratio != nil && !(*p.Ratio >= minPaneRatio && *p.Ratio <= maxPaneRatio) {
-				return fail("tab.pane.ratio", "pane %q in tab %q must be between %g and %g, got %g", p.Name, t.Name, minPaneRatio, maxPaneRatio, *p.Ratio)
+				return "", fail("tab.pane.ratio", "pane %q in tab %q must be between %g and %g, got %g", p.Name, t.Name, minPaneRatio, maxPaneRatio, *p.Ratio)
 			}
 		}
 		if err := p.validateWait(t.Name, fail); err != nil {
-			return err
+			return "", err
 		}
 		for key, value := range p.Env {
 			if !envKeyPattern.MatchString(key) {
-				return fail("tab.pane.env", "pane %q in tab %q has invalid variable name %q", p.Name, t.Name, key)
+				return "", fail("tab.pane.env", "pane %q in tab %q has invalid variable name %q", p.Name, t.Name, key)
 			}
 			if strings.ContainsRune(value, 0) {
-				return fail("tab.pane.env", "pane %q in tab %q variable %q must not contain NUL bytes", p.Name, t.Name, key)
+				return "", fail("tab.pane.env", "pane %q in tab %q variable %q must not contain NUL bytes", p.Name, t.Name, key)
 			}
 		}
 		seen[p.Name] = true
 	}
-	return nil
+	return focused, nil
 }
 
 func (p nativePane) validateWait(tab string, fail func(key, format string, args ...any) error) error {
@@ -375,7 +410,7 @@ func (n nativeConfig) apply(cfg *Config) {
 	for _, t := range n.Tabs {
 		w := model.WindowConfig{Name: t.Name, StartupScript: t.Startup, Path: t.Path}
 		for _, p := range t.Panes {
-			pane := model.PaneConfig{Name: p.Name, SplitFrom: p.SplitFrom, Split: p.Split, Path: p.Path, Env: p.Env, Startup: p.Startup}
+			pane := model.PaneConfig{Name: p.Name, SplitFrom: p.SplitFrom, Split: p.Split, Path: p.Path, Env: p.Env, Startup: p.Startup, Focus: p.Focus}
 			if p.Ratio != nil {
 				pane.Ratio = *p.Ratio
 			}

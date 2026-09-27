@@ -2,11 +2,13 @@ package herdr
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"slices"
@@ -135,6 +137,8 @@ type Client interface {
 	PaneCurrent(context.Context) (Pane, error)
 	PaneRun(context.Context, string, string) error
 	PaneSplit(context.Context, PaneSplitRequest) (Pane, error)
+	// PaneFocus also focuses the pane's tab and workspace.
+	PaneFocus(context.Context, string) error
 	// PaneWaitOutput waits until a line of the pane's recent output, including
 	// output printed before the call, contains match.
 	PaneWaitOutput(ctx context.Context, paneID, match string, timeout time.Duration) error
@@ -175,6 +179,8 @@ type CLIClient struct {
 	Bin     string
 	Runner  Runner
 	Timeout time.Duration
+	// SocketPath serves socket API methods that the herdr CLI does not expose.
+	SocketPath string
 }
 
 func NewCLIClient() *CLIClient {
@@ -182,7 +188,7 @@ func NewCLIClient() *CLIClient {
 	if bin == "" {
 		bin = "herdr"
 	}
-	return &CLIClient{Bin: bin, Runner: ExecRunner{}, Timeout: 10 * time.Second}
+	return &CLIClient{Bin: bin, Runner: ExecRunner{}, Timeout: 10 * time.Second, SocketPath: os.Getenv("HERDR_SOCKET_PATH")}
 }
 func (c *CLIClient) run(ctx context.Context, args ...string) ([]byte, error) {
 	return c.runFor(ctx, 0, args...)
@@ -472,6 +478,48 @@ func (c *CLIClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 		return Pane{}, errors.New("herdr pane split returned no pane id")
 	}
 	return p, nil
+}
+
+// PaneFocus calls the socket API because Herdr's CLI only moves focus by direction.
+func (c *CLIClient) PaneFocus(ctx context.Context, id string) error {
+	if c.SocketPath == "" {
+		return errors.New("focus pane: HERDR_SOCKET_PATH is not set; run herdr-sesh from a Herdr pane")
+	}
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(c.Timeout, 10*time.Second))
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", c.SocketPath)
+	if err != nil {
+		return fmt.Errorf("focus pane %s: %w", id, err)
+	}
+	defer func() { _ = conn.Close() }()
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
+
+	request := struct {
+		ID     string `json:"id"`
+		Method string `json:"method"`
+		Params struct {
+			PaneID string `json:"pane_id"`
+		} `json:"params"`
+	}{ID: "herdr-sesh-pane-focus", Method: "pane.focus"}
+	request.Params.PaneID = id
+	var response struct {
+		Error *apiError `json:"error"`
+	}
+	err = json.NewEncoder(conn).Encode(request)
+	if err == nil {
+		err = json.NewDecoder(conn).Decode(&response)
+	}
+	if ctxErr := ctx.Err(); err != nil && ctxErr != nil {
+		err = ctxErr
+	}
+	if err != nil {
+		return fmt.Errorf("focus pane %s: %w", id, err)
+	}
+	if response.Error != nil {
+		return fmt.Errorf("focus pane %s: %s: %s", id, response.Error.Code, response.Error.Message)
+	}
+	return nil
 }
 
 // PaneWaitOutput leaves the timeout to Herdr so its error explains the failure.

@@ -82,14 +82,37 @@ func TestConnectExistingWorkspaceSkipsPaneLayout(t *testing.T) {
 	f := &herdr.FakeClient{}
 	session := model.Session{Name: "api", WorkspaceID: "ws1", StartupCommand: "echo hi", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
 		{Name: "a", Startup: "nvim"},
-		{Name: "b", SplitFrom: "a", Split: "right"},
+		{Name: "b", SplitFrom: "a", Split: "right", Focus: true},
 	}}}}
 	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"ws1"}, f.FocusedWorkspaces)
 	assert.Empty(t, f.CreatedTabs)
 	assert.Empty(t, f.RenamedTabs)
 	assert.Empty(t, f.Splits)
 	assert.Empty(t, f.PaneRuns)
+	assert.Empty(t, f.FocusedPanes, "reconnecting keeps the workspace's current pane")
+}
+
+func TestConnectFocusesMarkedPaneOnlyForForegroundCreation(t *testing.T) {
+	for _, noFocus := range []bool{false, true} {
+		f := &herdr.FakeClient{}
+		session := model.Session{Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{
+			{Name: "dev"},
+			{Name: "ops", Panes: []model.PaneConfig{
+				{Name: "root"},
+				{Name: "server", SplitFrom: "root", Split: "right", Focus: true},
+			}},
+		}}
+		_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: noFocus})
+		require.NoError(t, err)
+		if noFocus {
+			assert.Empty(t, f.FocusedPanes, "--no-focus leaves the user's current pane focused")
+			assert.Empty(t, f.FocusedWorkspaces)
+			continue
+		}
+		assert.Equal(t, []string{"split-1"}, f.FocusedPanes)
+	}
 }
 
 func TestConnectReusesInitialTabWithoutMovingFocus(t *testing.T) {
