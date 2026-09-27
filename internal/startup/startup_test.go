@@ -67,6 +67,31 @@ func TestApplyBuildsPaneLayout(t *testing.T) {
 		"new-pane:nvim",
 		"split-1:cd '/tmp/app/web dir' && npm run dev; echo \"$NODE_ENV\"",
 	}, f.PaneRuns)
+	assert.Empty(t, f.FocusedPanes, "without a marker the first tab keeps its root focused")
+}
+
+func TestApplyFocusesMarkedPaneInLaterTabAfterLayout(t *testing.T) {
+	for _, focus := range []bool{true, false} {
+		f := &herdr.FakeClient{}
+		s := model.Session{Name: "app", Path: "/tmp/app", WindowConfigs: []model.WindowConfig{
+			{Name: "dev", Panes: []model.PaneConfig{
+				{Name: "editor", Startup: "nvim"},
+				{Name: "shell", SplitFrom: "editor", Split: "right"},
+			}},
+			{Name: "ops", Panes: []model.PaneConfig{
+				{Name: "root"},
+				{Name: "server", SplitFrom: "root", Split: "down", Startup: "npm run dev", Focus: true},
+			}},
+			{Name: "git", StartupScript: "lazygit"},
+		}}
+		require.NoError(t, Apply(context.Background(), f, Plan{WorkspaceID: "ws1", Session: s, Focus: focus}))
+		if !focus {
+			assert.Empty(t, f.FocusedPanes, "background creation keeps the user's focus")
+			continue
+		}
+		assert.Equal(t, []string{"split-2"}, f.FocusedPanes)
+		assert.Equal(t, "focus split-2", f.Ops[len(f.Ops)-1], "focus follows the complete layout")
+	}
 }
 
 func TestApplyRootPanePathOverridesTabPath(t *testing.T) {

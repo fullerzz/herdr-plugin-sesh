@@ -806,6 +806,48 @@ func TestPreviewCommandUsesExplicitConfig(t *testing.T) {
 	assert.Contains(t, out.String(), targetDir)
 }
 
+func TestConnectMissingFocusSocketWarnsAndRecordsHistory(t *testing.T) {
+	configureHerdrScript(t, `#!/bin/sh
+case "$1 $2" in
+"workspace list") printf '[]\n' ;;
+"workspace create") printf '{"id":"new-workspace"}\n' ;;
+"workspace focus"|"tab rename") ;;
+"pane list") printf '[{"id":"root","workspace_id":"new-workspace","tab_id":"initial"}]\n' ;;
+"pane split") printf '{"id":"server"}\n' ;;
+*) exit 1 ;;
+esac
+`)
+	stateDir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_WORKSPACE_ID", "previous")
+	cfgPath := filepath.Join(t.TempDir(), "herdr-sesh.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`version = 1
+[[tab]]
+name = "dev"
+[[tab.pane]]
+name = "root"
+[[tab.pane]]
+name = "server"
+split_from = "root"
+split = "right"
+focus = true
+[[workspace]]
+name = "api"
+path = "/tmp/api"
+tabs = ["dev"]
+`), 0600))
+	var out, warnings bytes.Buffer
+	a := &App{Out: &out, Err: &warnings}
+	require.NoError(t, a.Run(context.Background(), []string{"connect", "--config", cfgPath, "api"}))
+	assert.Equal(t, "api\n", out.String())
+	assert.Contains(t, warnings.String(), "warning: workspace \"api\" tab \"dev\": could not focus pane:")
+	assert.Contains(t, warnings.String(), "HERDR_SOCKET_PATH is not set")
+	history, err := state.LoadHistory(stateDir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"new-workspace", "previous"}, history.Workspaces)
+}
+
 func TestLastFocusesPreviousWorkspaceAndRotatesHistory(t *testing.T) {
 	d := t.TempDir()
 	stateDir := filepath.Join(d, "state")

@@ -2,6 +2,7 @@ package connect
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,78 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type failingPaneFocusClient struct{ herdr.FakeClient }
+
+func (f *failingPaneFocusClient) PaneFocus(ctx context.Context, id string) error {
+	_ = f.FakeClient.PaneFocus(ctx, id)
+	return errors.New("focus socket unavailable")
+}
+
+func TestConnectPaneFocusFailureKeepsSuccessfulCreation(t *testing.T) {
+	f := &failingPaneFocusClient{}
+	session := model.Session{Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{
+		{Name: "dev", Panes: []model.PaneConfig{
+			{Name: "root"},
+			{Name: "server", SplitFrom: "root", Split: "right", Startup: "npm run dev", Focus: true},
+		}},
+	}}
+	var warnings []string
+	result, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{Warnf: func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}})
+	require.NoError(t, err)
+	assert.True(t, result.Created)
+	assert.Equal(t, "new-workspace", result.Session.WorkspaceID)
+	assert.Equal(t, []string{"split-1"}, f.FocusedPanes)
+	assert.Equal(t, []string{"split-1:npm run dev"}, f.PaneRuns)
+	assert.Equal(t, []string{`workspace "api" tab "dev": could not focus pane: focus socket unavailable (the layout is complete)`}, warnings)
+}
+
+func TestConnectMarkedPanePreservesPathReconnect(t *testing.T) {
+	for _, tc := range []struct {
+		name, tabPath, panePath string
+		root, wantFocus         bool
+	}{
+		{name: "pane subdirectory", panePath: "web"},
+		{name: "tab subdirectory", tabPath: "web"},
+		{name: "root subdirectory", panePath: "web", root: true},
+		{name: "workspace directory", wantFocus: true},
+		{name: "pane overrides tab", tabPath: "web", panePath: "..", wantFocus: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := t.TempDir()
+			pane := model.PaneConfig{Name: "server", Path: tc.panePath, Focus: true}
+			panes := []model.PaneConfig{pane}
+			if !tc.root {
+				pane.SplitFrom, pane.Split = "root", "right"
+				panes = []model.PaneConfig{{Name: "root"}, pane}
+			}
+			cfg := config.Config{
+				SessionConfigs: []config.SessionConfig{{Name: "api", Path: path, Windows: []string{"dev"}}},
+				WindowConfigs:  []model.WindowConfig{{Name: "dev", Path: tc.tabPath, Panes: panes}},
+			}
+			sessions, err := (sources.ConfigSessions{Config: cfg}).List(context.Background())
+			require.NoError(t, err)
+			f := &herdr.FakeClient{}
+			_, err = Connect(context.Background(), f, sessions.Ordered(), "api", Options{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFocus, len(f.FocusedPanes) > 0)
+			require.Len(t, f.Workspaces, 1)
+			if len(f.FocusedPanes) > 0 {
+				// Model Herdr reporting the selected pane's directory as workspace path.
+				resolved := sessions.Ordered()[0].WindowConfigs[0].Panes
+				f.Workspaces[0].ForegroundCWD = resolved[len(resolved)-1].Path
+			}
+			live, err := (sources.HerdrWorkspaces{Client: f}).List(context.Background())
+			require.NoError(t, err)
+			result, err := Connect(context.Background(), f, live.Ordered(), path, Options{})
+			require.NoError(t, err)
+			assert.False(t, result.Created)
+			assert.Len(t, f.CreatedWorkspaces, 1)
+		})
+	}
+}
 
 func TestConnectFocusesExistingWorkspace(t *testing.T) {
 	f := &herdr.FakeClient{}
@@ -82,14 +155,37 @@ func TestConnectExistingWorkspaceSkipsPaneLayout(t *testing.T) {
 	f := &herdr.FakeClient{}
 	session := model.Session{Name: "api", WorkspaceID: "ws1", StartupCommand: "echo hi", WindowConfigs: []model.WindowConfig{{Name: "dev", Panes: []model.PaneConfig{
 		{Name: "a", Startup: "nvim"},
-		{Name: "b", SplitFrom: "a", Split: "right"},
+		{Name: "b", SplitFrom: "a", Split: "right", Focus: true},
 	}}}}
 	_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"ws1"}, f.FocusedWorkspaces)
 	assert.Empty(t, f.CreatedTabs)
 	assert.Empty(t, f.RenamedTabs)
 	assert.Empty(t, f.Splits)
 	assert.Empty(t, f.PaneRuns)
+	assert.Empty(t, f.FocusedPanes, "reconnecting keeps the workspace's current pane")
+}
+
+func TestConnectFocusesMarkedPaneOnlyForForegroundCreation(t *testing.T) {
+	for _, noFocus := range []bool{false, true} {
+		f := &herdr.FakeClient{}
+		session := model.Session{Name: "api", Path: "/tmp/api", WindowConfigs: []model.WindowConfig{
+			{Name: "dev"},
+			{Name: "ops", Panes: []model.PaneConfig{
+				{Name: "root"},
+				{Name: "server", SplitFrom: "root", Split: "right", Focus: true},
+			}},
+		}}
+		_, err := Connect(context.Background(), f, []model.Session{session}, "api", Options{NoFocus: noFocus})
+		require.NoError(t, err)
+		if noFocus {
+			assert.Empty(t, f.FocusedPanes, "--no-focus leaves the user's current pane focused")
+			assert.Empty(t, f.FocusedWorkspaces)
+			continue
+		}
+		assert.Equal(t, []string{"split-1"}, f.FocusedPanes)
+	}
 }
 
 func TestConnectReusesInitialTabWithoutMovingFocus(t *testing.T) {

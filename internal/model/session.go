@@ -51,6 +51,8 @@ type PaneConfig struct {
 	Startup   string            `json:"startup,omitempty"`
 	// WaitFor, when set, holds later layout operations until Startup prints Match.
 	WaitFor *PaneWait `json:"wait_for,omitempty"`
+	// Focus selects the pane focused after a new workspace's layout is built.
+	Focus bool `json:"focus,omitempty"`
 }
 
 // PaneWait is a one-time startup barrier, not a health check.

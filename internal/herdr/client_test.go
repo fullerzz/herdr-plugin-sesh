@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -253,4 +254,35 @@ func TestCLIClientWorkspaceCreatePassesEnvAndTabRename(t *testing.T) {
 		{"/bin/herdr", "workspace", "create", "--cwd", "/tmp", "--label", "api", "--env", "EDITOR=nvim", "--no-focus"},
 		{"/bin/herdr", "tab", "rename", "w1:t1", "dev"},
 	}, rr.calls)
+}
+
+func TestCLIClientPaneFocusUsesSocketAPI(t *testing.T) {
+	listener, socketPath := listenTestSocket(t)
+	requests := make(chan map[string]any, 2)
+	go func() {
+		for _, response := range []map[string]any{
+			{"id": "herdr-sesh-pane-focus", "result": map[string]any{"type": "pane_info"}},
+			{"id": "herdr-sesh-pane-focus", "error": map[string]any{"code": "pane_not_found", "message": "pane w1:p9 not found"}},
+		} {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			var request map[string]any
+			_ = json.NewDecoder(conn).Decode(&request)
+			requests <- request
+			_ = json.NewEncoder(conn).Encode(response)
+			_ = conn.Close()
+		}
+	}()
+	c := &CLIClient{Bin: "/bin/herdr", Runner: &recRunner{}, SocketPath: socketPath}
+
+	require.NoError(t, c.PaneFocus(context.Background(), "w1:p2"))
+	assert.Equal(t, map[string]any{"id": "herdr-sesh-pane-focus", "method": "pane.focus", "params": map[string]any{"pane_id": "w1:p2"}}, <-requests)
+	err := c.PaneFocus(context.Background(), "w1:p9")
+	require.EqualError(t, err, "focus pane w1:p9: pane_not_found: pane w1:p9 not found")
+	<-requests
+
+	c.SocketPath = ""
+	require.ErrorContains(t, c.PaneFocus(context.Background(), "w1:p2"), "HERDR_SOCKET_PATH is not set")
 }
