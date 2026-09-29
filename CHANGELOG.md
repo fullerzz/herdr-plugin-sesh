@@ -1,3 +1,37 @@
+## v0.14.0 (2026-09-29)
+
+### 🚀 Features
+
+- feat: reuse Herdr's initial tab for configured layouts by @fullerzz in [#136](https://github.com/fullerzz/herdr-plugin-sesh/pull/136) ([7b131b0](https://github.com/fullerzz/herdr-plugin-sesh/commit/7b131b01151c5ad2f4fed47a7c54a7f7176b11ad))
+
+- feat: wait for pane startup readiness before continuing layouts by @fullerzz in [#139](https://github.com/fullerzz/herdr-plugin-sesh/pull/139) ([ae601f0](https://github.com/fullerzz/herdr-plugin-sesh/commit/ae601f0f9822f7079a0efd86ae6cf7fbb91e19f7))
+
+- feat: choose the initially focused pane by @fullerzz in [#141](https://github.com/fullerzz/herdr-plugin-sesh/pull/141) ([3f66e0c](https://github.com/fullerzz/herdr-plugin-sesh/commit/3f66e0cc9a0eeb2af713d96eb99fb02165572441))
+
+
+
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#119](https://github.com/fullerzz/herdr-plugin-sesh/pull/119) ([e40aa89](https://github.com/fullerzz/herdr-plugin-sesh/commit/e40aa89724b48b48d546bf712ebba7b973217e70))
+
+- fix(go-deps): update module charm.land/bubbletea/v2 to v2.0.10 by @renovate[bot] in [#135](https://github.com/fullerzz/herdr-plugin-sesh/pull/135) ([74688f4](https://github.com/fullerzz/herdr-plugin-sesh/commit/74688f404d805f872d4a35411876029ab04270a1))
+
+
+
+### 📚 Documentation
+
+- Improve wiki getting started guidance by @fullerzz ([ab54d10](https://github.com/fullerzz/herdr-plugin-sesh/commit/ab54d10151b0bdbc502bd8d7c6ecbb6e9aa68374))
+
+- docs: organize and simplify configuration guides by @fullerzz in [#140](https://github.com/fullerzz/herdr-plugin-sesh/pull/140) ([23bf266](https://github.com/fullerzz/herdr-plugin-sesh/commit/23bf26629b3a71638f69cd158b05dae9b1b135aa))
+
+
+
+### 🎡 Continuous Integration
+
+- ci: add Claude PR review workflow by @fullerzz in [#138](https://github.com/fullerzz/herdr-plugin-sesh/pull/138) ([3b502c0](https://github.com/fullerzz/herdr-plugin-sesh/commit/3b502c0a3eafcb05b87ebfa00616dedf1bda1775))
+
+
+
 ## v0.13.0 (2026-09-26)
 
 ### 🚀 Features
