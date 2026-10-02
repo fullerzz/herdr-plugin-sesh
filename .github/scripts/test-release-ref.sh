@@ -270,7 +270,7 @@ if [ "$(git -C "$success_repo" diff-tree --no-commit-id --name-only -r HEAD)" !=
 fi
 (
   cd "$success_repo"
-  "$git_cliff_bin" --output "$tmp/post-tag-CHANGELOG.md"
+  GIT_CLIFF_OFFLINE=true "$git_cliff_bin" --output "$tmp/post-tag-CHANGELOG.md"
 )
 if ! cmp -s "$success_repo/CHANGELOG.md" "$tmp/post-tag-CHANGELOG.md"; then
   echo 'tag-triggered changelog generation must be a no-op on main' >&2
