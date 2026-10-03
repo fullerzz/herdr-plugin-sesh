@@ -244,26 +244,19 @@ func isJSONDecodeError(err error) bool {
 	return errors.As(err, &syntaxErr) || errors.As(err, &typeErr)
 }
 
-func Last(dir string) (string, bool, error) {
-	h, err := LoadHistory(dir)
-	if err != nil {
-		return "", false, err
-	}
-	if len(h.Workspaces) < 2 {
-		return "", false, nil
-	}
-	return h.Workspaces[1], true, nil
-}
-
-func Previous(dir, currentWorkspaceID string) (string, bool, error) {
-	h, err := LoadHistory(dir)
-	if err != nil {
-		return "", false, err
+// PreviousWorkspace selects a workspace other than the current one. Without a
+// current ID, the newest history entry is assumed current and the second is used.
+func (h History) PreviousWorkspace(currentWorkspaceID string) (string, bool) {
+	if currentWorkspaceID == "" {
+		if len(h.Workspaces) < 2 {
+			return "", false
+		}
+		return h.Workspaces[1], true
 	}
 	for _, id := range h.Workspaces {
 		if id != "" && id != currentWorkspaceID {
-			return id, true, nil
+			return id, true
 		}
 	}
-	return "", false, nil
+	return "", false
 }

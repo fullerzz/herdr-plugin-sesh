@@ -132,9 +132,21 @@ var (
 var renderPreview = previewpkg.Render
 var renderPanePreview = previewpkg.RenderPane
 
+type Backend interface {
+	CloseWorkspace(context.Context, string) error
+	ReloadPicker(context.Context) (ReloadResult, error)
+	RefreshAgentStatuses() (map[string]string, error)
+	OpenSettings() (settings.Model, error)
+	ReloadSettings(context.Context, settings.Result) (DisplayOptions, ReloadResult, error)
+}
+
 type Options struct {
-	OpenSettings   func() (settings.Model, error)
-	ReloadSettings func(context.Context, settings.Result) (Options, ReloadResult, error)
+	DisplayOptions
+
+	Backend Backend
+}
+
+type DisplayOptions struct {
 	// nil uses the default binding; an empty string disables cycling.
 	CyclePreviewModeKey            *string
 	Context                        context.Context
@@ -153,22 +165,16 @@ type Options struct {
 	PreviewMode                    string
 	DefaultPreviewCommand          string
 	FZFCommand                     string
-	RefreshAgentStatuses           func() (map[string]string, error)
-	CloseWorkspace                 func(context.Context, string) error
-	// ReloadPicker refreshes picker state after a workspace close. Its
-	// ReloadResult is consumed even when it returns an error: the
-	// last-workspace fields must always be valid (set LastWorkspaceUnknown
-	// when unsure), and a nil HerdrWorkspaces means "keep the existing
-	// metadata" while an empty slice means "no workspaces".
-	ReloadPicker         func(context.Context) (ReloadResult, error)
-	RecentWorkspaceIDs   []string
-	WorkspaceSort        string
-	LastWorkspaceID      string
-	LastWorkspaceUnknown bool
-	HerdrWorkspaces      []sessionmodel.Session
+	RecentWorkspaceIDs             []string
+	WorkspaceSort                  string
+	LastWorkspaceID                string
+	LastWorkspaceUnknown           bool
+	HerdrWorkspaces                []sessionmodel.Session
 }
 
+// Nil metadata slices preserve existing picker metadata; empty slices clear it.
 type ReloadResult struct {
+	RecentWorkspaceIDs   []string
 	Sessions             []sessionmodel.Session
 	HerdrWorkspaces      []sessionmodel.Session
 	LastWorkspaceID      string
@@ -193,12 +199,11 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 }
 
 type teaModel struct {
+	backend           Backend
 	settings          *settings.Model
 	settingsBusy      bool
 	settingsCancel    context.CancelFunc
 	quitAfterSettings bool
-	openSettings      func() (settings.Model, error)
-	reloadSettings    func(context.Context, settings.Result) (Options, ReloadResult, error)
 	refreshGeneration uint64
 	list              Model
 	input             textinput.Model
@@ -239,15 +244,12 @@ type teaModel struct {
 	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
 	hideLastWorkspacePath   bool
-	refreshAgentStatuses    func() (map[string]string, error)
 	workspaceOrder          []string
 	recentWorkspaceIDs      []string
 	workspaceSort           string
 	lastWorkspaceID         string
 	lastWorkspaceUnknown    bool
 	herdrWorkspaces         map[string]sessionmodel.Session
-	closeWorkspace          func(context.Context, string) error
-	reloadPicker            func(context.Context) (ReloadResult, error)
 	workspaceCloseContext   context.Context
 	closingWorkspaceID      string
 	cancelWorkspaceClose    context.CancelFunc
@@ -333,8 +335,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	}
 	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
-		openSettings:          opts.OpenSettings,
-		reloadSettings:        opts.ReloadSettings,
+		backend:               opts.Backend,
 		list:                  list,
 		input:                 input,
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
@@ -347,15 +348,12 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
 		hideLastWorkspacePath: opts.HideLastWorkspacePath,
-		refreshAgentStatuses:  opts.RefreshAgentStatuses,
 		workspaceOrder:        workspaceOrder,
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
 		workspaceSort:         workspaceSort,
 		lastWorkspaceID:       opts.LastWorkspaceID,
 		lastWorkspaceUnknown:  opts.LastWorkspaceUnknown,
 		herdrWorkspaces:       workspaceSessionsByID(opts.HerdrWorkspaces),
-		closeWorkspace:        opts.CloseWorkspace,
-		reloadPicker:          opts.ReloadPicker,
 		workspaceCloseContext: closeContext,
 		previewParentContext:  closeContext,
 		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
@@ -372,7 +370,7 @@ func (m teaModel) Init() tea.Cmd {
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
 		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview), previewLoadingCommand(m.previewContext, m.previewRequestID))
 	}
-	if m.refreshAgentStatuses != nil {
+	if m.backend != nil {
 		cmds = append(cmds, scheduleStatusRefreshFor(m.refreshGeneration), m.agentSpinner.Tick)
 	}
 	return tea.Batch(cmds...)
@@ -453,10 +451,10 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if tick, ok := msg.(statusRefreshTickMsg); ok {
-		if tick.generation != m.refreshGeneration || m.refreshAgentStatuses == nil {
+		if tick.generation != m.refreshGeneration || m.backend == nil {
 			return m, nil
 		}
-		return m, refreshAgentStatusesCommand(m.refreshAgentStatuses, m.refreshGeneration)
+		return m, refreshAgentStatusesCommand(m.backend.RefreshAgentStatuses, m.refreshGeneration)
 	}
 	if statuses, ok := msg.(agentStatusesMsg); ok {
 		if statuses.generation != m.refreshGeneration {
@@ -550,6 +548,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if closed.reloadRan {
 			m.lastWorkspaceID = closed.result.LastWorkspaceID
 			m.lastWorkspaceUnknown = closed.result.LastWorkspaceUnknown
+		}
+		if closed.result.RecentWorkspaceIDs != nil {
+			m.recentWorkspaceIDs = append([]string(nil), closed.result.RecentWorkspaceIDs...)
 		}
 		if closed.result.HerdrWorkspaces != nil {
 			m.herdrWorkspaces = workspaceSessionsByID(closed.result.HerdrWorkspaces)
@@ -679,7 +680,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	current, ok := m.list.Current()
-	if !ok || current.Source != "herdr" || current.WorkspaceID == "" || m.closeWorkspace == nil || m.closingWorkspaceID != "" {
+	if !ok || current.Source != "herdr" || current.WorkspaceID == "" || m.backend == nil || m.closingWorkspaceID != "" {
 		return m, nil
 	}
 	m.closingWorkspaceID = current.WorkspaceID
@@ -688,21 +689,20 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	m.previewKey = ""
 	closeCtx, cancel := context.WithCancel(m.workspaceCloseContext)
 	m.cancelWorkspaceClose = cancel
-	return m, closeWorkspaceCommand(closeCtx, cancel, m.closeWorkspace, m.reloadPicker, current.WorkspaceID)
+	return m, closeWorkspaceCommand(closeCtx, cancel, m.backend, current.WorkspaceID)
 }
 
 func closeWorkspaceCommand(
 	ctx context.Context,
 	cancel context.CancelFunc,
-	closeWorkspace func(context.Context, string) error,
-	reloadPicker func(context.Context) (ReloadResult, error),
+	backend Backend,
 	workspaceID string,
 ) tea.Cmd {
 	return func() tea.Msg {
 		defer cancel()
-		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: closeWorkspace(ctx, workspaceID)}
-		if msg.closeErr == nil && reloadPicker != nil {
-			msg.result, msg.reloadErr = reloadPicker(ctx)
+		msg := workspaceCloseMsg{workspaceID: workspaceID, closeErr: backend.CloseWorkspace(ctx, workspaceID)}
+		if msg.closeErr == nil {
+			msg.result, msg.reloadErr = backend.ReloadPicker(ctx)
 			msg.reloadRan = true
 		}
 		return msg
@@ -808,7 +808,7 @@ func (m teaModel) View() tea.View {
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
 	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
-	if m.openSettings != nil {
+	if m.backend != nil {
 		help = m.settingsKey() + " settings · " + help
 	}
 	footer := helpStyle.Render(help)

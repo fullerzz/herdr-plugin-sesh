@@ -20,7 +20,7 @@ func TestPanePreviewToggleRefreshAndSelection(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "one", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "two", WorkspaceID: "w2"},
-	}, Options{DefaultPreviewCommand: "configured preview"})
+	}, Options{DisplayOptions: DisplayOptions{DefaultPreviewCommand: "configured preview"}})
 	initialContext, initialID, initialKey := m.previewContext, m.previewRequestID, m.previewKey
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -68,7 +68,7 @@ func TestPanePreviewToggleRefreshAndSelection(t *testing.T) {
 }
 
 func TestPanePreviewHiddenAndEmptyPicker(t *testing.T) {
-	for _, opts := range []Options{{HidePreview: true}, {}} {
+	for _, opts := range []Options{{DisplayOptions: DisplayOptions{HidePreview: true}}, {}} {
 		m := newTeaModel(nil, opts)
 		updated, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 		m = updated.(teaModel)
@@ -89,7 +89,7 @@ func TestCtrlVPastesWithoutChangingPreviewMode(t *testing.T) {
 		{name: "hidden preview", hidden: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTeaModel([]model.Session{{Name: "api"}}, Options{HidePreview: tc.hidden})
+			m := newTeaModel([]model.Session{{Name: "api"}}, Options{DisplayOptions: DisplayOptions{HidePreview: tc.hidden}})
 			m.panePreview = tc.pane
 			updated, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
 			m = updated.(teaModel)
@@ -122,7 +122,7 @@ func TestInitialPreviewMode(t *testing.T) {
 				rendered += "command"
 				return rendered, nil
 			}
-			m := newTeaModel([]model.Session{{Source: "herdr", WorkspaceID: "w1"}}, Options{PreviewMode: tc.mode, HidePreview: tc.hidden})
+			m := newTeaModel([]model.Session{{Source: "herdr", WorkspaceID: "w1"}}, Options{DisplayOptions: DisplayOptions{PreviewMode: tc.mode, HidePreview: tc.hidden}})
 			executeTeaCommand(m.Init())
 			require.Equal(t, tc.want, rendered)
 			if !tc.hidden {
@@ -141,7 +141,7 @@ func TestInitialPreviewMode(t *testing.T) {
 func TestCyclePreviewModeKey(t *testing.T) {
 	for _, binding := range []string{"alt+p", ""} {
 		t.Run(binding, func(t *testing.T) {
-			m := newTeaModel(nil, Options{CyclePreviewModeKey: &binding})
+			m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{CyclePreviewModeKey: &binding}})
 			updated, _ := m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 			m = updated.(teaModel)
 			assert.False(t, m.panePreview)
@@ -167,7 +167,7 @@ func TestCyclePreviewModeShiftedPrintableText(t *testing.T) {
 		{Code: '/', Mod: tea.ModShift, Text: "?"},
 	} {
 		binding := key.Text
-		m := newTeaModel(nil, Options{CyclePreviewModeKey: &binding})
+		m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{CyclePreviewModeKey: &binding}})
 		updated, _ := m.Update(key)
 		assert.True(t, updated.(teaModel).panePreview, "binding %q", binding)
 	}
@@ -181,7 +181,7 @@ func TestCyclePreviewModeModifiedShiftUsesBaseKey(t *testing.T) {
 		{"ctrl+shift+p", tea.KeyPressMsg{Code: 'p', ShiftedCode: 'P', Mod: tea.ModCtrl | tea.ModShift}},
 		{"alt+shift+/", tea.KeyPressMsg{Code: '/', ShiftedCode: '?', Mod: tea.ModAlt | tea.ModShift}},
 	} {
-		m := newTeaModel(nil, Options{CyclePreviewModeKey: &tc.binding})
+		m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{CyclePreviewModeKey: &tc.binding}})
 		updated, _ := m.Update(tc.key)
 		assert.True(t, updated.(teaModel).panePreview, "binding %q", tc.binding)
 	}

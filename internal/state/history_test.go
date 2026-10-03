@@ -101,8 +101,9 @@ func TestHistoryRecordsMostRecentWithoutDuplicates(t *testing.T) {
 	require.NoError(t, Record(d, "a"))
 	require.NoError(t, Record(d, "b"))
 	require.NoError(t, Record(d, "b"))
-	last, ok, err := Last(d)
+	h, err := LoadHistory(d)
 	require.NoError(t, err)
+	last, ok := h.PreviousWorkspace("")
 	require.True(t, ok)
 	assert.Equal(t, "a", last)
 }
@@ -290,12 +291,12 @@ func runHistoryLockHelper(t *testing.T) {
 func TestHistoryNoopsWithoutStateDir(t *testing.T) {
 	require.NoError(t, Record("", "ws1"))
 	require.NoError(t, RecordSwitch("", "ws1", "ws2"))
-	last, ok, err := Last("")
+	h, err := LoadHistory("")
 	require.NoError(t, err)
+	last, ok := h.PreviousWorkspace("")
 	require.False(t, ok)
 	require.Empty(t, last)
-	previous, ok, err := Previous("", "ws1")
-	require.NoError(t, err)
+	previous, ok := h.PreviousWorkspace("ws1")
 	require.False(t, ok)
 	assert.Empty(t, previous)
 }
@@ -313,10 +314,34 @@ func TestRecordRecoversCorruptHistory(t *testing.T) {
 func TestPreviousSkipsCurrentWorkspace(t *testing.T) {
 	d := t.TempDir()
 	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"current", "previous", "older"}}))
-	previous, ok, err := Previous(d, "current")
+	h, err := LoadHistory(d)
 	require.NoError(t, err)
+	previous, ok := h.PreviousWorkspace("current")
 	require.True(t, ok)
 	assert.Equal(t, "previous", previous)
+}
+
+func TestHistoryPreviousWorkspace(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		workspaces []string
+		current    string
+		want       string
+		ok         bool
+	}{
+		{name: "empty"},
+		{name: "one entry without current", workspaces: []string{"one"}},
+		{name: "second without current", workspaces: []string{"one", "two", "three"}, want: "two", ok: true},
+		{name: "skip empty and current", workspaces: []string{"", "one", "one", "two"}, current: "one", want: "two", ok: true},
+		{name: "current absent", workspaces: []string{"one", "two"}, current: "other", want: "one", ok: true},
+		{name: "only current", workspaces: []string{"", "one", "one"}, current: "one"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			id, ok := (History{Workspaces: tt.workspaces}).PreviousWorkspace(tt.current)
+			assert.Equal(t, tt.want, id)
+			assert.Equal(t, tt.ok, ok)
+		})
+	}
 }
 
 func TestRecordSwitchRotatesPreviousWorkspace(t *testing.T) {
