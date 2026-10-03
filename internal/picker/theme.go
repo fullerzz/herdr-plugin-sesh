@@ -52,6 +52,13 @@ func rebuildPickerStyles() {
 	pathStyle = lipgloss.NewStyle().
 		Foreground(mutedColor)
 
+	worktreeMarkerStyle = lipgloss.NewStyle().
+		Foreground(violetColor).
+		Bold(true)
+
+	worktreeRelationStyle = lipgloss.NewStyle().
+		Foreground(ghostColor)
+
 	emptyStyle = lipgloss.NewStyle().
 		Foreground(amberColor)
 

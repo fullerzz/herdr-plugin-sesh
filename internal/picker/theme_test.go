@@ -85,6 +85,8 @@ func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 
 	configureHerdrTheme(true)
 	require.Equal(t, lipgloss.Color("#bd93f9"), skyColor)
+	assert.Equal(t, lipgloss.Color("#ff79c6"), worktreeMarkerStyle.GetForeground())
+	assert.Equal(t, lipgloss.Color("#828cb4"), worktreeRelationStyle.GetForeground())
 
 	configureHerdrTheme(false)
 
@@ -116,6 +118,8 @@ func TestConfigureHerdrThemeResetsColorsBetweenRuns(t *testing.T) {
 		{name: "row label", got: rowLabelStyle.GetForeground(), want: lipgloss.Color("#C0CAF5")},
 		{name: "selection rail", got: selectionRailStyle.GetForeground(), want: lipgloss.Color("#7DCFFF")},
 		{name: "empty", got: emptyStyle.GetForeground(), want: lipgloss.Color("#E0AF68")},
+		{name: "worktree marker", got: worktreeMarkerStyle.GetForeground(), want: lipgloss.Color("#BB9AF7")},
+		{name: "worktree relation", got: worktreeRelationStyle.GetForeground(), want: lipgloss.Color("#737AA2")},
 	}
 	for _, s := range styles {
 		assert.Equal(t, s.want, s.got)
@@ -134,4 +138,5 @@ func TestRebuildPickerStylesTracksColorVars(t *testing.T) {
 
 	assert.Equal(t, lipgloss.Color("#010203"), titleStyle.GetForeground())
 	assert.Equal(t, lipgloss.Color("#010203"), smearTrailStyle.GetForeground())
+	assert.Equal(t, lipgloss.Color("#010203"), worktreeMarkerStyle.GetForeground())
 }
