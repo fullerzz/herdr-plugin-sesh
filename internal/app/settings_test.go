@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,12 +50,13 @@ func TestSettingsSaveInvalidatesSessionCache(t *testing.T) {
 func TestSettingsReloadToleratesUnavailableHerdr(t *testing.T) {
 	configureFakeSources(t, "")
 	cfg := config.Default()
-	workspace := ""
 	lastHerdr := []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "w1"}}
-	var warnings []string
-	result, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, &lastHerdr, func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }, true)
+	backend := &pickerBackend{app: New(), ctx: context.Background(), cfg: cfg, client: herdr.NewCLIClient(), herdrWorkspaces: lastHerdr}
+	col, err := backend.app.collectPicker(context.Background(), cfg, lastHerdr)
 	require.NoError(t, err)
-	assert.Contains(t, strings.Join(warnings, "\n"), "herdr workspaces unavailable")
+	result, err := backend.reloadMetadata(context.Background(), cfg, col, nil)
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(backend.warnings, "\n"), "herdr workspaces unavailable")
 	assert.Equal(t, lastHerdr, result.HerdrWorkspaces, "keeps last known workspace metadata")
 	assert.Equal(t, lastHerdr, result.Sessions, "keeps last known workspaces listed")
 }
@@ -64,7 +64,7 @@ func TestSettingsReloadToleratesUnavailableHerdr(t *testing.T) {
 func TestWorkspaceCloseReloadRejectsUnavailableHerdr(t *testing.T) {
 	configureFakeSources(t, "")
 	cfg := config.Default()
-	workspace := ""
-	_, err := New().reloadPickerState(context.Background(), cfg, herdr.NewCLIClient(), &workspace, new([]model.Session), func(string, ...any) {}, false)
+	backend := &pickerBackend{app: New(), cfg: cfg, client: herdr.NewCLIClient()}
+	_, err := backend.ReloadPicker(context.Background())
 	require.Error(t, err)
 }

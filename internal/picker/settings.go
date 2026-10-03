@@ -15,7 +15,7 @@ type settingsOpenedMsg struct {
 	err   error
 }
 type settingsReloadedMsg struct {
-	options Options
+	options DisplayOptions
 	result  ReloadResult
 	err     error
 }
@@ -44,11 +44,11 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 		if m.settings == nil {
 			return m, nil, true
 		}
-		if msg.Result.Saved && m.reloadSettings != nil {
+		if msg.Result.Saved && m.backend != nil {
 			m.settingsBusy = true
 			ctx, cancel := context.WithCancel(m.previewParentContext)
 			m.settingsCancel = cancel
-			reload := m.reloadSettings
+			reload := m.backend.ReloadSettings
 			result := msg.Result
 			return m, func() tea.Msg {
 				opts, state, err := reload(ctx, result)
@@ -77,8 +77,22 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 		if current, ok := m.list.Current(); ok {
 			key = sessionmodel.Key(current)
 		}
+		msg.options.LastWorkspaceID = msg.result.LastWorkspaceID
+		msg.options.LastWorkspaceUnknown = msg.result.LastWorkspaceUnknown
+		msg.options.RecentWorkspaceIDs = m.recentWorkspaceIDs
+		if msg.result.RecentWorkspaceIDs != nil {
+			msg.options.RecentWorkspaceIDs = msg.result.RecentWorkspaceIDs
+		}
+		if msg.result.HerdrWorkspaces != nil {
+			msg.options.HerdrWorkspaces = msg.result.HerdrWorkspaces
+		} else {
+			msg.options.HerdrWorkspaces = make([]sessionmodel.Session, 0, len(m.herdrWorkspaces))
+			for _, workspace := range m.herdrWorkspaces {
+				msg.options.HerdrWorkspaces = append(msg.options.HerdrWorkspaces, workspace)
+			}
+		}
 		configureHerdrTheme(msg.options.HerdrThemeInherit)
-		next := newTeaModel(msg.result.Sessions, msg.options).cancelActivePreview()
+		next := newTeaModel(msg.result.Sessions, Options{DisplayOptions: msg.options, Backend: m.backend}).cancelActivePreview()
 		next.width, next.height = m.width, m.height
 		next.previewRequestID = m.previewRequestID + 1
 		next.refreshGeneration = m.refreshGeneration
@@ -125,7 +139,7 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 		return m, cmd, true
 	}
 	key, ok := msg.(tea.KeyPressMsg)
-	if !ok || key.String() != m.settingsKey() || m.openSettings == nil {
+	if !ok || key.String() != m.settingsKey() || m.backend == nil {
 		return m, nil, false
 	}
 	if m.closingWorkspaceID != "" {
@@ -140,7 +154,7 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 	m.focusSmearActive = false
 	m.draggingPreview = false
 	m.settingsBusy = true
-	open := m.openSettings
+	open := m.backend.OpenSettings
 	return m, func() tea.Msg { editor, err := open(); return settingsOpenedMsg{model: editor, err: err} }, true
 }
 
@@ -151,7 +165,7 @@ func (m teaModel) resumePicker() (teaModel, tea.Cmd) {
 	if !next.listFocused {
 		cmds = append(cmds, next.input.Focus())
 	}
-	if next.refreshAgentStatuses != nil {
+	if next.backend != nil {
 		cmds = append(cmds, scheduleStatusRefreshFor(next.refreshGeneration), next.agentSpinner.Tick)
 	}
 	return next, tea.Batch(cmds...)

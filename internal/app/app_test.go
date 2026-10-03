@@ -729,24 +729,19 @@ esac
 			require.NoError(t, state.SaveHistory(stateDir, state.History{Workspaces: []string{"focused", "previous"}}))
 			t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
 			t.Setenv("HERDR_SOCKET_PATH", "")
-			pickerWorkspaceID := "closed-workspace"
-			var warnings []string
-			warn := func(format string, args ...any) {
-				warnings = append(warnings, fmt.Sprintf(format, args...))
-			}
-
-			result, err := (&App{}).reloadPickerState(context.Background(), config.Default(), herdr.NewCLIClient(), &pickerWorkspaceID, new([]model.Session), warn, false)
+			backend := &pickerBackend{app: &App{}, cfg: config.Default(), client: herdr.NewCLIClient(), historyDir: stateDir, pickerWorkspaceID: "closed-workspace"}
+			result, err := backend.ReloadPicker(context.Background())
 			require.NoError(t, err)
-			require.Equal(t, tt.wantID, pickerWorkspaceID)
+			require.Equal(t, tt.wantID, backend.pickerWorkspaceID)
 			require.Equal(t, tt.wantUnknown, result.LastWorkspaceUnknown)
 			if !tt.wantUnknown {
 				assert.Equal(t, tt.wantLast, result.LastWorkspaceID)
 			}
 			if tt.wantWarning == "" {
-				assert.Empty(t, warnings)
+				assert.Empty(t, backend.warnings)
 			} else {
-				require.Len(t, warnings, 1)
-				assert.Contains(t, warnings[0], tt.wantWarning)
+				require.Len(t, backend.warnings, 1)
+				assert.Contains(t, backend.warnings[0], tt.wantWarning)
 			}
 		})
 	}

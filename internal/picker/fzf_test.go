@@ -21,7 +21,7 @@ func TestRunFZFSelectsSessionByHiddenIndex(t *testing.T) {
 	selected, ok, err := RunFZF(context.Background(), []model.Session{
 		{Source: "config", Name: "api", Path: "/tmp/api"},
 		{Source: "zoxide", Name: "web", Path: "/tmp/web"},
-	}, Options{FZFCommand: fzf})
+	}, Options{DisplayOptions: DisplayOptions{FZFCommand: fzf}})
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "web", selected.Name)

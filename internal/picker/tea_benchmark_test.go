@@ -48,7 +48,7 @@ func BenchmarkRenderPicker(b *testing.B) {
 			name = "HiddenPreview"
 		}
 		b.Run(name, func(b *testing.B) {
-			picker := newTeaModel(benchmarkSessions(1000), Options{HidePreview: hidePreview, ShowIcons: true})
+			picker := newTeaModel(benchmarkSessions(1000), Options{DisplayOptions: DisplayOptions{HidePreview: hidePreview, ShowIcons: true}})
 			picker.width = 120
 			picker.height = 40
 			picker.preview = "representative preview content"
@@ -78,7 +78,7 @@ func BenchmarkPreviewNavigationBurst(b *testing.B) {
 	for b.Loop() {
 		workload := newPreviewBenchmarkWorkload(previewCount)
 		active.Store(workload)
-		picker := newTeaModel(benchmarkSessions(previewCount), Options{Context: context.Background()})
+		picker := newTeaModel(benchmarkSessions(previewCount), Options{DisplayOptions: DisplayOptions{Context: context.Background()}})
 		picker.previewKey = ""
 		done := make(chan struct{}, previewCount)
 		for i := range previewCount {

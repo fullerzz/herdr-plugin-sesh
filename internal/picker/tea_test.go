@@ -38,7 +38,7 @@ func TestTeaModelHomePrioritizationOption(t *testing.T) {
 		wantDisabled bool
 	}{
 		{name: "zero options keep prioritization enabled"},
-		{name: "explicit disable turns prioritization off", opts: Options{DisableHomePrioritization: true}, wantDisabled: true},
+		{name: "explicit disable turns prioritization off", opts: Options{DisplayOptions: DisplayOptions{DisableHomePrioritization: true}}, wantDisabled: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTeaModel(nil, tc.opts)
@@ -106,7 +106,7 @@ func TestTeaModelIgnoresMouseOutsidePreviewDivider(t *testing.T) {
 		{name: "buttonless motion cancels drag", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}, after: tea.MouseMotionMsg{X: 64, Y: 6}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTeaModel(nil, Options{HidePreview: tc.hidden})
+			m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{HidePreview: tc.hidden}})
 			m.width, m.height = tc.width, 28
 			before := m.View()
 			if tc.hidden || tc.width < previewSplitWidth {
@@ -129,7 +129,7 @@ func TestTeaModelFiltersMovesAndChooses(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Name: "api-service", Path: "/tmp/api"},
 		{Name: "web", Path: "/tmp/web"},
-	}, Options{SeparatorAware: true})
+	}, Options{DisplayOptions: DisplayOptions{SeparatorAware: true}})
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'a', Text: "api service"})
 	m = updated.(teaModel)
 	cur, ok := m.list.Current()
@@ -193,10 +193,10 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 		{Source: "herdr", Name: "api-close", WorkspaceID: "w1"},
 		{Source: "config", Name: "api-selected"},
 		{Source: "herdr", Name: "api-other", WorkspaceID: "w2"},
-	}, Options{CloseWorkspace: func(_ context.Context, id string) error {
+	}, Options{Backend: &fakeBackend{closeWorkspace: func(_ context.Context, id string) error {
 		closed = id
 		return nil
-	}})
+	}}})
 	m.list.Filter("api")
 	m, _ = m.refreshPreview()
 
@@ -224,22 +224,16 @@ func TestTeaModelCtrlXUpdatesLastWorkspace(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "previous", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "older", WorkspaceID: "w2"},
-	}, Options{
-		RecentWorkspaceIDs: []string{"current", "current", "w1", "w2"},
-		LastWorkspaceID:    "w1",
-		HerdrWorkspaces: []model.Session{
-			{Source: "herdr", Name: "previous", WorkspaceID: "w1"},
-			{Source: "herdr", Name: "older", WorkspaceID: "w2"},
-		},
-		CloseWorkspace: func(context.Context, string) error { return nil },
-		ReloadPicker: func(context.Context) (ReloadResult, error) {
-			return ReloadResult{
-				Sessions:        []model.Session{{Source: "herdr", Name: "older", WorkspaceID: "w2"}},
-				HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "older", WorkspaceID: "w2"}},
-				LastWorkspaceID: "w2",
-			}, nil
-		},
-	})
+	}, Options{DisplayOptions: DisplayOptions{RecentWorkspaceIDs: []string{"current", "current", "w1", "w2"}, LastWorkspaceID: "w1", HerdrWorkspaces: []model.Session{
+		{Source: "herdr", Name: "previous", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "older", WorkspaceID: "w2"},
+	}}, Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(context.Context) (ReloadResult, error) {
+		return ReloadResult{
+			Sessions:        []model.Session{{Source: "herdr", Name: "older", WorkspaceID: "w2"}},
+			HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "older", WorkspaceID: "w2"}},
+			LastWorkspaceID: "w2",
+		}, nil
+	}}})
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
@@ -267,7 +261,7 @@ func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
 			m := newTeaModel([]model.Session{
 				{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-			}, Options{CloseWorkspace: func(context.Context, string) error { return nil }})
+			}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }}})
 			updated, _ := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 			m = updated.(teaModel)
 			if tt.move {
@@ -289,17 +283,14 @@ func TestTeaModelCtrlCCancelsWorkspaceCloseAndQuitsAfterResult(t *testing.T) {
 		name string
 		opts Options
 	}{
-		{name: "close", opts: Options{CloseWorkspace: func(ctx context.Context, _ string) error {
+		{name: "close", opts: Options{Backend: &fakeBackend{closeWorkspace: func(ctx context.Context, _ string) error {
 			<-ctx.Done()
 			return ctx.Err()
-		}}},
-		{name: "reload", opts: Options{
-			CloseWorkspace: func(context.Context, string) error { return nil },
-			ReloadPicker: func(ctx context.Context) (ReloadResult, error) {
-				<-ctx.Done()
-				return ReloadResult{}, ctx.Err()
-			},
-		}},
+		}}}},
+		{name: "reload", opts: Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(ctx context.Context) (ReloadResult, error) {
+			<-ctx.Done()
+			return ReloadResult{}, ctx.Err()
+		}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -326,15 +317,12 @@ func TestTeaModelCtrlXRestoresDeduplicatedSessionAfterClose(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-	}, Options{
-		CloseWorkspace: func(context.Context, string) error { return nil },
-		ReloadPicker: func(context.Context) (ReloadResult, error) {
-			return ReloadResult{Sessions: []model.Session{
-				{Source: "config", Name: "api", Path: "/configured/api"},
-				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-			}}, nil
-		},
-	})
+	}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(context.Context) (ReloadResult, error) {
+		return ReloadResult{Sessions: []model.Session{
+			{Source: "config", Name: "api", Path: "/configured/api"},
+			{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+		}}, nil
+	}}})
 
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -352,12 +340,9 @@ func TestTeaModelCtrlXRetainsActiveWorkspacesWhenReloadFails(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-	}, Options{
-		CloseWorkspace: func(context.Context, string) error { return nil },
-		ReloadPicker: func(context.Context) (ReloadResult, error) {
-			return ReloadResult{LastWorkspaceUnknown: true}, errors.New("workspace list failed")
-		},
-	})
+	}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(context.Context) (ReloadResult, error) {
+		return ReloadResult{LastWorkspaceUnknown: true}, errors.New("workspace list failed")
+	}}})
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
@@ -386,12 +371,9 @@ func TestTeaModelCtrlXClearsClosedParentWhenReloadFails(t *testing.T) {
 				ParentWorkspaceName: "parent",
 			},
 		},
-	}, Options{
-		CloseWorkspace: func(context.Context, string) error { return nil },
-		ReloadPicker: func(context.Context) (ReloadResult, error) {
-			return ReloadResult{LastWorkspaceUnknown: true}, errors.New("workspace list failed")
-		},
-	})
+	}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(context.Context) (ReloadResult, error) {
+		return ReloadResult{LastWorkspaceUnknown: true}, errors.New("workspace list failed")
+	}}})
 
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -413,17 +395,12 @@ func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T)
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "closing", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "old label", WorkspaceID: "w2"},
-	}, Options{
-		LastWorkspaceID: "w2",
-		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "old label", WorkspaceID: "w2"}},
-		CloseWorkspace:  func(context.Context, string) error { return nil },
-		ReloadPicker: func(context.Context) (ReloadResult, error) {
-			return ReloadResult{
-				HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "new label", WorkspaceID: "w2"}},
-				LastWorkspaceID: "w2",
-			}, errors.New("config refresh failed")
-		},
-	})
+	}, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "w2", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "old label", WorkspaceID: "w2"}}}, Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(context.Context) (ReloadResult, error) {
+		return ReloadResult{
+			HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "new label", WorkspaceID: "w2"}},
+			LastWorkspaceID: "w2",
+		}, errors.New("config refresh failed")
+	}}})
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
@@ -439,15 +416,12 @@ func TestTeaModelCtrlXRefreshesHerdrMetadataWhenSessionReloadFails(t *testing.T)
 }
 
 func TestTeaModelCtrlXGroupsReloadedWorktreeFamily(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "herdr", Name: "closing", WorkspaceID: "w-closing"}}, Options{
-		CloseWorkspace: func(context.Context, string) error { return nil },
-		ReloadPicker: func(context.Context) (ReloadResult, error) {
-			return ReloadResult{Sessions: []model.Session{
-				{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
-				{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
-			}}, nil
-		},
-	})
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "closing", WorkspaceID: "w-closing"}}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }, reloadPicker: func(context.Context) (ReloadResult, error) {
+		return ReloadResult{Sessions: []model.Session{
+			{Source: "herdr", Name: "child", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
+			{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
+		}}, nil
+	}}})
 
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -461,9 +435,7 @@ func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-	}, Options{
-		CloseWorkspace: func(context.Context, string) error { return errors.New("close failed") },
-	})
+	}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return errors.New("close failed") }}})
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -481,9 +453,7 @@ func TestTeaModelCtrlXKeepsWorkspaceWhenCloseFails(t *testing.T) {
 }
 
 func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{
-		CloseWorkspace: func(context.Context, string) error { return errors.New("close failed") },
-	})
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return errors.New("close failed") }}})
 
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -496,12 +466,10 @@ func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
 
 func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
 	called := false
-	m := newTeaModel([]model.Session{{Source: "config", Name: "api"}}, Options{
-		CloseWorkspace: func(context.Context, string) error {
-			called = true
-			return nil
-		},
-	})
+	m := newTeaModel([]model.Session{{Source: "config", Name: "api"}}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error {
+		called = true
+		return nil
+	}}})
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	_ = updated.(teaModel)
@@ -874,13 +842,7 @@ func TestTeaModelViewRendersStyledShell(t *testing.T) {
 		{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api", WorkspaceID: "ws-api", AgentStatus: "working"},
 		{Source: "zoxide", Name: "tools", Path: "/tmp/tools"},
 		{Source: "config", Name: "api", Path: "/tmp/api"},
-	}, Options{
-		Prompt:          "Find> ",
-		Placeholder:     "Search sessions",
-		ShowIcons:       true,
-		LastWorkspaceID: "ws-api",
-		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api", WorkspaceID: "ws-api"}},
-	})
+	}, Options{DisplayOptions: DisplayOptions{Prompt: "Find> ", Placeholder: "Search sessions", ShowIcons: true, LastWorkspaceID: "ws-api", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "workspace-api", Path: "/tmp/workspace-api", WorkspaceID: "ws-api"}}}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	m = updated.(teaModel)
 	updated, _ = m.Update(previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand, false)())
@@ -968,7 +930,7 @@ func TestListViewKeepsWorktreeBranchWhenParentIsOffScreen(t *testing.T) {
 }
 
 func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "herdr", Name: "current", WorkspaceID: "current"}}, Options{LastWorkspaceID: "unavailable-workspace"})
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "current", WorkspaceID: "current"}}, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "unavailable-workspace"}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 
@@ -977,10 +939,7 @@ func TestTeaModelLastWorkspaceFallsBackToRecordedID(t *testing.T) {
 }
 
 func TestTeaModelLastWorkspaceUsesRawHerdrMetadata(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "config", Name: "api", Path: "/configured/api"}}, Options{
-		LastWorkspaceID: "ws-api",
-		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}},
-	})
+	m := newTeaModel([]model.Session{{Source: "config", Name: "api", Path: "/configured/api"}}, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "ws-api", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}}}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 
@@ -989,11 +948,7 @@ func TestTeaModelLastWorkspaceUsesRawHerdrMetadata(t *testing.T) {
 }
 
 func TestTeaModelCanHideLastWorkspacePath(t *testing.T) {
-	m := newTeaModel(nil, Options{
-		HideLastWorkspacePath: true,
-		LastWorkspaceID:       "ws-api",
-		HerdrWorkspaces:       []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}},
-	})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{HideLastWorkspacePath: true, LastWorkspaceID: "ws-api", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}}}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 	m = updated.(teaModel)
 
@@ -1003,11 +958,7 @@ func TestTeaModelCanHideLastWorkspacePath(t *testing.T) {
 }
 
 func TestTeaModelCanHideLastWorkspace(t *testing.T) {
-	m := newTeaModel(nil, Options{
-		HideLastWorkspace: true,
-		LastWorkspaceID:   "ws-api",
-		HerdrWorkspaces:   []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}},
-	})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{HideLastWorkspace: true, LastWorkspaceID: "ws-api", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/live/api", WorkspaceID: "ws-api"}}}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 	m = updated.(teaModel)
 
@@ -1018,7 +969,7 @@ func TestTeaModelCanHideLastWorkspace(t *testing.T) {
 }
 
 func TestTeaModelLastWorkspaceSharesFooterWithKeybinds(t *testing.T) {
-	m := newTeaModel(nil, Options{LastWorkspaceID: "ws-api"})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "ws-api"}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m = updated.(teaModel)
 
@@ -1034,10 +985,7 @@ func TestTeaModelLastWorkspaceSharesFooterWithKeybinds(t *testing.T) {
 }
 
 func TestFooterLinePrioritizesKeybindHelpAtNarrowWidths(t *testing.T) {
-	m := newTeaModel(nil, Options{
-		LastWorkspaceID: "ws-api",
-		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "a-rather-long-workspace-name", Path: "/home/test/some/deep/project/path", WorkspaceID: "ws-api"}},
-	})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "ws-api", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "a-rather-long-workspace-name", Path: "/home/test/some/deep/project/path", WorkspaceID: "ws-api"}}}})
 	help := helpStyle.Render("enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
 	for _, width := range []int{10, 20, 40, 80, 120} {
 		line := m.footerLine(help, width)
@@ -1049,10 +997,7 @@ func TestFooterLinePrioritizesKeybindHelpAtNarrowWidths(t *testing.T) {
 }
 
 func TestFooterLineCompactsLastWorkspaceBeforeDroppingIt(t *testing.T) {
-	m := newTeaModel(nil, Options{
-		LastWorkspaceID: "api",
-		HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/some/long/path/to/the/project", WorkspaceID: "api"}},
-	})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "api", HerdrWorkspaces: []model.Session{{Source: "herdr", Name: "api", Path: "/some/long/path/to/the/project", WorkspaceID: "api"}}}})
 	help := helpStyle.Render("enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit")
 	line := ansi.Strip(m.footerLine(help, 80))
 	require.Contains(t, line, "last: api")
@@ -1061,7 +1006,7 @@ func TestFooterLineCompactsLastWorkspaceBeforeDroppingIt(t *testing.T) {
 }
 
 func TestFooterLineGivesCloseErrorWholeRow(t *testing.T) {
-	m := newTeaModel(nil, Options{LastWorkspaceID: "ws-api"})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "ws-api"}})
 	m.closeError = "Failed to close workspace: herdr workspace close w1: boom"
 	line := ansi.Strip(m.footerLine(emptyStyle.Render(m.closeError), 80))
 	require.Contains(t, line, "close w1: boom")
@@ -1070,7 +1015,7 @@ func TestFooterLineGivesCloseErrorWholeRow(t *testing.T) {
 }
 
 func TestTeaModelLastWorkspaceUnavailable(t *testing.T) {
-	m := newTeaModel(nil, Options{LastWorkspaceUnknown: true})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{LastWorkspaceUnknown: true}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 
@@ -1079,10 +1024,7 @@ func TestTeaModelLastWorkspaceUnavailable(t *testing.T) {
 
 func TestTeaModelUnnamedLastWorkspaceDoesNotRepeatCompactedPath(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
-	m := newTeaModel(nil, Options{
-		LastWorkspaceID: "ws-api",
-		HerdrWorkspaces: []model.Session{{Source: "herdr", Path: "/home/test/api", WorkspaceID: "ws-api"}},
-	})
+	m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{LastWorkspaceID: "ws-api", HerdrWorkspaces: []model.Session{{Source: "herdr", Path: "/home/test/api", WorkspaceID: "ws-api"}}}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 
@@ -1095,7 +1037,7 @@ func TestTeaModelShowIconsControlsSourceIcons(t *testing.T) {
 	withoutIcons := ansi.Strip(newTeaModel(items, Options{}).View().Content)
 	require.NotContains(t, withoutIcons, herdrSourceIcon)
 
-	withIcons := ansi.Strip(newTeaModel(items, Options{ShowIcons: true}).View().Content)
+	withIcons := ansi.Strip(newTeaModel(items, Options{DisplayOptions: DisplayOptions{ShowIcons: true}}).View().Content)
 	assert.Contains(t, withIcons, herdrSourceIcon+" herdr")
 }
 
@@ -1136,7 +1078,7 @@ func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
 		{Source: "herdr", Name: "project", WorkspaceID: "w-parent"},
 		{Source: "herdr", Name: "feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
 	}
-	m := newTeaModel(items, Options{ShowIcons: true, DisableWorktreeIconReplacement: true})
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{ShowIcons: true, DisableWorktreeIconReplacement: true}})
 	withIcons := m.listView(80, 2)
 	plain := ansi.Strip(withIcons)
 	require.Contains(t, plain, herdrSourceIcon+" herdr")
@@ -1144,7 +1086,7 @@ func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
 	require.NotContains(t, plain, "↳")
 	require.Contains(t, withIcons, "38;2;187;154;247")
 
-	m = newTeaModel(items, Options{DisableWorktreeIconReplacement: true})
+	m = newTeaModel(items, Options{DisplayOptions: DisplayOptions{DisableWorktreeIconReplacement: true}})
 	withoutIcons := ansi.Strip(m.listView(80, 2))
 	require.Contains(t, withoutIcons, "[herdr]")
 	assert.NotContains(t, withoutIcons, "↳")
@@ -1186,7 +1128,7 @@ func TestTeaModelAnimatesWorkingAgentStatusIndicator(t *testing.T) {
 }
 
 func TestTeaModelStartsAgentStatusSpinner(t *testing.T) {
-	m := newTeaModel(nil, Options{RefreshAgentStatuses: func() (map[string]string, error) { return nil, nil }})
+	m := newTeaModel(nil, Options{Backend: &fakeBackend{refreshAgentStatuses: func() (map[string]string, error) { return nil, nil }}})
 	batch, ok := m.Init()().(tea.BatchMsg)
 	require.True(t, ok)
 	require.NotEmpty(t, batch)
@@ -1388,7 +1330,7 @@ func TestPreviewLoadingDelayResetsAndStops(t *testing.T) {
 }
 
 func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
-	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DefaultPreviewCommand: "printf preview:%s {}"})
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DisplayOptions: DisplayOptions{DefaultPreviewCommand: "printf preview:%s {}"}})
 	msg := previewCommand(m.previewContext, m.previewKey, m.previewRequestID, m.list.Filtered[m.list.Selected], m.defaultPreviewCommand, false)()
 	preview := msg.(previewMsg)
 	assert.Equal(t, "preview:/tmp/api", strings.TrimSpace(preview.text))
@@ -1396,10 +1338,7 @@ func TestTeaModelPreviewUsesConfiguredCommand(t *testing.T) {
 
 func TestTeaModelHidePreviewDoesNotRunInitialPreview(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "preview-ran")
-	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{
-		HidePreview:           true,
-		DefaultPreviewCommand: fmt.Sprintf("touch %q", marker),
-	})
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DisplayOptions: DisplayOptions{HidePreview: true, DefaultPreviewCommand: fmt.Sprintf("touch %q", marker)}})
 
 	executeTeaCommand(m.Init())
 	_, err := os.Stat(marker)
@@ -1409,10 +1348,7 @@ func TestTeaModelHidePreviewDoesNotRunInitialPreview(t *testing.T) {
 func TestTeaModelHidePreviewDoesNotRefreshAfterSelection(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
 	marker := filepath.Join(t.TempDir(), "preview-ran")
-	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{
-		HidePreview:           true,
-		DefaultPreviewCommand: fmt.Sprintf("touch %q", marker),
-	})
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}, {Name: "web", Path: "/tmp/web"}}, Options{DisplayOptions: DisplayOptions{HidePreview: true, DefaultPreviewCommand: fmt.Sprintf("touch %q", marker)}})
 	m.listFocused = true
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -1479,7 +1415,7 @@ func TestTeaModelCancelsSupersededPreview(t *testing.T) {
 	}
 	t.Cleanup(func() { renderPreview = oldPreview })
 
-	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{Context: context.Background()})
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{DisplayOptions: DisplayOptions{Context: context.Background()}})
 	m.previewKey = ""
 	m, firstCmd := m.refreshPreview()
 	firstResult := make(chan tea.Msg, 1)
@@ -1568,7 +1504,7 @@ func TestTeaModelCancelsPreviewOnQuitOrNoPreview(t *testing.T) {
 			}
 			t.Cleanup(func() { renderPreview = oldPreview })
 
-			m := newTeaModel([]model.Session{{Name: "api"}}, Options{Context: context.Background()})
+			m := newTeaModel([]model.Session{{Name: "api"}}, Options{DisplayOptions: DisplayOptions{Context: context.Background()}})
 			m.previewKey = ""
 			m, previewCmd := m.refreshPreview()
 			go previewResult(previewCmd)
@@ -1605,14 +1541,11 @@ func TestTeaModelCancelsRestartedPreviewWhenQuittingPendingClose(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
 		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
-	}, Options{
-		Context: context.Background(),
-		CloseWorkspace: func(ctx context.Context, _ string) error {
-			close(closeStarted)
-			<-ctx.Done()
-			return ctx.Err()
-		},
-	})
+	}, Options{DisplayOptions: DisplayOptions{Context: context.Background()}, Backend: &fakeBackend{closeWorkspace: func(ctx context.Context, _ string) error {
+		close(closeStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	}}})
 	m.listFocused = true
 	updated, closeCmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	m = updated.(teaModel)
@@ -1655,9 +1588,9 @@ func TestTeaModelRefreshesAgentStatuses(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api", WorkspaceID: "w1", AgentStatus: "working"},
 		{Source: "config", Name: "local", Path: "/tmp/local"},
-	}, Options{RefreshAgentStatuses: func() (map[string]string, error) {
+	}, Options{Backend: &fakeBackend{refreshAgentStatuses: func() (map[string]string, error) {
 		return map[string]string{"w1": "blocked"}, nil
-	}})
+	}}})
 	m.list.Filter("api")
 
 	updated, cmd := m.Update(statusRefreshTickMsg{})
@@ -1679,7 +1612,7 @@ func TestTeaModelAgentSortRefreshPreservesSelectionAndPreview(t *testing.T) {
 		{Source: "herdr", Name: "api-one", WorkspaceID: "w1", AgentStatus: "working"},
 		{Source: "herdr", Name: "api-two", WorkspaceID: "w2", AgentStatus: "idle"},
 		{Source: "herdr", Name: "api-three", WorkspaceID: "w3", AgentStatus: "blocked"},
-	}, Options{WorkspaceSort: "agent"})
+	}, Options{DisplayOptions: DisplayOptions{WorkspaceSort: "agent"}})
 	m.list.Filter("api")
 	m.list.Selected = 1
 	selected, ok := m.list.Current()
@@ -1715,7 +1648,7 @@ func TestTeaModelAgentSortRefreshDemotesMissingStatus(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "blocked", WorkspaceID: "w1", AgentStatus: "blocked"},
 		{Source: "herdr", Name: "idle", WorkspaceID: "w2", AgentStatus: "idle"},
-	}, Options{WorkspaceSort: "agent"})
+	}, Options{DisplayOptions: DisplayOptions{WorkspaceSort: "agent"}})
 
 	updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w2": "idle"}})
 	m = updated.(teaModel)
@@ -1728,7 +1661,7 @@ func TestTeaModelAgentSortRefreshErrorKeepsState(t *testing.T) {
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "blocked", WorkspaceID: "w1", AgentStatus: "blocked"},
 		{Source: "herdr", Name: "idle", WorkspaceID: "w2", AgentStatus: "idle"},
-	}, Options{WorkspaceSort: "agent"})
+	}, Options{DisplayOptions: DisplayOptions{WorkspaceSort: "agent"}})
 	m.list.Selected = 1
 	selected, _ := m.list.Current()
 	selectedKey := model.Key(selected)
@@ -1761,7 +1694,7 @@ func TestTeaModelAgentStatusRefreshKeepsNonAgentSortOrder(t *testing.T) {
 			m := newTeaModel([]model.Session{
 				{Source: "herdr", Name: "first", WorkspaceID: "w1", AgentStatus: "working"},
 				{Source: "herdr", Name: "second", WorkspaceID: "w2", AgentStatus: "idle"},
-			}, Options{WorkspaceSort: tc.mode, RecentWorkspaceIDs: []string{"w2", "w1"}})
+			}, Options{DisplayOptions: DisplayOptions{WorkspaceSort: tc.mode, RecentWorkspaceIDs: []string{"w2", "w1"}}})
 
 			updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w1": "idle", "w2": "blocked"}})
 			m = updated.(teaModel)
@@ -1863,7 +1796,7 @@ func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
 
 	for _, width := range []int{70, 120} {
 		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
-			m := newTeaModel(items, Options{HidePreview: true})
+			m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
 			updated, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 28})
 			m = updated.(teaModel)
 			view := ansi.Strip(m.View().Content)
@@ -1883,7 +1816,7 @@ func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
 }
 
 func TestTeaModelHidePreviewFitsShortNarrowTerminal(t *testing.T) {
-	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{HidePreview: true})
+	m := newTeaModel([]model.Session{{Name: "api", Path: "/tmp/api"}}, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 14})
 	m = updated.(teaModel)
 	view := ansi.Strip(m.View().Content)
@@ -1892,10 +1825,7 @@ func TestTeaModelHidePreviewFitsShortNarrowTerminal(t *testing.T) {
 }
 
 func TestTeaModelHidePreviewShowsWorkspaceCloseProgressInFooter(t *testing.T) {
-	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{
-		HidePreview:    true,
-		CloseWorkspace: func(context.Context, string) error { return nil },
-	})
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{DisplayOptions: DisplayOptions{HidePreview: true}, Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }}})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 28})
 	m = updated.(teaModel)
 	m, _ = m.closeSelectedWorkspace()
@@ -1937,7 +1867,7 @@ func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
 		{Source: "herdr", Name: "second", WorkspaceID: "w2", AgentStatus: "blocked"},
 		{Source: "herdr", Name: "third", WorkspaceID: "w3", AgentStatus: "idle"},
 	}
-	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w3", "w1"}})
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{RecentWorkspaceIDs: []string{"w3", "w1"}}})
 	require.Equal(t, []string{"configured", "first", "recent-directory", "second", "third"}, sessionNames(m.list.All))
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
@@ -1975,7 +1905,7 @@ func TestTeaModelStartsWithConfiguredWorkspaceSort(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w2", "w1", "w3"}, WorkspaceSort: tc.mode})
+			m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{RecentWorkspaceIDs: []string{"w2", "w1", "w3"}, WorkspaceSort: tc.mode}})
 			require.Equal(t, tc.want, sessionNames(m.list.All))
 			wantMode := tc.mode
 			if wantMode == "" || wantMode == "future" {
@@ -2000,7 +1930,7 @@ func TestTeaModelAgentSortRanksStatusesAndPreservesSourceSlots(t *testing.T) {
 		{Source: "herdr", Name: "future", WorkspaceID: "w-future", AgentStatus: "waiting"},
 	}
 
-	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{WorkspaceSort: "agent"}})
 
 	want := []string{"configured", "blocked", "directory", "done", "working-a", "working-b", "idle", "unknown", "agentless", "future"}
 	assert.Equal(t, want, sessionNames(m.list.All))
@@ -2015,7 +1945,7 @@ func TestTeaModelAgentSortPromotesWorktreeFamilyByBestMember(t *testing.T) {
 		{Source: "herdr", Name: "child-blocked", WorkspaceID: "w-child-blocked", AgentStatus: "blocked", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
 	}
 
-	m := newTeaModel(items, Options{WorkspaceSort: "agent"})
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{WorkspaceSort: "agent"}})
 
 	want := []string{"parent", "child-blocked", "child-idle", "other", "unresolved"}
 	assert.Equal(t, want, sessionNames(m.list.All))
@@ -2078,7 +2008,7 @@ func TestTeaModelKeepsWorktreeFamilyAcrossSortModes(t *testing.T) {
 		{Source: "herdr", Name: "parent", WorkspaceID: "w-parent"},
 		{Source: "herdr", Name: "other", WorkspaceID: "w-other", AgentStatus: "done"},
 	}
-	m := newTeaModel(items, Options{RecentWorkspaceIDs: []string{"w-other", "w-child"}})
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{RecentWorkspaceIDs: []string{"w-other", "w-child"}}})
 	require.Equal(t, []string{"parent", "child", "other"}, sessionNames(m.list.All))
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
@@ -2170,7 +2100,7 @@ func sessionNames(items []model.Session) []string {
 func TestTeaModelHidePath(t *testing.T) {
 	items := []model.Session{{Name: "workspace", Path: "/unique/path", Source: "config"}}
 	for _, hide := range []bool{false, true} {
-		m := newTeaModel(items, Options{HidePath: hide})
+		m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePath: hide}})
 		m.width = 204
 		listWidth, previewWidth := m.previewLayout()
 		if hide {
@@ -2195,5 +2125,24 @@ func TestTeaModelHidePath(t *testing.T) {
 		if hide {
 			assert.NotContains(t, ansi.Strip(m.listView(m.contentWidth(), 1)), "/unique/path")
 		}
+	}
+}
+
+func TestCloseReloadRecentMetadataNilPreservesEmptyClears(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		recent []string
+		want   []string
+	}{
+		{name: "nil preserves", want: []string{"w1"}},
+		{name: "empty clears", recent: []string{}, want: []string(nil)},
+		{name: "refresh", recent: []string{"w2"}, want: []string{"w2"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel([]model.Session{{Source: "herdr", WorkspaceID: "w1"}}, Options{DisplayOptions: DisplayOptions{HidePreview: true, RecentWorkspaceIDs: []string{"w1"}}, Backend: &fakeBackend{}})
+			m.closingWorkspaceID = "w1"
+			updated, _ := m.Update(workspaceCloseMsg{workspaceID: "w1", reloadRan: true, result: ReloadResult{RecentWorkspaceIDs: tc.recent}})
+			assert.Equal(t, tc.want, updated.(teaModel).recentWorkspaceIDs)
+		})
 	}
 }
