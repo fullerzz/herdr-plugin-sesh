@@ -54,7 +54,7 @@ func TestSettingsReloadToleratesUnavailableHerdr(t *testing.T) {
 	backend := &pickerBackend{app: New(), ctx: context.Background(), cfg: cfg, client: herdr.NewCLIClient(), herdrWorkspaces: lastHerdr}
 	col, err := backend.app.collectPicker(context.Background(), cfg, lastHerdr)
 	require.NoError(t, err)
-	result, err := backend.reloadMetadata(context.Background(), cfg, col, nil)
+	result, _, err := backend.reloadMetadata(context.Background(), cfg, col, nil)
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(backend.warnings, "\n"), "herdr workspaces unavailable")
 	assert.Equal(t, lastHerdr, result.HerdrWorkspaces, "keeps last known workspace metadata")

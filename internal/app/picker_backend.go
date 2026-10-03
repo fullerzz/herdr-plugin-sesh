@@ -52,7 +52,7 @@ func (b *pickerBackend) initialize(ctx context.Context) ([]model.Session, picker
 		return nil, pickerpkg.DisplayOptions{}, err
 	}
 	b.herdrWorkspaces = col.HerdrWorkspaces
-	result := b.historyMetadata(b.cfg)
+	result := b.historyMetadata(b.cfg, b.pickerWorkspaceID)
 	result.HerdrWorkspaces = col.HerdrWorkspaces
 	return col.Sessions, b.displayOptions(b.cfg, result), nil
 }
@@ -66,9 +66,9 @@ func (b *pickerBackend) displayOptions(cfg config.Config, result pickerpkg.Reloa
 	return opts
 }
 
-func (b *pickerBackend) historyMetadata(cfg config.Config) pickerpkg.ReloadResult {
+func (b *pickerBackend) historyMetadata(cfg config.Config, workspaceID string) pickerpkg.ReloadResult {
 	history, err := state.LoadHistory(b.historyDir)
-	result := pickerpkg.ReloadResult{RecentWorkspaceIDs: append([]string{b.pickerWorkspaceID}, history.Workspaces...)}
+	result := pickerpkg.ReloadResult{RecentWorkspaceIDs: append([]string{workspaceID}, history.Workspaces...)}
 	if err != nil {
 		b.warnf("ignoring workspace history: %v", err)
 	}
@@ -79,13 +79,13 @@ func (b *pickerBackend) historyMetadata(cfg config.Config) pickerpkg.ReloadResul
 	if err != nil {
 		return result
 	}
-	if b.pickerWorkspaceID == "" {
+	if workspaceID == "" {
 		if len(history.Workspaces) > 1 {
 			result.LastWorkspaceID = history.Workspaces[1]
 		}
 	} else {
 		for _, id := range history.Workspaces {
-			if id != "" && id != b.pickerWorkspaceID {
+			if id != "" && id != workspaceID {
 				result.LastWorkspaceID = id
 				break
 			}
@@ -116,28 +116,34 @@ func (b *pickerBackend) ReloadPicker(ctx context.Context) (pickerpkg.ReloadResul
 	if err == nil {
 		err = col.HerdrErr
 	}
-	return b.reloadMetadata(ctx, b.cfg, col, err)
+	result, workspaceID, err := b.reloadMetadata(ctx, b.cfg, col, err)
+	// A closed workspace stays closed even when session collection fails.
+	if ctx.Err() == nil {
+		b.herdrWorkspaces, b.pickerWorkspaceID = result.HerdrWorkspaces, workspaceID
+	}
+	return result, err
 }
 
-func (b *pickerBackend) reloadMetadata(ctx context.Context, cfg config.Config, col pickerCollection, reloadErr error) (pickerpkg.ReloadResult, error) {
+func (b *pickerBackend) reloadMetadata(ctx context.Context, cfg config.Config, col pickerCollection, reloadErr error) (pickerpkg.ReloadResult, string, error) {
 	if err := ctx.Err(); err != nil {
-		return pickerpkg.ReloadResult{LastWorkspaceUnknown: true}, err
+		return pickerpkg.ReloadResult{LastWorkspaceUnknown: true}, "", err
 	}
+	workspaces := b.herdrWorkspaces
 	if col.HerdrErr == nil {
-		b.herdrWorkspaces = col.HerdrWorkspaces
+		workspaces = col.HerdrWorkspaces
 	} else {
 		b.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
 	}
 	focusedPane, focusErr := b.client.PaneFocused(ctx)
-	b.pickerWorkspaceID = focusedPane.WorkspaceID
-	if focusErr == nil && b.pickerWorkspaceID == "" {
+	workspaceID := focusedPane.WorkspaceID
+	if focusErr == nil && workspaceID == "" {
 		focusErr = errors.New("focused pane has no workspace ID")
 	}
 	if focusErr != nil {
-		b.pickerWorkspaceID = ""
+		workspaceID = ""
 	}
-	result := b.historyMetadata(cfg)
-	result.Sessions, result.HerdrWorkspaces = col.Sessions, b.herdrWorkspaces
+	result := b.historyMetadata(cfg, workspaceID)
+	result.Sessions, result.HerdrWorkspaces = col.Sessions, workspaces
 	if focusErr != nil {
 		if cfg.TUI.ShowLastWorkspace {
 			result.LastWorkspaceUnknown = true
@@ -147,9 +153,9 @@ func (b *pickerBackend) reloadMetadata(ctx context.Context, cfg config.Config, c
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return pickerpkg.ReloadResult{LastWorkspaceUnknown: true}, err
+		return pickerpkg.ReloadResult{LastWorkspaceUnknown: true}, "", err
 	}
-	return result, reloadErr
+	return result, workspaceID, reloadErr
 }
 
 func (b *pickerBackend) RefreshAgentStatuses() (map[string]string, error) {
@@ -169,15 +175,18 @@ func (b *pickerBackend) OpenSettings() (settings.Model, error) {
 }
 
 func (b *pickerBackend) ReloadSettings(ctx context.Context, saved settings.Result) (pickerpkg.DisplayOptions, pickerpkg.ReloadResult, error) {
-	cfg, path, err := config.Load(config.LoadOptions{Path: saved.Path, Warn: b.app.Err})
+	// The editor already saved this file, even if applying it fails.
+	b.activeConfigPath = saved.Path
+	cfg, _, err := config.Load(config.LoadOptions{Path: saved.Path, Warn: b.app.Err})
 	if err != nil {
 		return pickerpkg.DisplayOptions{}, pickerpkg.ReloadResult{}, err
 	}
 	col, err := b.app.collectPickerWithClient(ctx, cfg, b.herdrWorkspaces, b.client)
-	result, err := b.reloadMetadata(ctx, cfg, col, err)
+	result, workspaceID, err := b.reloadMetadata(ctx, cfg, col, err)
 	if err != nil {
 		return pickerpkg.DisplayOptions{}, result, err
 	}
-	b.cfg, b.activeConfigPath = cfg, path
+	b.cfg = cfg
+	b.herdrWorkspaces, b.pickerWorkspaceID = result.HerdrWorkspaces, workspaceID
 	return b.displayOptions(cfg, result), result, nil
 }
