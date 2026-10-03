@@ -444,10 +444,12 @@ func (a *App) last(ctx context.Context, _ []string) error {
 }
 
 func lastWorkspace(stateDir, currentWorkspaceID string) (string, bool, error) {
-	if currentWorkspaceID == "" {
-		return state.Last(stateDir)
+	history, err := state.LoadHistory(stateDir)
+	if err != nil {
+		return "", false, err
 	}
-	return state.Previous(stateDir, currentWorkspaceID)
+	id, ok := history.PreviousWorkspace(currentWorkspaceID)
+	return id, ok, nil
 }
 
 func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string) {

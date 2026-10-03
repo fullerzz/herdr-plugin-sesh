@@ -79,18 +79,7 @@ func (b *pickerBackend) historyMetadata(cfg config.Config, workspaceID string) p
 	if err != nil {
 		return result
 	}
-	if workspaceID == "" {
-		if len(history.Workspaces) > 1 {
-			result.LastWorkspaceID = history.Workspaces[1]
-		}
-	} else {
-		for _, id := range history.Workspaces {
-			if id != "" && id != workspaceID {
-				result.LastWorkspaceID = id
-				break
-			}
-		}
-	}
+	result.LastWorkspaceID, _ = history.PreviousWorkspace(workspaceID)
 	return result
 }
 
