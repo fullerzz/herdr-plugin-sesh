@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
@@ -12,6 +13,9 @@ import (
 const (
 	lastWorkspaceToken = "sesh_last"
 	metadataSource     = "fullerzz.sesh"
+	// ponytail: synchronous sync can delay history by 2s; coalesce requests in a
+	// background worker if this delay becomes a problem.
+	markerSyncTimeout = 2 * time.Second
 )
 
 type workspaceTokenReporter interface {
@@ -29,6 +33,8 @@ func syncLastWorkspaceMarker(ctx context.Context, client workspaceTokenReporter,
 		return err
 	}
 	target, _ := history.PreviousWorkspace(focusedID)
+	ctx, cancel := context.WithTimeout(ctx, markerSyncTimeout)
+	defer cancel()
 	workspaces, err := client.WorkspaceList(ctx)
 	if err != nil {
 		return err

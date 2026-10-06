@@ -115,6 +115,9 @@ const (
 	maxWaitTimeoutMS     = 600_000
 )
 
+// Herdr keeps at most this many characters of a metadata token value.
+const maxLastWorkspaceLabelLen = 80
+
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type nativeWorkspace struct {
@@ -159,8 +162,16 @@ func decodeNative(path string, data []byte) (Config, error) {
 	if n.Version != NativeVersion {
 		return cfg, fmt.Errorf("load %s: version: must be %d, got %d", path, NativeVersion, n.Version)
 	}
-	if strings.ContainsFunc(n.History.LastWorkspaceLabel, unicode.IsControl) {
+	// Reject labels Herdr would normalize so the stored token matches the label.
+	label := n.History.LastWorkspaceLabel
+	if strings.ContainsFunc(label, unicode.IsControl) {
 		return cfg, fmt.Errorf("load %s: history.last_workspace_label: must not contain control characters", path)
+	}
+	if strings.TrimSpace(label) != label {
+		return cfg, fmt.Errorf("load %s: history.last_workspace_label: must not start or end with whitespace", path)
+	}
+	if utf8.RuneCountInString(label) > maxLastWorkspaceLabelLen {
+		return cfg, fmt.Errorf("load %s: history.last_workspace_label: must be at most %d characters", path, maxLastWorkspaceLabelLen)
 	}
 	if err := n.validate(path); err != nil {
 		return cfg, err

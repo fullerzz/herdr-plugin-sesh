@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,5 +125,45 @@ func (c *failingClearClient) WorkspaceReportToken(ctx context.Context, id, sourc
 	if id == c.failID {
 		return errors.New("report failed")
 	}
+	return c.FakeClient.WorkspaceReportToken(ctx, id, source, name, value)
+}
+
+// Every Herdr call in one sync shares a single short deadline, so a slow CLI
+// cannot hold the watcher's next history mutation for a timeout per call.
+func TestLastWorkspaceMarkerSyncSharesOneBoundedDeadline(t *testing.T) {
+	client, historyDir := markerFixture(t, []string{"B", "A"},
+		herdr.Workspace{ID: "A"}, herdr.Workspace{ID: "B"},
+		herdr.Workspace{ID: "C", Tokens: map[string]string{lastWorkspaceToken: "last"}})
+	recorder := &deadlineClient{FakeClient: client}
+
+	start := time.Now()
+	require.NoError(t, syncLastWorkspaceMarker(context.Background(), recorder, historyDir, "B", config.DefaultLastWorkspaceLabel))
+	end := time.Now()
+
+	require.Len(t, recorder.deadlines, 3, "list, set A, clear C")
+	for _, deadline := range recorder.deadlines {
+		assert.Equal(t, recorder.deadlines[0], deadline)
+	}
+	assert.WithinRange(t, recorder.deadlines[0], start.Add(markerSyncTimeout), end.Add(markerSyncTimeout))
+}
+
+type deadlineClient struct {
+	*herdr.FakeClient
+
+	deadlines []time.Time
+}
+
+func (c *deadlineClient) record(ctx context.Context) {
+	deadline, _ := ctx.Deadline()
+	c.deadlines = append(c.deadlines, deadline)
+}
+
+func (c *deadlineClient) WorkspaceList(ctx context.Context) ([]herdr.Workspace, error) {
+	c.record(ctx)
+	return c.FakeClient.WorkspaceList(ctx)
+}
+
+func (c *deadlineClient) WorkspaceReportToken(ctx context.Context, id, source, name, value string) error {
+	c.record(ctx)
 	return c.FakeClient.WorkspaceReportToken(ctx, id, source, name, value)
 }

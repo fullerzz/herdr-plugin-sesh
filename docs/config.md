@@ -173,7 +173,7 @@ Picker shortcuts, appearance, sorting, and history are documented in
 
 | Field | Runtime effect |
 | --- | --- |
-| `last_workspace_label` | Default `"last"`. Text for the sidebar's `$sesh_last` marker. An empty string hides the marker; control characters are rejected. Applies on the next workspace focus or close event. See [Sidebar marker](config/picker.md#sidebar-marker). |
+| `last_workspace_label` | Default `"last"`. Text for the sidebar's `$sesh_last` marker. An empty string hides the marker. At most 80 characters; control characters and leading or trailing whitespace are rejected. Applies on the next workspace focus or close event. See [Sidebar marker](config/picker.md#sidebar-marker). |
 
 ### `[workspace_defaults]`
 

@@ -125,7 +125,7 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 }
 
 func TestNativeLastWorkspaceLabel(t *testing.T) {
-	for _, label := range []string{"previous", "↩", ""} {
+	for _, label := range []string{"previous", "↩", "", "last workspace", strings.Repeat("↩", 80)} {
 		t.Run(label, func(t *testing.T) {
 			cfg, err := loadNative(t, "version = 1\n[history]\nlast_workspace_label = "+strconv.Quote(label)+"\n")
 			require.NoError(t, err)
@@ -140,6 +140,16 @@ func TestNativeLastWorkspaceLabel(t *testing.T) {
 			require.ErrorContains(t, err, "history.last_workspace_label: must not contain control characters")
 		})
 	}
+	// Herdr trims token values, so surrounding whitespace would never match.
+	for _, label := range []string{" last", "last ", " ", "\u00a0last", "last\u3000"} {
+		t.Run("padded "+label, func(t *testing.T) {
+			_, err := loadNative(t, "version = 1\n[history]\nlast_workspace_label = "+strconv.Quote(label)+"\n")
+			require.ErrorContains(t, err, "history.last_workspace_label: must not start or end with whitespace")
+		})
+	}
+	// Herdr keeps 80 characters, not bytes; each ↩ is three UTF-8 bytes.
+	_, err := loadNative(t, "version = 1\n[history]\nlast_workspace_label = "+strconv.Quote(strings.Repeat("↩", 81))+"\n")
+	require.ErrorContains(t, err, "history.last_workspace_label: must be at most 80 characters")
 }
 
 func TestNativePickerCanDisableHomePrioritization(t *testing.T) {

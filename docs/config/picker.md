@@ -174,8 +174,9 @@ last_workspace_label = "previous"
 ```
 
 The default is `"last"`. An empty string hides the marker. Text may include
-Unicode but must not contain control characters. Changes apply on the next
-workspace focus or close event without restarting the plugin.
+Unicode, up to 80 characters, but must not contain control characters or start
+or end with whitespace; Herdr would otherwise alter the stored value. Changes
+apply on the next workspace focus or close event without restarting the plugin.
 
 ## Linked worktrees
 

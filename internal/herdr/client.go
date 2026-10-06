@@ -156,6 +156,7 @@ type omitCallerPaneKey struct{}
 func (ExecRunner) Run(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
 	//nolint:gosec // HERDR_BIN_PATH may intentionally point at a user-selected herdr binary.
 	c := exec.CommandContext(ctx, bin, args...)
+	c.WaitDelay = 100 * time.Millisecond
 	if omit, _ := ctx.Value(omitCallerPaneKey{}).(bool); omit {
 		c.Env = environmentWithout(os.Environ(), "HERDR_PANE_ID")
 	}

@@ -182,9 +182,11 @@ capture it before requesting focus, and `RecordSwitch` applies only if history
 is still at that revision and `to` is not already the head. Otherwise the
 subscriber's ordered events win and the late switch is dropped. Comparing
 revisions instead of workspace IDs keeps valid switches when the head is stale
-or `from` is unknown. Because an applied switch precedes any write for `to`,
-the subscriber's focus event for `to` still follows it and resynchronizes the
-sidebar marker.
+or `from` is unknown. An applied switch precedes any write for `to`, so if the
+subscriber receives its focus event for `to`, that event follows the switch and
+resynchronizes the sidebar marker. A subscriber that is down, or a focus event
+Herdr 0.9.0 suppresses, leaves the marker stale until the next event the
+subscriber does receive.
 
 `Record` does not rewrite history for an already-current head, so an unchanged
 revision cannot prove the subscriber has not seen focus on `to`. A switch to the
@@ -210,8 +212,11 @@ head, because a delayed `RecordSwitch` can reorder the head. It then reads
 `fullerzz.sesh`) to set `sesh_last` on that workspace and clear it everywhere
 else. Reconciling against Herdr's reported tokens makes each sync idempotent:
 markers left by a replaced subscriber or a failed report are repaired on the
-next event. Only the elected subscriber reports. Report failures are warnings:
-they cost the indicator, never history.
+next event. Only the elected subscriber reports. Marker calls share a two-second
+context deadline, with a short limit on draining command output after
+cancellation. Report failures are warnings: they cost the indicator, never history.
+Repeated config warnings are emitted only when their text changes; a clean
+load resets them.
 
 ## Failure model
 

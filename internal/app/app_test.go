@@ -1304,6 +1304,219 @@ func stubHerdrBin(t *testing.T) {
 	t.Setenv("HERDR_BIN_PATH", bin)
 }
 
+// fakeMarkerHerdr installs a herdr CLI that logs its args, lists workspaces A,
+// B and C without tokens, and exits with reportStatus for report-metadata.
+func fakeMarkerHerdr(t *testing.T, reportStatus int) string {
+	t.Helper()
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "herdr.log")
+	script := fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> '%s'
+case "$2" in
+list) echo '{"result":{"workspaces":[{"id":"A"},{"id":"B"},{"id":"C"}]}}' ;;
+report-metadata) exit %d ;;
+esac
+`, logPath, reportStatus)
+	bin := filepath.Join(dir, "herdr")
+	//nolint:gosec // test creates a local executable fixture.
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0700))
+	t.Setenv("HERDR_BIN_PATH", bin)
+	return logPath
+}
+
+// runMarkerWatcher runs watch-history against a fake Herdr socket that streams
+// the events sent on the returned channel. stop cancels the watcher after the
+// in-flight callback returns and yields the watcher's stderr.
+func runMarkerWatcher(t *testing.T, history ...string) (historyDir string, events chan<- map[string]any, stop func() string) {
+	t.Helper()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-marker-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "herdr.sock")
+	historyDir, err = state.SessionHistoryDir(stateDir, socketPath)
+	require.NoError(t, err)
+	require.NoError(t, state.SaveHistory(historyDir, state.History{Workspaces: history}))
+	listener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	feed := make(chan map[string]any)
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- serveFedHistoryStream(listener, feed) }()
+
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	var stderr bytes.Buffer
+	watchDone := make(chan error, 1)
+	go func() {
+		watchDone <- (&App{Out: &bytes.Buffer{}, Err: &stderr}).Run(ctx, []string{"plugin", "watch-history"})
+	}()
+	return historyDir, feed, func() string {
+		cancel()
+		close(feed)
+		require.NoError(t, <-serverDone)
+		require.ErrorIs(t, <-watchDone, context.Canceled)
+		return stderr.String()
+	}
+}
+
+func serveFedHistoryStream(listener net.Listener, feed <-chan map[string]any) error {
+	stream, err := listener.Accept()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stream.Close() }()
+	var request struct {
+		Method string `json:"method"`
+	}
+	if err := json.NewDecoder(stream).Decode(&request); err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stream)
+	if err := enc.Encode(map[string]any{
+		"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
+	}); err != nil {
+		return err
+	}
+	if err := serveHistoryWatcherPing(listener); err != nil {
+		return err
+	}
+	snapshot, err := listener.Accept()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = snapshot.Close() }()
+	if err := json.NewDecoder(snapshot).Decode(&request); err != nil {
+		return err
+	}
+	if err := json.NewEncoder(snapshot).Encode(map[string]any{
+		"id":     "herdr-sesh-history-snapshot",
+		"result": map[string]any{"type": "session_snapshot", "snapshot": map[string]any{"focused_workspace_id": ""}},
+	}); err != nil {
+		return err
+	}
+	for event := range feed {
+		if err := enc.Encode(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func workspaceEvent(name, workspaceID string) map[string]any {
+	return map[string]any{"event": name, "data": map[string]any{"workspace_id": workspaceID}}
+}
+
+// sendHistoryEvent streams one event and waits until the watcher has written
+// the expected history. Callbacks run in order, so this also means every
+// earlier event's marker sync has finished.
+func sendHistoryEvent(t *testing.T, events chan<- map[string]any, historyDir string, event map[string]any, want ...string) {
+	t.Helper()
+	events <- event
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		history, err := state.LoadHistory(historyDir)
+		require.NoError(t, err)
+		if reflect.DeepEqual(history.Workspaces, want) {
+			return
+		}
+		require.False(t, time.Now().After(deadline), "history=%#v want %#v", history.Workspaces, want)
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func reportCalls(t *testing.T, logPath string) []string {
+	t.Helper()
+	//nolint:gosec // test log path is derived from t.TempDir().
+	data, err := os.ReadFile(logPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	require.NoError(t, err)
+	var calls []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.Contains(line, "report-metadata") {
+			calls = append(calls, line)
+		}
+	}
+	return calls
+}
+
+func writeConfigAtomically(t *testing.T, path, content string) {
+	t.Helper()
+	tmp := path + ".tmp"
+	require.NoError(t, os.WriteFile(tmp, []byte(content), 0600))
+	require.NoError(t, os.Rename(tmp, path))
+}
+
+func TestPluginWatchHistoryMarksPreviousOfFocusedWorkspace(t *testing.T) {
+	logPath := fakeMarkerHerdr(t, 0)
+	t.Setenv("HERDR_SESH_CONFIG", "")
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	historyDir, events, stop := runMarkerWatcher(t, "C")
+
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "A"), "A", "C")
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "B"), "B", "A", "C")
+	// Closing the focused workspace clears focusedID, so `last` and the marker
+	// fall back to history[1] (C) rather than the first non-B entry (A).
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_closed", "B"), "A", "C")
+	// Wait for the final report to be attempted before shutdown.
+	deadline := time.Now().Add(2 * time.Second)
+	for len(reportCalls(t, logPath)) < 3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	report := func(id string) string {
+		return "workspace report-metadata " + id + " --source fullerzz.sesh --token sesh_last=last"
+	}
+	// The stub logs before exiting, so shutdown may still cancel the final report.
+	if stderr := stop(); stderr != "" {
+		assert.Equal(t, "warning: could not update last-workspace marker: herdr "+report("C")+": context canceled\n", stderr)
+	}
+	assert.Equal(t, []string{report("C"), report("A"), report("C")}, reportCalls(t, logPath))
+}
+
+func TestPluginWatchHistoryWarnsLegacyConfigOnceAndSurvivesReportFailures(t *testing.T) {
+	logPath := fakeMarkerHerdr(t, 1)
+	legacy, err := filepath.Abs(filepath.Join("..", "..", "testdata", "sesh.toml"))
+	require.NoError(t, err)
+	t.Setenv("HERDR_SESH_CONFIG", legacy)
+	historyDir, events, stop := runMarkerWatcher(t)
+
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "A"), "A")
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "B"), "B", "A")
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "C"), "C", "B", "A")
+	stderr := stop()
+
+	assert.Equal(t, 1, strings.Count(stderr, "deprecated Sesh-compatible schema"), stderr)
+	assert.Contains(t, stderr, "could not update last-workspace marker")
+	assert.NotEmpty(t, reportCalls(t, logPath))
+}
+
+func TestPluginWatchHistoryRepeatsConfigErrorOnlyAfterRecovery(t *testing.T) {
+	stubHerdrBin(t)
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	bad := "version = 99\n"
+	writeConfigAtomically(t, configPath, bad)
+	t.Setenv("HERDR_SESH_CONFIG", configPath)
+	historyDir, events, stop := runMarkerWatcher(t)
+
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "A"), "A")
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "B"), "B", "A")
+	writeConfigAtomically(t, configPath, fmt.Sprintf("version = %d\n", config.NativeVersion))
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "C"), "C", "B", "A")
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "A"), "A", "C", "B")
+	writeConfigAtomically(t, configPath, bad)
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_closed", "C"), "A", "B")
+	sendHistoryEvent(t, events, historyDir, workspaceEvent("workspace_focused", "B"), "B", "A")
+	stderr := stop()
+
+	assert.Equal(t, 2, strings.Count(stderr, "could not load last-workspace marker settings"), stderr)
+}
+
 func serveContendedHistoryStream(listener net.Listener, release <-chan struct{}) error {
 	stream, err := listener.Accept()
 	if err != nil {

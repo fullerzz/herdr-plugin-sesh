@@ -534,10 +534,20 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	// Marker failures only cost the sidebar indicator, so they never stop history.
 	markerClient := herdr.NewCLIClient()
 	focusedID := ""
+	// Config reloads on every event, so repeat its legacy or load warnings only
+	// when they change; a clean load resets them.
+	lastConfigWarning := ""
 	syncMarker := func() {
-		cfg, err := a.loadConfig("")
+		var warning strings.Builder
+		cfg, _, err := config.Load(config.LoadOptions{Warn: &warning})
 		if err != nil {
-			a.warnf("could not load last-workspace marker settings: %v", err)
+			_, _ = fmt.Fprintf(&warning, "warning: could not load last-workspace marker settings: %v\n", err)
+		}
+		if warning.String() != lastConfigWarning && a.Err != nil {
+			_, _ = io.WriteString(a.Err, warning.String())
+		}
+		lastConfigWarning = warning.String()
+		if err != nil {
 			return
 		}
 		if err := syncLastWorkspaceMarker(ctx, markerClient, historyDir, focusedID, cfg.History.LastWorkspaceLabel); err != nil {

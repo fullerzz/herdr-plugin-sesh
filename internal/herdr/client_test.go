@@ -214,6 +214,18 @@ func TestCLIClientReportsCanceledWait(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+func TestCLIClientCanceledCommandBoundsInheritedPipes(t *testing.T) {
+	c := &CLIClient{Bin: "sh", Runner: ExecRunner{}, Timeout: 50 * time.Millisecond}
+	start := time.Now()
+	// The short-lived child keeps stdout open after cancellation kills the shell.
+	out, err := c.runFor(context.Background(), 0, "-c", "printf ready; sleep 1 & wait")
+	elapsed := time.Since(start)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, "ready", string(out))
+	assert.Less(t, elapsed, 750*time.Millisecond, "cancellation must not wait for the child's inherited pipe")
+	t.Logf("command returned after %s", elapsed)
+}
+
 func TestCLIClientDecodesPaneSplitEnvelope(t *testing.T) {
 	c := &CLIClient{Bin: "/bin/herdr", Runner: fixedRunner{stdout: []byte(`{"result":{"type":"pane_info","pane":{"pane_id":"w1-3"}}}`)}}
 	got, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "w1-1", Direction: "down"})
