@@ -45,7 +45,8 @@ type sessionSnapshot struct {
 	WorkspaceIDs       map[string]bool
 }
 
-// WatchWorkspaceEvents returns when the connection fails or the stream ends.
+// WatchWorkspaceEvents returns when the connection fails or the stream ends;
+// a server closing an established stream is a normal shutdown and returns nil.
 // It never reconnects: a restarted server needs a fresh watcher, so callers
 // release their election and let a later lifecycle hook start one.
 func WatchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) error {
@@ -211,8 +212,10 @@ func applyWorkspaceEvent(event workspaceEvent, onFocused, onClosed func(string) 
 }
 
 func streamResult(err error) error {
+	// The decoder reports a close between messages as io.EOF and a close
+	// mid-message as io.ErrUnexpectedEOF, so only the former is clean.
 	if errors.Is(err, io.EOF) {
-		err = io.ErrUnexpectedEOF
+		return nil
 	}
 	return fmt.Errorf("read Herdr workspace event: %w", err)
 }

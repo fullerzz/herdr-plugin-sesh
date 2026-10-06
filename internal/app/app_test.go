@@ -1209,7 +1209,7 @@ func TestPluginWatchHistoryReleasesElectionWhenServerRestarts(t *testing.T) {
 	require.NoError(t, oldListener.Close())
 	newStreams := startHistoryServer(t, socketPath, "new")
 	require.NoError(t, oldStream.Close())
-	require.ErrorIs(t, <-oldDone, io.ErrUnexpectedEOF)
+	require.NoError(t, <-oldDone)
 
 	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
 	require.NoError(t, err)
@@ -1273,6 +1273,23 @@ func TestPluginWatchHistoryStartupStopsWaitingAfterHandoff(t *testing.T) {
 	defer cancel()
 	require.NoError(t, (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"}))
 	require.NoError(t, ctx.Err(), "startup hook outlived its handoff window")
+}
+
+func TestPluginWatchHistoryStartupWaitReportsCancellation(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "startup")
+	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	t.Cleanup(func() { assert.NoError(t, release()) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*historyWatcherHandoffInterval)
+	defer cancel()
+	err = (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestRetryHistoryMutationPreservesOrderAfterLockTimeout(t *testing.T) {

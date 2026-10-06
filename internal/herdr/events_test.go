@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -87,7 +86,7 @@ func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 		},
 	)
 	_ = listener.Close()
-	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NoError(t, err)
 	require.NoError(t, <-serverDone)
 	want := []string{"current", "previous", "older"}
 	assert.Equal(t, want, history)
@@ -142,7 +141,7 @@ func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) 
 		},
 	)
 	_ = listener.Close()
-	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NoError(t, err)
 	require.NoError(t, <-serverDone)
 	want := []string{"current", "previous", "older"}
 	assert.Equal(t, want, history)
@@ -269,7 +268,7 @@ func TestWatchWorkspaceEventsBuffersProtocol21EventsDuringProtocolProbe(t *testi
 			return nil
 		},
 	)
-	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NoError(t, err)
 	require.NoError(t, <-serverDone)
 	assert.Equal(t, []string{"C", "B", "A"}, history)
 }
@@ -381,7 +380,7 @@ func TestWatchWorkspaceEventsReturnsWhenStreamCloses(t *testing.T) {
 			return nil
 		},
 	)
-	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NoError(t, err)
 	require.NoError(t, <-serverDone)
 	assert.Equal(t, []string{"focus:before-close", "close:before-close"}, got)
 }

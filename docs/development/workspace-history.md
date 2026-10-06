@@ -47,7 +47,9 @@ The winner holds the lock while `WatchWorkspaceEvents` runs; a later lifecycle
 hook can elect a replacement if the subscriber stops. A non-winning startup
 hook retries election for up to five seconds before exiting, covering the
 handoff from a restarted server's previous subscriber; focus and close hooks
-never wait.
+never wait. Herdr runs startup hooks only when a server starts or imports a
+live handoff, so a lock held at startup belongs to the previous server's
+subscriber.
 
 The following diagram maps the production control flow in `internal/app` while
 keeping the hook and subscriber responsibilities separate.
@@ -94,9 +96,12 @@ Starting the decoder before the protocol probe and initial snapshot request
 closes both bootstrap windows. The protocol 20 path has no timer or fixed replay
 cutoff: a delayed retained event becomes a later batch and is re-anchored to
 current session state. The buffer holds 1,024 events. If the stream ends,
-already-buffered events are still applied (protocol 20 events through the same
-snapshot reconciliation), then the subscriber returns and releases its election
-lock.
+already-buffered events are applied on a best-effort basis, then the
+subscriber returns and releases its election lock. Protocol 20 events still
+need a reconciliation snapshot, so they are lost if the closing server no
+longer answers `session.snapshot`. A close between messages is a normal
+shutdown and exits successfully; a close mid-message, a read error, or a
+history write failure exits with an error.
 
 The subscriber never reconnects. A failed initial connection, such as the
 socket of a deleted named session, returns immediately, and an established
@@ -135,7 +140,7 @@ sequenceDiagram
         E-->>W: workspace event
         W->>H: Reconcile protocol 20 or apply protocol 21
     end
-    E--xW: unexpected EOF
+    E--xW: Stream closes
     W->>H: Drain buffered events
     W->>W: Return and release election lock
 ```

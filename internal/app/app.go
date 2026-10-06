@@ -592,7 +592,7 @@ func electHistoryWatcher(ctx context.Context, stateDir, socketPath string) (rele
 		}
 		select {
 		case <-ctx.Done():
-			return nil, false, nil
+			return nil, false, ctx.Err()
 		case <-time.After(historyWatcherHandoffInterval):
 		}
 	}
