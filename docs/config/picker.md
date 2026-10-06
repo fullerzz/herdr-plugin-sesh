@@ -150,7 +150,7 @@ migration, lifecycle hooks, and reconnect limitations.
 
 ### Sidebar marker
 
-The plugin reports a `sesh_last` workspace metadata token with the value `last`
+The plugin reports a `sesh_last` workspace metadata token with the default value `last`
 on the workspace that `last` would switch to. Add `$sesh_last` to Herdr's
 [Space rows](https://herdr.dev/docs/configuration/#sidebar-row-layouts) in
 `~/.config/herdr/config.toml` to show it:
@@ -165,6 +165,17 @@ rows = [
 
 The marker moves with workspace history, including switches made outside the
 picker.
+
+To change its text, add this to the **herdr-sesh** `config.toml`:
+
+```toml
+[history]
+last_workspace_label = "previous"
+```
+
+The default is `"last"`. An empty string hides the marker. Text may include
+Unicode but must not contain control characters. Changes apply on the next
+workspace focus or close event without restarting the plugin.
 
 ## Linked worktrees
 

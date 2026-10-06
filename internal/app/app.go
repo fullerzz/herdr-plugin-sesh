@@ -535,7 +535,12 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	markerClient := herdr.NewCLIClient()
 	focusedID := ""
 	syncMarker := func() {
-		if err := syncLastWorkspaceMarker(ctx, markerClient, historyDir, focusedID); err != nil {
+		cfg, err := a.loadConfig("")
+		if err != nil {
+			a.warnf("could not load last-workspace marker settings: %v", err)
+			return
+		}
+		if err := syncLastWorkspaceMarker(ctx, markerClient, historyDir, focusedID, cfg.History.LastWorkspaceLabel); err != nil {
 			a.warnf("could not update last-workspace marker: %v", err)
 		}
 	}

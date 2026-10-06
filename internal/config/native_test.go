@@ -80,6 +80,7 @@ tabs = ["git"]
 	disable := true
 	want := Config{
 		Keys:           KeyConfig{CyclePreviewMode: "ctrl+o"},
+		History:        HistoryConfig{LastWorkspaceLabel: "last"},
 		Cache:          true,
 		DirLength:      2,
 		SeparatorAware: true,
@@ -120,6 +121,25 @@ func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
 	assert.True(t, cfg.TUI.ShowLastWorkspacePath, "show_last_workspace_path")
 	assert.True(t, cfg.TUI.ReplaceWorktreeIcon, "replace_worktree_icon")
 	assert.Equal(t, DefaultPreviewCommand, cfg.DefaultSessionConfig.PreviewCommand)
+	assert.Equal(t, "last", cfg.History.LastWorkspaceLabel)
+}
+
+func TestNativeLastWorkspaceLabel(t *testing.T) {
+	for _, label := range []string{"previous", "↩", ""} {
+		t.Run(label, func(t *testing.T) {
+			cfg, err := loadNative(t, "version = 1\n[history]\nlast_workspace_label = "+strconv.Quote(label)+"\n")
+			require.NoError(t, err)
+			assert.Equal(t, label, cfg.History.LastWorkspaceLabel)
+		})
+	}
+	for _, label := range []string{"last\nworkspace", "last\r", "last\t", "\x1b[31mlast", "\x00"} {
+		t.Run("invalid "+label, func(t *testing.T) {
+			// TOML uses Unicode escapes for control characters.
+			quoted := strings.ReplaceAll(strconv.Quote(label), "\\x", "\\u00")
+			_, err := loadNative(t, "version = 1\n[history]\nlast_workspace_label = "+quoted+"\n")
+			require.ErrorContains(t, err, "history.last_workspace_label: must not contain control characters")
+		})
+	}
 }
 
 func TestNativePickerCanDisableHomePrioritization(t *testing.T) {

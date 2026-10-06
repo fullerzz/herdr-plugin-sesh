@@ -169,6 +169,12 @@ Picker shortcuts, appearance, sorting, and history are documented in
 | --- | --- |
 | `path_components` | Sets the number of path components used by the directory-name fallback for a newly created direct-path workspace. Git repositories keep their repository-derived name. Must be at least `1` (the default). |
 
+### `[history]`
+
+| Field | Runtime effect |
+| --- | --- |
+| `last_workspace_label` | Default `"last"`. Text for the sidebar's `$sesh_last` marker. An empty string hides the marker; control characters are rejected. Applies on the next workspace focus or close event. See [Sidebar marker](config/picker.md#sidebar-marker). |
+
 ### `[workspace_defaults]`
 
 | Field | Runtime effect |

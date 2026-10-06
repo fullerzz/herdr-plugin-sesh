@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
@@ -35,14 +36,34 @@ func TestLastWorkspaceMarkerFollowsFocus(t *testing.T) {
 	client, historyDir := markerFixture(t, []string{"A"}, herdr.Workspace{ID: "A"}, herdr.Workspace{ID: "B"}, herdr.Workspace{ID: "C"})
 
 	require.NoError(t, state.Record(historyDir, "B"))
-	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "B"))
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "B", config.DefaultLastWorkspaceLabel))
 	assert.Equal(t, []string{"A"}, markedWorkspaces(client))
-	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "B"))
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "B", config.DefaultLastWorkspaceLabel))
 	require.NoError(t, state.Record(historyDir, "C"))
-	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "C"))
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "C", config.DefaultLastWorkspaceLabel))
 
 	assert.Equal(t, []string{"B"}, markedWorkspaces(client))
 	assert.Equal(t, []string{"A:sesh_last=last", "A:sesh_last=", "B:sesh_last=last"}, client.ReportedTokens)
+}
+
+func TestLastWorkspaceMarkerUpdatesConfiguredLabel(t *testing.T) {
+	ctx := context.Background()
+	client, historyDir := markerFixture(t, []string{"B", "A"},
+		herdr.Workspace{ID: "A", Tokens: map[string]string{lastWorkspaceToken: "last"}},
+		herdr.Workspace{ID: "B"},
+		herdr.Workspace{ID: "C", Tokens: map[string]string{lastWorkspaceToken: "last"}})
+
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "B", "previous ↩"))
+	assert.Equal(t, "previous ↩", client.Workspaces[0].Tokens[lastWorkspaceToken])
+	assert.Equal(t, []string{"A"}, markedWorkspaces(client))
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "B", "previous ↩"))
+	assert.Equal(t, []string{"A:sesh_last=previous ↩", "C:sesh_last="}, client.ReportedTokens)
+
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "A", "previous ↩"))
+	assert.Equal(t, []string{"B"}, markedWorkspaces(client))
+	assert.Equal(t, "previous ↩", client.Workspaces[1].Tokens[lastWorkspaceToken])
+	require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, "A", ""))
+	assert.Empty(t, markedWorkspaces(client))
 }
 
 // A delayed RecordSwitch can leave another workspace at the history head; the
@@ -50,7 +71,7 @@ func TestLastWorkspaceMarkerFollowsFocus(t *testing.T) {
 func TestLastWorkspaceMarkerUsesFocusedWorkspaceNotHistoryHead(t *testing.T) {
 	client, historyDir := markerFixture(t, []string{"B", "A", "C"}, herdr.Workspace{ID: "A"}, herdr.Workspace{ID: "B"}, herdr.Workspace{ID: "C"})
 
-	require.NoError(t, syncLastWorkspaceMarker(context.Background(), client, historyDir, "C"))
+	require.NoError(t, syncLastWorkspaceMarker(context.Background(), client, historyDir, "C", config.DefaultLastWorkspaceLabel))
 
 	assert.Equal(t, []string{"B"}, markedWorkspaces(client))
 }
@@ -64,7 +85,7 @@ func TestLastWorkspaceMarkerAgreesWithLastAfterLateSwitch(t *testing.T) {
 	require.NoError(t, err)
 	for _, focused := range []string{"B", "C", "A"} {
 		require.NoError(t, state.Record(historyDir, focused))
-		require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, focused))
+		require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, focused, config.DefaultLastWorkspaceLabel))
 	}
 
 	require.NoError(t, state.RecordSwitch(historyDir, "A", "B", revision))
@@ -84,10 +105,10 @@ func TestLastWorkspaceMarkerRepairsStaleAndFailedClears(t *testing.T) {
 		herdr.Workspace{ID: "A"}, herdr.Workspace{ID: "B"}, herdr.Workspace{ID: "C", Tokens: stale})
 	failing := &failingClearClient{FakeClient: client, failID: "C"}
 
-	require.Error(t, syncLastWorkspaceMarker(ctx, failing, historyDir, "B"))
+	require.Error(t, syncLastWorkspaceMarker(ctx, failing, historyDir, "B", config.DefaultLastWorkspaceLabel))
 	assert.Equal(t, []string{"A", "C"}, markedWorkspaces(client))
 	failing.failID = ""
-	require.NoError(t, syncLastWorkspaceMarker(ctx, failing, historyDir, "B"))
+	require.NoError(t, syncLastWorkspaceMarker(ctx, failing, historyDir, "B", config.DefaultLastWorkspaceLabel))
 
 	assert.Equal(t, []string{"A"}, markedWorkspaces(client))
 	assert.Equal(t, map[string]string{"other": "x"}, client.Workspaces[2].Tokens)

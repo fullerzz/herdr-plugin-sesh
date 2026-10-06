@@ -10,9 +10,8 @@ import (
 
 // Users render the marker with `$sesh_last` in [ui.sidebar.spaces] rows.
 const (
-	lastWorkspaceToken      = "sesh_last"
-	lastWorkspaceTokenValue = "last"
-	metadataSource          = "fullerzz.sesh"
+	lastWorkspaceToken = "sesh_last"
+	metadataSource     = "fullerzz.sesh"
 )
 
 type workspaceTokenReporter interface {
@@ -24,7 +23,7 @@ type workspaceTokenReporter interface {
 // `herdr-sesh last` would focus from focusedID and clears it everywhere else.
 // It reconciles against Herdr's reported tokens, so stale markers from a
 // replaced watcher or a failed report are repaired by the next sync.
-func syncLastWorkspaceMarker(ctx context.Context, client workspaceTokenReporter, historyDir, focusedID string) error {
+func syncLastWorkspaceMarker(ctx context.Context, client workspaceTokenReporter, historyDir, focusedID, label string) error {
 	history, err := state.LoadHistory(historyDir)
 	if err != nil {
 		return err
@@ -38,8 +37,8 @@ func syncLastWorkspaceMarker(ctx context.Context, client workspaceTokenReporter,
 	for _, w := range workspaces {
 		value := w.Tokens[lastWorkspaceToken]
 		switch {
-		case w.ID == target && value != lastWorkspaceTokenValue:
-			errs = append(errs, client.WorkspaceReportToken(ctx, w.ID, metadataSource, lastWorkspaceToken, lastWorkspaceTokenValue))
+		case w.ID == target && value != label:
+			errs = append(errs, client.WorkspaceReportToken(ctx, w.ID, metadataSource, lastWorkspaceToken, label))
 		case w.ID != target && value != "":
 			errs = append(errs, client.WorkspaceReportToken(ctx, w.ID, metadataSource, lastWorkspaceToken, ""))
 		}

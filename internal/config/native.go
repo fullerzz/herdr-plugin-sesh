@@ -30,6 +30,7 @@ type nativeConfig struct {
 	List              nativeList        `toml:"list,omitempty"`
 	Naming            nativeNaming      `toml:"naming"`
 	Picker            nativePicker      `toml:"picker,omitempty"`
+	History           nativeHistory     `toml:"history,omitempty"`
 	WorkspaceDefaults nativeDefaults    `toml:"workspace_defaults,omitempty"`
 	Tabs              []nativeTab       `toml:"tab,omitempty"`
 	Workspaces        []nativeWorkspace `toml:"workspace,omitempty"`
@@ -40,6 +41,10 @@ type nativeList struct {
 	Cache       bool     `toml:"cache,omitempty"`
 	SourceOrder []string `toml:"source_order,omitempty"`
 	Blacklist   []string `toml:"blacklist,omitempty"`
+}
+
+type nativeHistory struct {
+	LastWorkspaceLabel string `toml:"last_workspace_label,omitempty"`
 }
 
 type nativeNaming struct {
@@ -143,7 +148,7 @@ func decodeNative(path string, data []byte) (Config, error) {
 	cfg := Default()
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	var n nativeConfig
+	n := nativeConfig{History: nativeHistory{LastWorkspaceLabel: cfg.History.LastWorkspaceLabel}}
 	if err := dec.Decode(&n); err != nil {
 		var missing *toml.StrictMissingError
 		if errors.As(err, &missing) {
@@ -153,6 +158,9 @@ func decodeNative(path string, data []byte) (Config, error) {
 	}
 	if n.Version != NativeVersion {
 		return cfg, fmt.Errorf("load %s: version: must be %d, got %d", path, NativeVersion, n.Version)
+	}
+	if strings.ContainsFunc(n.History.LastWorkspaceLabel, unicode.IsControl) {
+		return cfg, fmt.Errorf("load %s: history.last_workspace_label: must not contain control characters", path)
 	}
 	if err := n.validate(path); err != nil {
 		return cfg, err
@@ -361,6 +369,7 @@ func (p nativePane) validateWait(tab string, fail func(key, format string, args 
 // apply converts the validated native document onto a Default()-initialized
 // runtime Config so downstream consumers see the same shape as legacy loads.
 func (n nativeConfig) apply(cfg *Config) {
+	cfg.History.LastWorkspaceLabel = n.History.LastWorkspaceLabel
 	if n.Keys.CyclePreviewMode != nil {
 		cfg.Keys.CyclePreviewMode = *n.Keys.CyclePreviewMode
 	}
