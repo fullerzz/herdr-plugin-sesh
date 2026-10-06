@@ -80,6 +80,11 @@ func isDefaultSessionSocket(socketPath string) bool {
 	return filepath.Base(filepath.Dir(parent)) != "sessions"
 }
 
+// HistoryWatcherLockPath is the election lock file for socketPath's subscriber.
+func HistoryWatcherLockPath(dir, socketPath string) string {
+	return filepath.Join(dir, fmt.Sprintf("history-watch-%x.lock", sha256.Sum256([]byte(socketPath))))
+}
+
 // TryHistoryWatcherLock permits one event subscriber per Herdr socket.
 func TryHistoryWatcherLock(dir, socketPath string) (release func() error, acquired bool, err error) {
 	if dir == "" {
@@ -89,9 +94,8 @@ func TryHistoryWatcherLock(dir, socketPath string) (release func() error, acquir
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, false, err
 	}
-	lockName := fmt.Sprintf("history-watch-%x.lock", sha256.Sum256([]byte(socketPath)))
 	//nolint:gosec // dir is the trusted plugin-owned state directory supplied to this API.
-	lock, err := os.OpenFile(filepath.Join(dir, lockName), os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := os.OpenFile(HistoryWatcherLockPath(dir, socketPath), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, false, err
 	}

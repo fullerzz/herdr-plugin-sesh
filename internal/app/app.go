@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	clonepkg "github.com/fullerzz/herdr-plugin-sesh/internal/clone"
@@ -585,10 +587,23 @@ const historyWatcherHandoffInterval = 50 * time.Millisecond
 
 func electHistoryWatcher(ctx context.Context, stateDir, socketPath string) (release func() error, acquired bool, err error) {
 	deadline := time.Now().Add(historyWatcherHandoff)
+	terminated := false
 	for {
 		release, acquired, err = state.TryHistoryWatcherLock(stateDir, socketPath)
-		if err != nil || acquired || os.Getenv("HERDR_PLUGIN_EVENT") != "startup" || time.Now().After(deadline) {
+		if err != nil || acquired || os.Getenv("HERDR_PLUGIN_EVENT") != "startup" {
 			return release, acquired, err
+		}
+		if time.Now().After(deadline) {
+			if terminated {
+				return nil, false, nil
+			}
+			// A holder that outlives the handoff is not draining the previous
+			// server, such as a watcher from an older release that reconnects forever.
+			if err := terminateHistoryWatcher(ctx, state.HistoryWatcherLockPath(stateDir, socketPath)); err != nil {
+				return nil, false, err
+			}
+			terminated = true
+			deadline = time.Now().Add(historyWatcherHandoff)
 		}
 		select {
 		case <-ctx.Done():
@@ -596,6 +611,28 @@ func electHistoryWatcher(ctx context.Context, stateDir, socketPath string) (rele
 		case <-time.After(historyWatcherHandoffInterval):
 		}
 	}
+}
+
+// terminateHistoryWatcher signals every process holding lockPath open. Only
+// plugin hooks open the lock, and losing contenders close it immediately.
+func terminateHistoryWatcher(ctx context.Context, lockPath string) error {
+	//nolint:gosec // lockPath is derived from the plugin-owned state directory.
+	out, err := exec.CommandContext(ctx, "lsof", "-t", "--", lockPath).Output()
+	// lsof exits 1 without output when no process has the file open.
+	var exitErr *exec.ExitError
+	if err != nil && (!errors.As(err, &exitErr) || len(out) > 0) {
+		return fmt.Errorf("find stale history watcher: %w", err)
+	}
+	for _, field := range strings.Fields(string(out)) {
+		pid, err := strconv.Atoi(field)
+		if err != nil || pid == os.Getpid() {
+			continue
+		}
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("stop stale history watcher %d: %w", pid, err)
+		}
+	}
+	return nil
 }
 
 func retryHistoryMutation(ctx context.Context, mutate func() error) error {

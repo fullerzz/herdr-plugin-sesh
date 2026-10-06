@@ -49,7 +49,10 @@ hook retries election for up to five seconds before exiting, covering the
 handoff from a restarted server's previous subscriber; focus and close hooks
 never wait. Herdr runs startup hooks only when a server starts or imports a
 live handoff, so a lock held at startup belongs to the previous server's
-subscriber.
+subscriber. If that subscriber still holds the lock after the window, as a
+subscriber from a release that reconnected forever would, the startup hook
+sends `SIGTERM` to every process `lsof` reports holding the lock file open,
+then retries for one more window.
 
 The following diagram maps the production control flow in `internal/app` while
 keeping the hook and subscriber responsibilities separate.
@@ -59,7 +62,9 @@ flowchart TD
     Hook["startup / focused / closed hook"] --> Elect{"TryHistoryWatcherLock"}
     Elect -->|not acquired startup| Wait["Retry election<br/>up to 5 s"]
     Wait -->|acquired| Resolve
-    Wait -->|timed out| Exit
+    Wait -->|timed out| Terminate["SIGTERM lock holders<br/>retry up to 5 s"]
+    Terminate -->|acquired| Resolve
+    Terminate -->|timed out| Exit
     Elect -->|not acquired focused| Exit["Exit hook process"]
     Elect -->|not acquired closed| Resolve["Resolve session history"]
     Elect -->|acquired| Resolve
@@ -149,7 +154,8 @@ Regression tests define these boundaries for this flow: reconcile delayed
 protocol 20 replay without a timer, preserve queued replay across stream
 failure, preserve an event from the snapshot window, return after a closed
 stream or unavailable socket, release the election across a server restart on
-the same path, and bound the startup handoff wait.
+the same path, bound the startup handoff wait, and replace a lock holder that
+never exits.
 
 ## Session-scoped persistence
 
@@ -250,9 +256,14 @@ load resets them.
       in between, and Herdr subscriptions do not expose a replay cursor for
       events lost at disconnect.[^reconnect-gap]
     - A restarted server's startup hook waits up to five seconds for the
-      previous subscriber to drain and exit. If that subscriber is still
-      running when the window closes, tracking resumes at the next focus or
-      close hook.
+      previous subscriber to drain and exit, then terminates any remaining
+      lock holder and waits up to five more seconds. Termination needs `lsof`;
+      without it the hook fails and tracking resumes at the next focus or
+      close hook after the old subscriber exits.
+    - Subscribers from releases that reconnected forever cannot be replaced for
+      a deleted session, because that session never runs another startup
+      hook. Stop them once with `pkill -f 'herdr-sesh plugin watch-history'`;
+      the next lifecycle hook in each running session elects a replacement.
     - A plugin update while the server keeps running does not replace the
       resident subscriber; restart the server to load the new binary.
     - File locking depends on `flock`. Unsupported filesystems fail explicitly.
