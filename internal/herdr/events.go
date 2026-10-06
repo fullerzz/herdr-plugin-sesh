@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"time"
 )
 
 const (
-	eventReconnectDelay  = 100 * time.Millisecond
 	eventBufferSize      = 1024
 	minimumEventProtocol = 20
 	// Protocol 21 starts lifecycle subscriptions at the current EventHub sequence.
@@ -47,35 +45,27 @@ type sessionSnapshot struct {
 	WorkspaceIDs       map[string]bool
 }
 
+// WatchWorkspaceEvents returns when the connection fails or the stream ends.
+// It never reconnects: a restarted server needs a fresh watcher, so callers
+// release their election and let a later lifecycle hook start one.
 func WatchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) error {
 	if socketPath == "" {
 		return errors.New("HERDR_SOCKET_PATH is required")
 	}
-	for {
-		reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath, onFocused, onClosed)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !reconnect {
-			return err
-		}
-		timer := time.NewTimer(eventReconnectDelay)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return ctx.Err()
-		case <-timer.C:
-		}
+	err := watchWorkspaceEvents(ctx, socketPath, onFocused, onClosed)
+	// Cancellation closes in-flight connections, so report it rather than the
+	// resulting read error.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
+	return err
 }
 
-func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) (bool, error) {
+func watchWorkspaceEvents(ctx context.Context, socketPath string, onFocused, onClosed func(string) error) error {
 	// Protocol 21 does not replay, so start buffering before any other request.
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 	if err != nil {
-		return true, fmt.Errorf("connect to Herdr event stream: %w", err)
+		return fmt.Errorf("connect to Herdr event stream: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
@@ -84,7 +74,7 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 	request := eventSubscribeRequest{ID: "herdr-sesh-history", Method: "events.subscribe"}
 	request.Params.Subscriptions = []eventSubscription{{Type: "workspace.focused"}, {Type: "workspace.closed"}}
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
-		return true, fmt.Errorf("subscribe to Herdr workspace events: %w", err)
+		return fmt.Errorf("subscribe to Herdr workspace events: %w", err)
 	}
 
 	decoder := json.NewDecoder(conn)
@@ -95,13 +85,13 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 		Error *apiError `json:"error"`
 	}
 	if err := decoder.Decode(&acknowledgement); err != nil {
-		return true, fmt.Errorf("read Herdr event subscription acknowledgement: %w", err)
+		return fmt.Errorf("read Herdr event subscription acknowledgement: %w", err)
 	}
 	if acknowledgement.Error != nil {
-		return false, fmt.Errorf("herdr event subscription failed: %s: %s", acknowledgement.Error.Code, acknowledgement.Error.Message)
+		return fmt.Errorf("herdr event subscription failed: %s: %s", acknowledgement.Error.Code, acknowledgement.Error.Message)
 	}
 	if acknowledgement.Result.Type != "subscription_started" {
-		return false, fmt.Errorf("unexpected Herdr event subscription acknowledgement %q", acknowledgement.Result.Type)
+		return fmt.Errorf("unexpected Herdr event subscription acknowledgement %q", acknowledgement.Result.Type)
 	}
 
 	streamCtx, cancelStream := context.WithCancel(ctx)
@@ -112,48 +102,48 @@ func watchWorkspaceEventsOnce(ctx context.Context, socketPath string, onFocused,
 
 	protocol, err := loadServerProtocol(ctx, socketPath)
 	if err != nil {
-		return true, err
+		return err
 	}
 	if protocol < minimumEventProtocol {
-		return false, fmt.Errorf("workspace history requires Herdr protocol %d or newer; server uses protocol %d", minimumEventProtocol, protocol)
+		return fmt.Errorf("workspace history requires Herdr protocol %d or newer; server uses protocol %d", minimumEventProtocol, protocol)
 	}
 
 	snapshot, err := loadSessionSnapshot(ctx, socketPath)
 	if err != nil {
-		return true, err
+		return err
 	}
 	if snapshot.FocusedWorkspaceID != "" {
 		if err := onFocused(snapshot.FocusedWorkspaceID); err != nil {
-			return false, err
+			return err
 		}
 	}
-	applyEvents := func(events []workspaceEvent) (bool, error) {
+	applyEvents := func(events []workspaceEvent) error {
 		if len(events) == 0 {
-			return false, nil
+			return nil
 		}
 		var current *sessionSnapshot
 		if protocol < liveOnlyEventProtocol {
 			snapshot, err := loadSessionSnapshot(ctx, socketPath)
 			if err != nil {
-				return true, err
+				return err
 			}
 			current = &snapshot
 		}
-		return false, applyWorkspaceEvents(events, current, onFocused, onClosed)
+		return applyWorkspaceEvents(events, current, onFocused, onClosed)
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return false, ctx.Err()
+			return ctx.Err()
 		case err := <-streamErrors:
-			if reconnect, drainErr := applyEvents(drainBufferedEvents(events, nil)); drainErr != nil {
-				return reconnect, drainErr
+			if drainErr := applyEvents(drainBufferedEvents(events, nil)); drainErr != nil {
+				return drainErr
 			}
-			return streamResult(ctx, err)
+			return streamResult(err)
 		case event := <-events:
-			if reconnect, err := applyEvents(drainBufferedEvents(events, []workspaceEvent{event})); err != nil {
-				return reconnect, err
+			if err := applyEvents(drainBufferedEvents(events, []workspaceEvent{event})); err != nil {
+				return err
 			}
 		}
 	}
@@ -220,14 +210,11 @@ func applyWorkspaceEvent(event workspaceEvent, onFocused, onClosed func(string) 
 	}
 }
 
-func streamResult(ctx context.Context, err error) (bool, error) {
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return false, fmt.Errorf("watch Herdr workspace events: %w", ctxErr)
-	}
+func streamResult(err error) error {
 	if errors.Is(err, io.EOF) {
 		err = io.ErrUnexpectedEOF
 	}
-	return true, fmt.Errorf("read Herdr workspace event: %w", err)
+	return fmt.Errorf("read Herdr workspace event: %w", err)
 }
 
 func loadServerProtocol(ctx context.Context, socketPath string) (int, error) {

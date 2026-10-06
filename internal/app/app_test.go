@@ -1170,6 +1170,111 @@ func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
 	require.NoError(t, secondErr)
 }
 
+func TestPluginWatchHistoryReleasesElectionWhenServerRestarts(t *testing.T) {
+	stubHerdrBin(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "herdr.sock")
+	historyDir, err := state.SessionHistoryDir(stateDir, socketPath)
+	require.NoError(t, err)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "startup")
+
+	oldListener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	oldStreams := make(chan net.Conn, 1)
+	go func() {
+		stream, err := serveHistoryBootstrap(oldListener, "old")
+		if err != nil {
+			close(oldStreams)
+			return
+		}
+		oldStreams <- stream
+	}()
+	// The timeout only guards against a hang; the stream closing ends the watcher.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	oldDone := make(chan error, 1)
+	go func() {
+		oldDone <- (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"})
+	}()
+	oldStream := receiveStream(t, oldStreams)
+	waitForHistory(t, historyDir, "old")
+
+	// Bring the replacement server up on the same path before the old one's
+	// connection closes, so a reconnecting watcher would find it.
+	require.NoError(t, oldListener.Close())
+	newStreams := startHistoryServer(t, socketPath, "new")
+	require.NoError(t, oldStream.Close())
+	require.ErrorIs(t, <-oldDone, io.ErrUnexpectedEOF)
+
+	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	require.NoError(t, err)
+	require.True(t, acquired, "exited watcher kept its election lock")
+	require.NoError(t, release())
+
+	newDone := make(chan error, 1)
+	go func() {
+		newDone <- (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"})
+	}()
+	receiveStream(t, newStreams)
+	waitForHistory(t, historyDir, "new", "old")
+	cancel()
+	require.ErrorIs(t, <-newDone, context.Canceled)
+}
+
+func TestPluginWatchHistoryStartupWaitsForPreviousWatcher(t *testing.T) {
+	stubHerdrBin(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "herdr.sock")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "startup")
+	streams := startHistoryServer(t, socketPath, "")
+
+	// Stand in for a previous server's watcher that is still draining.
+	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"})
+	}()
+	time.Sleep(3 * historyWatcherHandoffInterval)
+	require.NoError(t, release())
+
+	receiveStream(t, streams)
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+}
+
+func TestPluginWatchHistoryStartupStopsWaitingAfterHandoff(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "state")
+	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+	t.Setenv("HERDR_SOCKET_PATH", socketPath)
+	t.Setenv("HERDR_PLUGIN_EVENT", "startup")
+	historyWatcherHandoff = 100 * time.Millisecond
+	t.Cleanup(func() { historyWatcherHandoff = 5 * time.Second })
+	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	t.Cleanup(func() { assert.NoError(t, release()) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, (&App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}).Run(ctx, []string{"plugin", "watch-history"}))
+	require.NoError(t, ctx.Err(), "startup hook outlived its handoff window")
+}
+
 func TestRetryHistoryMutationPreservesOrderAfterLockTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -1364,46 +1469,107 @@ func runMarkerWatcher(t *testing.T, history ...string) (historyDir string, event
 }
 
 func serveFedHistoryStream(listener net.Listener, feed <-chan map[string]any) error {
-	stream, err := listener.Accept()
+	stream, err := serveHistoryBootstrap(listener, "")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = stream.Close() }()
-	var request struct {
-		Method string `json:"method"`
-	}
-	if err := json.NewDecoder(stream).Decode(&request); err != nil {
-		return err
-	}
 	enc := json.NewEncoder(stream)
-	if err := enc.Encode(map[string]any{
-		"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
-	}); err != nil {
-		return err
-	}
-	if err := serveHistoryWatcherPing(listener); err != nil {
-		return err
-	}
-	snapshot, err := listener.Accept()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = snapshot.Close() }()
-	if err := json.NewDecoder(snapshot).Decode(&request); err != nil {
-		return err
-	}
-	if err := json.NewEncoder(snapshot).Encode(map[string]any{
-		"id":     "herdr-sesh-history-snapshot",
-		"result": map[string]any{"type": "session_snapshot", "snapshot": map[string]any{"focused_workspace_id": ""}},
-	}); err != nil {
-		return err
-	}
 	for event := range feed {
 		if err := enc.Encode(event); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// serveHistoryBootstrap answers a watcher's subscribe, ping, and snapshot
+// requests and returns the open event stream.
+func serveHistoryBootstrap(listener net.Listener, focusedID string) (net.Conn, error) {
+	stream, err := listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	var request struct {
+		Method string `json:"method"`
+	}
+	if err := json.NewDecoder(stream).Decode(&request); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	if err := json.NewEncoder(stream).Encode(map[string]any{
+		"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"},
+	}); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	if err := serveHistoryWatcherPing(listener); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	snapshot, err := listener.Accept()
+	if err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	defer func() { _ = snapshot.Close() }()
+	if err := json.NewDecoder(snapshot).Decode(&request); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	if err := json.NewEncoder(snapshot).Encode(map[string]any{
+		"id":     "herdr-sesh-history-snapshot",
+		"result": map[string]any{"type": "session_snapshot", "snapshot": map[string]any{"focused_workspace_id": focusedID}},
+	}); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	return stream, nil
+}
+
+// startHistoryServer serves one watcher bootstrap and yields its event stream.
+func startHistoryServer(t *testing.T, socketPath, focusedID string) <-chan net.Conn {
+	t.Helper()
+	listener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	streams := make(chan net.Conn, 1)
+	go func() {
+		stream, err := serveHistoryBootstrap(listener, focusedID)
+		if err != nil {
+			close(streams)
+			return
+		}
+		t.Cleanup(func() { _ = stream.Close() })
+		streams <- stream
+	}()
+	return streams
+}
+
+func waitForHistory(t *testing.T, historyDir string, want ...string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		history, err := state.LoadHistory(historyDir)
+		require.NoError(t, err)
+		if reflect.DeepEqual(history.Workspaces, want) {
+			return
+		}
+		require.False(t, time.Now().After(deadline), "history=%#v want %#v", history.Workspaces, want)
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func receiveStream(t *testing.T, streams <-chan net.Conn) net.Conn {
+	t.Helper()
+	select {
+	case stream, ok := <-streams:
+		require.True(t, ok, "watcher bootstrap failed")
+		return stream
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "watcher did not subscribe")
+		return nil
+	}
 }
 
 func workspaceEvent(name, workspaceID string) map[string]any {

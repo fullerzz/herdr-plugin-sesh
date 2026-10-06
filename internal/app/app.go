@@ -510,7 +510,7 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
 	socketPath := os.Getenv("HERDR_SOCKET_PATH")
 	// Elect first so non-winning startup and focus hooks cannot migrate history.
-	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	release, acquired, err := electHistoryWatcher(ctx, stateDir, socketPath)
 	if err != nil {
 		return err
 	}
@@ -574,6 +574,28 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 			return nil
 		},
 	)
+}
+
+// historyWatcherHandoff bounds how long a startup hook waits for the previous
+// server's watcher, which exits once its event stream closes but may still be
+// draining buffered events. Focus and close hooks never wait.
+var historyWatcherHandoff = 5 * time.Second
+
+const historyWatcherHandoffInterval = 50 * time.Millisecond
+
+func electHistoryWatcher(ctx context.Context, stateDir, socketPath string) (release func() error, acquired bool, err error) {
+	deadline := time.Now().Add(historyWatcherHandoff)
+	for {
+		release, acquired, err = state.TryHistoryWatcherLock(stateDir, socketPath)
+		if err != nil || acquired || os.Getenv("HERDR_PLUGIN_EVENT") != "startup" || time.Now().After(deadline) {
+			return release, acquired, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, false, nil
+		case <-time.After(historyWatcherHandoffInterval):
+		}
+	}
 }
 
 func retryHistoryMutation(ctx context.Context, mutate func() error) error {

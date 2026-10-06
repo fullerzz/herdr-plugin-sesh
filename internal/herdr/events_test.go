@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -74,7 +76,7 @@ func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var history []string
-	reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath,
+	err := WatchWorkspaceEvents(ctx, socketPath,
 		func(id string) error {
 			history = recordHistoryVisit(history, id)
 			return nil
@@ -85,8 +87,7 @@ func TestWatchWorkspaceEventsReconcilesDelayedProtocol20Replay(t *testing.T) {
 		},
 	)
 	_ = listener.Close()
-	require.True(t, reconnect)
-	require.Error(t, err)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.NoError(t, <-serverDone)
 	want := []string{"current", "previous", "older"}
 	assert.Equal(t, want, history)
@@ -130,7 +131,7 @@ func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var history []string
-	reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath,
+	err := WatchWorkspaceEvents(ctx, socketPath,
 		func(id string) error {
 			history = recordHistoryVisit(history, id)
 			return nil
@@ -141,8 +142,7 @@ func TestWatchWorkspaceEventsPreservesInterruptedProtocol20Replay(t *testing.T) 
 		},
 	)
 	_ = listener.Close()
-	require.True(t, reconnect)
-	require.Error(t, err)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.NoError(t, <-serverDone)
 	want := []string{"current", "previous", "older"}
 	assert.Equal(t, want, history)
@@ -259,7 +259,7 @@ func TestWatchWorkspaceEventsBuffersProtocol21EventsDuringProtocolProbe(t *testi
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	history := []string{"A"}
-	reconnect, err := watchWorkspaceEventsOnce(ctx, socketPath,
+	err := WatchWorkspaceEvents(ctx, socketPath,
 		func(id string) error {
 			history = recordHistoryVisit(history, id)
 			return nil
@@ -269,8 +269,7 @@ func TestWatchWorkspaceEventsBuffersProtocol21EventsDuringProtocolProbe(t *testi
 			return nil
 		},
 	)
-	require.True(t, reconnect)
-	require.Error(t, err)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	require.NoError(t, <-serverDone)
 	assert.Equal(t, []string{"C", "B", "A"}, history)
 }
@@ -325,58 +324,51 @@ func TestWatchWorkspaceEventsNoHistoryKeepsSnapshotWindowEvent(t *testing.T) {
 	assert.Equal(t, []string{"snapshot", "during-snapshot"}, got)
 }
 
-func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
+func TestWatchWorkspaceEventsReturnsWhenStreamCloses(t *testing.T) {
 	listener, socketPath := listenTestSocket(t)
 	serverDone := make(chan error, 1)
 	go func() {
-		for attempt := 0; attempt < 2; attempt++ {
-			stream, err := acceptRequest(listener, "events.subscribe")
-			if err != nil {
-				serverDone <- err
-				return
-			}
-			enc := json.NewEncoder(stream)
-			if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
-				_ = stream.Close()
-				serverDone <- err
-				return
-			}
-			if err := serveCompatiblePing(listener, 21); err != nil {
-				_ = stream.Close()
-				serverDone <- err
-				return
-			}
-			snapshot, err := acceptRequest(listener, "session.snapshot")
-			if err != nil {
-				_ = stream.Close()
-				serverDone <- err
-				return
-			}
-			if err := json.NewEncoder(snapshot).Encode(snapshotResponse("")); err != nil {
-				_ = snapshot.Close()
-				_ = stream.Close()
-				serverDone <- err
-				return
-			}
+		stream, err := acceptRequest(listener, "events.subscribe")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = stream.Close() }()
+		enc := json.NewEncoder(stream)
+		if err := enc.Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := serveCompatiblePing(listener, 21); err != nil {
+			serverDone <- err
+			return
+		}
+		snapshot, err := acceptRequest(listener, "session.snapshot")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if err := json.NewEncoder(snapshot).Encode(snapshotResponse("")); err != nil {
 			_ = snapshot.Close()
-			if attempt == 1 {
-				if err := enc.Encode(workspaceEventMessage("workspace_focused", "after-reconnect")); err != nil {
-					_ = stream.Close()
-					serverDone <- err
-					return
-				}
-				if err := enc.Encode(workspaceEventMessage("workspace_closed", "after-reconnect")); err != nil {
-					_ = stream.Close()
-					serverDone <- err
-					return
-				}
+			serverDone <- err
+			return
+		}
+		_ = snapshot.Close()
+		for _, event := range []map[string]any{
+			workspaceEventMessage("workspace_focused", "before-close"),
+			workspaceEventMessage("workspace_closed", "before-close"),
+		} {
+			if err := enc.Encode(event); err != nil {
+				serverDone <- err
+				return
 			}
-			_ = stream.Close()
 		}
 		serverDone <- nil
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// The listener stays open, so returning proves the watcher did not reconnect;
+	// the timeout only guards against a hang.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var got []string
 	err := WatchWorkspaceEvents(ctx, socketPath,
@@ -386,14 +378,61 @@ func TestWatchWorkspaceEventsReconnectsAfterUnexpectedEOF(t *testing.T) {
 		},
 		func(id string) error {
 			got = append(got, "close:"+id)
-			cancel()
 			return nil
 		},
 	)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NoError(t, <-serverDone)
+	assert.Equal(t, []string{"focus:before-close", "close:before-close"}, got)
+}
+
+func TestWatchWorkspaceEventsReportsCancellationDuringBootstrap(t *testing.T) {
+	listener, socketPath := listenTestSocket(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serverDone := make(chan error, 1)
+	go func() {
+		stream, err := acceptRequest(listener, "events.subscribe")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = stream.Close() }()
+		if err := json.NewEncoder(stream).Encode(map[string]any{"id": "herdr-sesh-history", "result": map[string]any{"type": "subscription_started"}}); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := serveCompatiblePing(listener, 21); err != nil {
+			serverDone <- err
+			return
+		}
+		snapshot, err := acceptRequest(listener, "session.snapshot")
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer func() { _ = snapshot.Close() }()
+		// Cancel while the watcher waits for a snapshot that never arrives.
+		cancel()
+		serverDone <- nil
+	}()
+
+	err := WatchWorkspaceEvents(ctx, socketPath, func(string) error { return nil }, func(string) error { return nil })
 	require.ErrorIs(t, err, context.Canceled)
 	require.NoError(t, <-serverDone)
-	want := []string{"focus:after-reconnect", "close:after-reconnect"}
-	assert.Equal(t, want, got)
+}
+
+func TestWatchWorkspaceEventsReturnsWhenSocketUnavailable(t *testing.T) {
+	// Short /tmp path keeps the address within the Unix socket length limit.
+	dir, err := os.MkdirTemp("/tmp", "herdr-sesh-events-")
+	require.NoError(t, err)
+	require.NoError(t, os.RemoveAll(dir))
+	socketPath := filepath.Join(dir, "herdr.sock")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = WatchWorkspaceEvents(ctx, socketPath, func(string) error { return nil }, func(string) error { return nil })
+	require.ErrorIs(t, err, syscall.ENOENT)
+	assert.ErrorContains(t, err, "connect to Herdr event stream")
 }
 
 func listenTestSocket(t *testing.T) (net.Listener, string) {
