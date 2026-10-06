@@ -215,7 +215,7 @@ func TestCLIClientReportsCanceledWait(t *testing.T) {
 }
 
 func TestCLIClientCanceledCommandBoundsInheritedPipes(t *testing.T) {
-	c := &CLIClient{Bin: "sh", Runner: ExecRunner{}, Timeout: 50 * time.Millisecond}
+	c := &CLIClient{Bin: "sh", Runner: ExecRunner{}, Timeout: 250 * time.Millisecond}
 	start := time.Now()
 	// The short-lived child keeps stdout open after cancellation kills the shell.
 	out, err := c.runFor(context.Background(), 0, "-c", "printf ready; sleep 1 & wait")
