@@ -55,6 +55,28 @@ func TestLastWorkspaceMarkerUsesFocusedWorkspaceNotHistoryHead(t *testing.T) {
 	assert.Equal(t, []string{"B"}, markedWorkspaces(client))
 }
 
+// A late RecordSwitch from a picker switch A->B must not move `last` away from
+// the marker after the watcher saw focus go B->C->A.
+func TestLastWorkspaceMarkerAgreesWithLastAfterLateSwitch(t *testing.T) {
+	ctx := context.Background()
+	client, historyDir := markerFixture(t, []string{"A"}, herdr.Workspace{ID: "A"}, herdr.Workspace{ID: "B"}, herdr.Workspace{ID: "C"})
+	revision, err := state.HistoryRevision(historyDir)
+	require.NoError(t, err)
+	for _, focused := range []string{"B", "C", "A"} {
+		require.NoError(t, state.Record(historyDir, focused))
+		require.NoError(t, syncLastWorkspaceMarker(ctx, client, historyDir, focused))
+	}
+
+	require.NoError(t, state.RecordSwitch(historyDir, "A", "B", revision))
+
+	history, err := state.LoadHistory(historyDir)
+	require.NoError(t, err)
+	last, ok := history.PreviousWorkspace("A")
+	require.True(t, ok)
+	assert.Equal(t, "C", last)
+	assert.Equal(t, []string{last}, markedWorkspaces(client))
+}
+
 func TestLastWorkspaceMarkerRepairsStaleAndFailedClears(t *testing.T) {
 	ctx := context.Background()
 	stale := map[string]string{"sesh_last": "last", "other": "x"}

@@ -172,9 +172,30 @@ flowchart TD
 
 The history list is newest first, deduplicated, and capped at 50 workspace IDs.
 `Record` ignores an already-current head. Explicit CLI and picker transitions
-use `RecordSwitch(from, to)` so both sides of the switch survive even before a
-Herdr event is observed.[^record-switch-source] Closed workspaces are pruned,
-and malformed JSON is recovered only at a locked write boundary.
+use `RecordSwitch(from, to, revision)` so both sides of the switch survive even
+before a Herdr event is observed.[^record-switch-source]
+
+Those processes write after their focus request, so a write can land after the
+subscriber has already recorded that focus and later ones, including a return
+to `from`. Every locked mutation increments the history `revision`. Callers
+capture it before requesting focus, and `RecordSwitch` applies only if history
+is still at that revision and `to` is not already the head. Otherwise the
+subscriber's ordered events win and the late switch is dropped. Comparing
+revisions instead of workspace IDs keeps valid switches when the head is stale
+or `from` is unknown. Because an applied switch precedes any write for `to`,
+the subscriber's focus event for `to` still follows it and resynchronizes the
+sidebar marker.
+
+`Record` does not rewrite history for an already-current head, so an unchanged
+revision cannot prove the subscriber has not seen focus on `to`. A switch to the
+current head is therefore dropped. Revision capture uses the same malformed-JSON
+recovery as locked writes, so corrupt history is repaired by the next switch.
+
+When the subscriber has already missed a focus change (it is down, or Herdr
+0.9.0 suppressed a sidebar move), the origin of a plugin switch can still be
+lost. This happens if the subscriber records the plugin's own focus event
+first, or if the switch returns to the stale head. Closed workspaces are
+pruned, and malformed JSON is recovered only at a locked write boundary.
 
 `Last` returns the second entry because the head is the focused workspace.
 Code that already knows the current workspace can use `Previous` to select the
