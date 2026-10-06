@@ -180,6 +180,18 @@ and malformed JSON is recovered only at a locked write boundary.
 Code that already knows the current workspace can use `Previous` to select the
 first non-current entry.
 
+## Sidebar marker
+
+After each subscriber mutation, `syncLastWorkspaceMarker` selects the workspace
+`last` would focus from the subscriber's last focused workspace, not the history
+head, because a delayed `RecordSwitch` can reorder the head. It then reads
+`herdr workspace list` and uses `herdr workspace report-metadata` (source
+`fullerzz.sesh`) to set `sesh_last` on that workspace and clear it everywhere
+else. Reconciling against Herdr's reported tokens makes each sync idempotent:
+markers left by a replaced subscriber or a failed report are repaired on the
+next event. Only the elected subscriber reports. Report failures are warnings:
+they cost the indicator, never history.
+
 ## Failure model
 
 ??? info "Deliberate constraints"

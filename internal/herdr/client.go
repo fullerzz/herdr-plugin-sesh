@@ -33,6 +33,8 @@ type Workspace struct {
 	ActiveTabID   string    `json:"active_tab_id"`
 	AgentStatus   string    `json:"agent_status"`
 	Worktree      *Worktree `json:"worktree,omitempty"`
+	// Tokens holds custom metadata reported by any source for $name sidebar tokens.
+	Tokens map[string]string `json:"tokens,omitempty"`
 }
 type Tab struct {
 	ID          string `json:"id"`
@@ -302,6 +304,16 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 }
 func (c *CLIClient) WorkspaceFocus(ctx context.Context, id string) error {
 	_, err := c.run(ctx, "workspace", "focus", id)
+	return err
+}
+
+// WorkspaceReportToken sets a custom workspace metadata token; an empty value clears it.
+func (c *CLIClient) WorkspaceReportToken(ctx context.Context, id, source, name, value string) error {
+	args := []string{"workspace", "report-metadata", id, "--source", source, "--token", name + "=" + value}
+	if value == "" {
+		args = []string{"workspace", "report-metadata", id, "--source", source, "--clear-token", name}
+	}
+	_, err := c.run(ctx, args...)
 	return err
 }
 func (c *CLIClient) WorkspaceClose(ctx context.Context, id string) error {

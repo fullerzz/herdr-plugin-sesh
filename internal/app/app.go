@@ -524,12 +524,35 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 		return nil
 	}
 
+	// Marker failures only cost the sidebar indicator, so they never stop history.
+	// ponytail: syncs only on watcher events, so a RecordSwitch that lands after
+	// later focus events leaves the marker stale until the next event; poll or
+	// watch history.json if that window ever matters.
+	markerClient := herdr.NewCLIClient()
+	focusedID := ""
+	syncMarker := func() {
+		if err := syncLastWorkspaceMarker(ctx, markerClient, historyDir, focusedID); err != nil {
+			a.warnf("could not update last-workspace marker: %v", err)
+		}
+	}
 	return herdr.WatchWorkspaceEvents(ctx, socketPath,
 		func(workspaceID string) error {
-			return retryHistoryMutation(ctx, func() error { return state.Record(historyDir, workspaceID) })
+			if err := retryHistoryMutation(ctx, func() error { return state.Record(historyDir, workspaceID) }); err != nil {
+				return err
+			}
+			focusedID = workspaceID
+			syncMarker()
+			return nil
 		},
 		func(workspaceID string) error {
-			return retryHistoryMutation(ctx, func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
+			if err := retryHistoryMutation(ctx, func() error { return state.RemoveWorkspace(historyDir, workspaceID) }); err != nil {
+				return err
+			}
+			if workspaceID == focusedID {
+				focusedID = ""
+			}
+			syncMarker()
+			return nil
 		},
 	)
 }

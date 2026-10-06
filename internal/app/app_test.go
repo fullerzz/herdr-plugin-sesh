@@ -946,6 +946,7 @@ func TestPluginWatchHistoryBoundsClosedHookLockWait(t *testing.T) {
 }
 
 func TestPluginWatchHistoryAppliesClosedHookBeforeNoHistoryStream(t *testing.T) {
+	stubHerdrBin(t)
 	stateDir := filepath.Join(t.TempDir(), "state")
 	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-hook-")
 	require.NoError(t, err)
@@ -1073,6 +1074,7 @@ func TestPluginWatchHistoryNonWinningFocusDoesNotMigrateLegacyHistory(t *testing
 }
 
 func TestPluginWatchHistoryReturnsWhenWatcherAlreadyRunning(t *testing.T) {
+	stubHerdrBin(t)
 	stateDir := filepath.Join(t.TempDir(), "state")
 	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
 	require.NoError(t, err)
@@ -1291,6 +1293,15 @@ func TestPluginWatchHistoryPreservesFocusOrderThroughLockContention(t *testing.T
 	close(releaseServer)
 	require.NoError(t, <-serverDone)
 	require.ErrorIs(t, <-watchDone, context.Canceled)
+}
+
+// stubHerdrBin keeps watcher marker CLI calls off the test's fake socket.
+func stubHerdrBin(t *testing.T) {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "herdr")
+	//nolint:gosec // test creates a local executable fixture.
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"result\":{\"workspaces\":[]}}'\n"), 0700))
+	t.Setenv("HERDR_BIN_PATH", bin)
 }
 
 func serveContendedHistoryStream(listener net.Listener, release <-chan struct{}) error {

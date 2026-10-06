@@ -286,3 +286,14 @@ func TestCLIClientPaneFocusUsesSocketAPI(t *testing.T) {
 	c.SocketPath = ""
 	require.ErrorContains(t, c.PaneFocus(context.Background(), "w1:p2"), "HERDR_SOCKET_PATH is not set")
 }
+
+func TestCLIClientWorkspaceReportTokenSetsAndClears(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	require.NoError(t, c.WorkspaceReportToken(context.Background(), "w1", "src", "mark", "on"))
+	require.NoError(t, c.WorkspaceReportToken(context.Background(), "w1", "src", "mark", ""))
+	assert.Equal(t, [][]string{
+		{"/bin/herdr", "workspace", "report-metadata", "w1", "--source", "src", "--token", "mark=on"},
+		{"/bin/herdr", "workspace", "report-metadata", "w1", "--source", "src", "--clear-token", "mark"},
+	}, rr.calls)
+}
