@@ -296,6 +296,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil || !ok {
 		return err
 	}
+	revision := a.historyRevision()
 	res, err := connectpkg.Connect(ctx, backend.client, []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
 		Warnf: a.warnf,
 		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, backend.cfg.DirLength) },
@@ -303,7 +304,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	a.recordWorkspaceSwitch(backend.pickerWorkspaceID, res.Session.WorkspaceID)
+	a.recordWorkspaceSwitch(backend.pickerWorkspaceID, res.Session.WorkspaceID, revision)
 	return nil
 }
 
@@ -338,12 +339,13 @@ func (a *App) connect(ctx context.Context, args []string) error {
 		return err
 	}
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
+	revision := a.historyRevision()
 	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), sessions, target, connectpkg.Options{NoFocus: *noFocus, Warnf: a.warnf, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
 	if err != nil {
 		return err
 	}
 	if !*noFocus {
-		a.recordWorkspaceSwitch(currentWorkspaceID, res.Session.WorkspaceID)
+		a.recordWorkspaceSwitch(currentWorkspaceID, res.Session.WorkspaceID, revision)
 	}
 	_, err = fmt.Fprintf(a.Out, "%s\n", res.Session.Name)
 	return err
@@ -427,35 +429,40 @@ func (a *App) last(ctx context.Context, _ []string) error {
 		return err
 	}
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-	id, ok, err := lastWorkspace(historyDir, currentWorkspaceID)
+	history, err := state.LoadHistory(historyDir)
 	if err != nil {
 		return err
 	}
+	id, ok := history.PreviousWorkspace(currentWorkspaceID)
 	if !ok {
 		return errors.New("no previous workspace recorded")
 	}
 	if err := herdr.NewCLIClient().WorkspaceFocus(ctx, id); err != nil {
 		return err
 	}
-	if err := state.RecordSwitch(historyDir, currentWorkspaceID, id); err != nil {
+	if err := state.RecordSwitch(historyDir, currentWorkspaceID, id, history.Revision); err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
 	return nil
 }
 
-func lastWorkspace(stateDir, currentWorkspaceID string) (string, bool, error) {
-	history, err := state.LoadHistory(stateDir)
-	if err != nil {
-		return "", false, err
+// historyRevision captures history before a focus request for RecordSwitch.
+func (a *App) historyRevision() uint64 {
+	historyDir, err := historyStateDir()
+	var revision uint64
+	if err == nil {
+		revision, err = state.HistoryRevision(historyDir)
 	}
-	id, ok := history.PreviousWorkspace(currentWorkspaceID)
-	return id, ok, nil
+	if err != nil {
+		a.warnf("could not read workspace history: %v", err)
+	}
+	return revision
 }
 
-func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string) {
+func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string, revision uint64) {
 	historyDir, err := historyStateDir()
 	if err == nil {
-		err = state.RecordSwitch(historyDir, fromWorkspaceID, toWorkspaceID)
+		err = state.RecordSwitch(historyDir, fromWorkspaceID, toWorkspaceID, revision)
 	}
 	if err != nil {
 		a.warnf("could not record workspace history: %v", err)
@@ -524,12 +531,47 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 		return nil
 	}
 
+	// Marker failures only cost the sidebar indicator, so they never stop history.
+	markerClient := herdr.NewCLIClient()
+	focusedID := ""
+	// Config reloads on every event, so repeat its legacy or load warnings only
+	// when they change; a clean load resets them.
+	lastConfigWarning := ""
+	syncMarker := func() {
+		var warning strings.Builder
+		cfg, _, err := config.Load(config.LoadOptions{Warn: &warning})
+		if err != nil {
+			_, _ = fmt.Fprintf(&warning, "warning: could not load last-workspace marker settings: %v\n", err)
+		}
+		if warning.String() != lastConfigWarning && a.Err != nil {
+			_, _ = io.WriteString(a.Err, warning.String())
+		}
+		lastConfigWarning = warning.String()
+		if err != nil {
+			return
+		}
+		if err := syncLastWorkspaceMarker(ctx, markerClient, historyDir, focusedID, cfg.History.LastWorkspaceLabel); err != nil {
+			a.warnf("could not update last-workspace marker: %v", err)
+		}
+	}
 	return herdr.WatchWorkspaceEvents(ctx, socketPath,
 		func(workspaceID string) error {
-			return retryHistoryMutation(ctx, func() error { return state.Record(historyDir, workspaceID) })
+			if err := retryHistoryMutation(ctx, func() error { return state.Record(historyDir, workspaceID) }); err != nil {
+				return err
+			}
+			focusedID = workspaceID
+			syncMarker()
+			return nil
 		},
 		func(workspaceID string) error {
-			return retryHistoryMutation(ctx, func() error { return state.RemoveWorkspace(historyDir, workspaceID) })
+			if err := retryHistoryMutation(ctx, func() error { return state.RemoveWorkspace(historyDir, workspaceID) }); err != nil {
+				return err
+			}
+			if workspaceID == focusedID {
+				focusedID = ""
+			}
+			syncMarker()
+			return nil
 		},
 	)
 }

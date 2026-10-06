@@ -33,6 +33,8 @@ type Workspace struct {
 	ActiveTabID   string    `json:"active_tab_id"`
 	AgentStatus   string    `json:"agent_status"`
 	Worktree      *Worktree `json:"worktree,omitempty"`
+	// Tokens holds custom metadata reported by any source for $name sidebar tokens.
+	Tokens map[string]string `json:"tokens,omitempty"`
 }
 type Tab struct {
 	ID          string `json:"id"`
@@ -154,6 +156,7 @@ type omitCallerPaneKey struct{}
 func (ExecRunner) Run(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
 	//nolint:gosec // HERDR_BIN_PATH may intentionally point at a user-selected herdr binary.
 	c := exec.CommandContext(ctx, bin, args...)
+	c.WaitDelay = 100 * time.Millisecond
 	if omit, _ := ctx.Value(omitCallerPaneKey{}).(bool); omit {
 		c.Env = environmentWithout(os.Environ(), "HERDR_PANE_ID")
 	}
@@ -302,6 +305,16 @@ func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 }
 func (c *CLIClient) WorkspaceFocus(ctx context.Context, id string) error {
 	_, err := c.run(ctx, "workspace", "focus", id)
+	return err
+}
+
+// WorkspaceReportToken sets a custom workspace metadata token; an empty value clears it.
+func (c *CLIClient) WorkspaceReportToken(ctx context.Context, id, source, name, value string) error {
+	args := []string{"workspace", "report-metadata", id, "--source", source, "--token", name + "=" + value}
+	if value == "" {
+		args = []string{"workspace", "report-metadata", id, "--source", source, "--clear-token", name}
+	}
+	_, err := c.run(ctx, args...)
 	return err
 }
 func (c *CLIClient) WorkspaceClose(ctx context.Context, id string) error {

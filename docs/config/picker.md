@@ -148,6 +148,36 @@ migration, lifecycle hooks, and reconnect limitations.
     Sidebar switches can leave history stale. Upgrade the running Herdr server
     to 0.9.1 or newer; see [Previous workspace is unexpected](../troubleshooting.md#previous-workspace-is-unexpected).
 
+### Sidebar marker
+
+The plugin reports a `sesh_last` workspace metadata token with the default value `last`
+on the workspace that `last` would switch to. Add `$sesh_last` to Herdr's
+[Space rows](https://herdr.dev/docs/configuration/#sidebar-row-layouts) in
+`~/.config/herdr/config.toml` to show it:
+
+```toml
+[ui.sidebar.spaces]
+rows = [
+  ["state_icon", "workspace", { token = "$sesh_last", fg = "#f9e2af", bold = true }],
+  ["branch", "git_status"],
+]
+```
+
+The marker moves with workspace history, including switches made outside the
+picker.
+
+To change its text, add this to the **herdr-sesh** `config.toml`:
+
+```toml
+[history]
+last_workspace_label = "previous"
+```
+
+The default is `"last"`. An empty string hides the marker. Text may include
+Unicode, up to 80 characters, but must not contain control characters or start
+or end with whitespace; Herdr would otherwise alter the stored value. Changes
+apply on the next workspace focus or close event without restarting the plugin.
+
 ## Linked worktrees
 
 Linked worktrees appear beneath their open parent in every sort mode, with a

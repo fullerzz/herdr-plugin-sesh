@@ -25,6 +25,8 @@ type FakeClient struct {
 	// Waits records "pane:match"; WaitErr fails every wait.
 	Waits   []string
 	WaitErr error
+	// ReportedTokens records "workspace:name=value"; an empty value is a clear.
+	ReportedTokens []string
 	// Ops records tab creation, runs, splits, waits, and pane focus in call order.
 	Ops []string
 }
@@ -40,6 +42,23 @@ func (f *FakeClient) WorkspaceCreate(_ context.Context, r WorkspaceCreateRequest
 }
 func (f *FakeClient) WorkspaceFocus(_ context.Context, id string) error {
 	f.FocusedWorkspaces = append(f.FocusedWorkspaces, id)
+	return nil
+}
+func (f *FakeClient) WorkspaceReportToken(_ context.Context, id, _, name, value string) error {
+	f.ReportedTokens = append(f.ReportedTokens, id+":"+name+"="+value)
+	for i := range f.Workspaces {
+		if f.Workspaces[i].ID != id {
+			continue
+		}
+		if f.Workspaces[i].Tokens == nil {
+			f.Workspaces[i].Tokens = map[string]string{}
+		}
+		if value == "" {
+			delete(f.Workspaces[i].Tokens, name)
+		} else {
+			f.Workspaces[i].Tokens[name] = value
+		}
+	}
 	return nil
 }
 func (f *FakeClient) TabList(context.Context, string) ([]Tab, error) { return f.Tabs, nil }

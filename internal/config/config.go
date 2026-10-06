@@ -5,9 +5,10 @@ import "github.com/fullerzz/herdr-plugin-sesh/internal/model"
 const (
 	// Preview output is captured through sh rather than a TTY, so eza's
 	// automatic modes must be forced on explicitly.
-	DefaultPreviewCommand = "eza --icons=always --color=always -la {}"
-	DefaultPreviewMode    = "command"
-	DefaultWorkspaceSort  = "workspace"
+	DefaultPreviewCommand     = "eza --icons=always --color=always -la {}"
+	DefaultPreviewMode        = "command"
+	DefaultWorkspaceSort      = "workspace"
+	DefaultLastWorkspaceLabel = "last"
 )
 
 type KeyConfig struct {
@@ -28,6 +29,11 @@ type Config struct {
 	DirLength            int                  `toml:"dir_length"`
 	SeparatorAware       bool                 `toml:"separator_aware"`
 	TUI                  TUIConfig            `toml:"tui"`
+	History              HistoryConfig        `toml:"-"`
+}
+
+type HistoryConfig struct {
+	LastWorkspaceLabel string
 }
 
 type DefaultSessionConfig struct {
@@ -71,6 +77,7 @@ type WildcardConfig struct {
 func Default() Config {
 	return Config{
 		Keys:                 KeyConfig{CyclePreviewMode: "ctrl+o"},
+		History:              HistoryConfig{LastWorkspaceLabel: DefaultLastWorkspaceLabel},
 		DirLength:            1,
 		SortOrder:            []string{"herdr", "config", "zoxide", "dir"},
 		DefaultSessionConfig: DefaultSessionConfig{PreviewCommand: DefaultPreviewCommand},

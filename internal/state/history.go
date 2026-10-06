@@ -13,6 +13,9 @@ import (
 
 type History struct {
 	Workspaces []string `json:"workspaces"`
+	// Revision increments on every locked mutation so a writer can tell whether
+	// anyone else wrote since it last read; see RecordSwitch.
+	Revision uint64 `json:"revision,omitempty"`
 }
 
 var ErrHistoryLockTimeout = errors.New("timed out waiting for history lock")
@@ -118,6 +121,7 @@ func LoadHistory(dir string) (History, error) {
 	return h, json.Unmarshal(b, &h)
 }
 
+// SaveHistory writes h verbatim, including its Revision.
 func SaveHistory(dir string, h History) error {
 	if dir == "" {
 		return nil
@@ -140,11 +144,26 @@ func Record(dir, workspaceID string) error {
 			return nil
 		}
 		h.Workspaces = dedupeWorkspaces([]string{workspaceID}, h.Workspaces)
-		return writeJSONFile(Path(dir), h)
+		return writeHistory(dir, h)
 	})
 }
 
-func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
+// HistoryRevision returns the revision a caller must capture before requesting
+// focus and pass to RecordSwitch. Malformed history reads as revision 0, as
+// RecordSwitch's write-time recovery does.
+func HistoryRevision(dir string) (uint64, error) {
+	h, err := loadHistoryForWrite(dir)
+	return h.Revision, err
+}
+
+// RecordSwitch records a plugin-driven switch that the history watcher may not
+// have observed yet. The caller writes only after its focus request, so the
+// watcher may already have recorded that focus and later ones. The switch
+// applies only when history is still at observedRevision, captured before the
+// focus request, and toWorkspaceID is not already current; otherwise the
+// watcher's ordered events win. An applied switch therefore always precedes
+// the watcher's focus event for toWorkspaceID.
+func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string, observedRevision uint64) error {
 	if dir == "" || toWorkspaceID == "" {
 		return nil
 	}
@@ -153,8 +172,11 @@ func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
 		if err != nil {
 			return err
 		}
+		if h.Revision != observedRevision || (len(h.Workspaces) > 0 && h.Workspaces[0] == toWorkspaceID) {
+			return nil
+		}
 		h.Workspaces = dedupeWorkspaces([]string{toWorkspaceID, fromWorkspaceID}, h.Workspaces)
-		return writeJSONFile(Path(dir), h)
+		return writeHistory(dir, h)
 	})
 }
 
@@ -174,7 +196,7 @@ func RemoveWorkspace(dir, workspaceID string) error {
 			}
 		}
 		h.Workspaces = workspaces
-		return writeJSONFile(Path(dir), h)
+		return writeHistory(dir, h)
 	})
 }
 
@@ -209,6 +231,11 @@ func withHistoryLock(dir string, fn func() error) (err error) {
 		err = errors.Join(err, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
 	}()
 	return fn()
+}
+
+func writeHistory(dir string, h History) error {
+	h.Revision++
+	return writeJSONFile(Path(dir), h)
 }
 
 func loadHistoryForWrite(dir string) (History, error) {

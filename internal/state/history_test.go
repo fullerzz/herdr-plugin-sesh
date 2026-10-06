@@ -24,7 +24,7 @@ func TestSessionHistoryDirIsolatesSockets(t *testing.T) {
 
 	require.NoError(t, SaveHistory(firstDir, History{Workspaces: []string{"w1", "first-only"}}))
 	require.NoError(t, SaveHistory(secondDir, History{Workspaces: []string{"w1", "second-only"}}))
-	require.NoError(t, RecordSwitch(firstDir, "w1", "first-only"))
+	require.NoError(t, RecordSwitch(firstDir, "w1", "first-only", 0))
 	require.NoError(t, RemoveWorkspace(secondDir, "w1"))
 
 	first, err := LoadHistory(firstDir)
@@ -276,7 +276,7 @@ func runHistoryLockHelper(t *testing.T) {
 	case "record":
 		mutateErr = Record(dir, "record")
 	case "record-switch":
-		mutateErr = RecordSwitch(dir, "from", "to")
+		mutateErr = RecordSwitch(dir, "from", "to", 0)
 	case "remove-workspace":
 		mutateErr = RemoveWorkspace(dir, "remove")
 	case "save-history":
@@ -290,7 +290,7 @@ func runHistoryLockHelper(t *testing.T) {
 
 func TestHistoryNoopsWithoutStateDir(t *testing.T) {
 	require.NoError(t, Record("", "ws1"))
-	require.NoError(t, RecordSwitch("", "ws1", "ws2"))
+	require.NoError(t, RecordSwitch("", "ws1", "ws2", 0))
 	h, err := LoadHistory("")
 	require.NoError(t, err)
 	last, ok := h.PreviousWorkspace("")
@@ -347,11 +347,83 @@ func TestHistoryPreviousWorkspace(t *testing.T) {
 func TestRecordSwitchRotatesPreviousWorkspace(t *testing.T) {
 	d := t.TempDir()
 	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"current", "previous", "older"}}))
-	require.NoError(t, RecordSwitch(d, "current", "previous"))
+	require.NoError(t, RecordSwitch(d, "current", "previous", 0))
 	h, err := LoadHistory(d)
 	require.NoError(t, err)
 	want := []string{"previous", "current", "older"}
 	assert.Equal(t, want, h.Workspaces)
+}
+
+// A switch's RecordSwitch lands after its focus request. Once the watcher has
+// recorded newer focus, including a return to the switch's origin, the late
+// write must not rewind history.
+func TestRecordSwitchIgnoresLateSwitchAfterWatcherWrites(t *testing.T) {
+	for name, focused := range map[string][]string{
+		"moved on":         {"B", "C", "D"},
+		"returned to from": {"B", "C", "A"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := t.TempDir()
+			require.NoError(t, SaveHistory(d, History{Workspaces: []string{"A"}}))
+			revision, err := HistoryRevision(d)
+			require.NoError(t, err)
+			for _, id := range focused {
+				require.NoError(t, Record(d, id))
+			}
+			want, err := LoadHistory(d)
+			require.NoError(t, err)
+
+			require.NoError(t, RecordSwitch(d, "A", "B", revision))
+
+			h, err := LoadHistory(d)
+			require.NoError(t, err)
+			assert.Equal(t, want, h)
+		})
+	}
+}
+
+// Without intervening writes the switch applies even when the head is stale
+// (missed sidebar focus) or the origin is unknown.
+func TestRecordSwitchAppliesWhenHistoryUnchanged(t *testing.T) {
+	for name, tt := range map[string]struct {
+		from string
+		want []string
+	}{
+		"stale head":     {from: "C", want: []string{"B", "C", "A"}},
+		"unknown origin": {from: "", want: []string{"B", "A"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := t.TempDir()
+			require.NoError(t, SaveHistory(d, History{Workspaces: []string{"A", "B"}, Revision: 7}))
+			require.NoError(t, RecordSwitch(d, tt.from, "B", 7))
+			h, err := LoadHistory(d)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, h.Workspaces)
+			assert.Equal(t, uint64(8), h.Revision)
+		})
+	}
+}
+
+// Record does not write for an already-current head, so an unchanged revision
+// cannot prove the watcher missed the switch; keep the watcher's order.
+func TestRecordSwitchKeepsWatcherOrderWhenTargetAlreadyCurrent(t *testing.T) {
+	d := t.TempDir()
+	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"to", "real-previous", "from"}}))
+	require.NoError(t, RecordSwitch(d, "from", "to", 0))
+	h, err := LoadHistory(d)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"to", "real-previous", "from"}, h.Workspaces)
+}
+
+func TestRecordSwitchRepairsMalformedHistoryWithRevision(t *testing.T) {
+	d := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(d, "history.json"), []byte(`{"revision":7,"workspaces":42}`), 0600))
+	revision, err := HistoryRevision(d)
+	require.NoError(t, err)
+	require.NoError(t, RecordSwitch(d, "A", "B", revision))
+	h, err := LoadHistory(d)
+	require.NoError(t, err)
+	assert.Equal(t, History{Workspaces: []string{"B", "A"}, Revision: 1}, h)
 }
 
 func TestRemoveWorkspacePrunesHistory(t *testing.T) {
@@ -366,12 +438,12 @@ func TestRemoveWorkspacePrunesHistory(t *testing.T) {
 
 func TestRecordSwitchDeduplicatesAndCapsHistory(t *testing.T) {
 	d := t.TempDir()
-	workspaces := []string{"target", "from"}
+	workspaces := []string{"from", "target"}
 	for i := 0; i < maxWorkspaces+20; i++ {
 		workspaces = append(workspaces, fmt.Sprintf("ws-%02d", i))
 	}
 	require.NoError(t, SaveHistory(d, History{Workspaces: workspaces}))
-	require.NoError(t, RecordSwitch(d, "from", "target"))
+	require.NoError(t, RecordSwitch(d, "from", "target", 0))
 	h, err := LoadHistory(d)
 	require.NoError(t, err)
 	require.Len(t, h.Workspaces, maxWorkspaces)
