@@ -51,8 +51,10 @@ never wait. Herdr runs startup hooks only when a server starts or imports a
 live handoff, so a lock held at startup belongs to the previous server's
 subscriber. If that subscriber still holds the lock after the window, as a
 subscriber from a release that reconnected forever would, the startup hook
-sends `SIGTERM` to every process `lsof` reports holding the lock file open,
-then retries for one more window.
+sends `SIGTERM` to the lock holders, then retries for one more window. Linux
+finds the exclusive `flock` owner in `/proc/locks` by the lock file's device and
+inode; macOS uses its bundled `/usr/sbin/lsof`. No additional runtime tool needs
+to be installed, and a restricted hook `PATH` does not affect replacement.
 
 The following diagram maps the production control flow in `internal/app` while
 keeping the hook and subscriber responsibilities separate.
@@ -257,9 +259,10 @@ load resets them.
       events lost at disconnect.[^reconnect-gap]
     - A restarted server's startup hook waits up to five seconds for the
       previous subscriber to drain and exit, then terminates any remaining
-      lock holder and waits up to five more seconds. Termination needs `lsof`;
-      without it the hook fails and tracking resumes at the next focus or
-      close hook after the old subscriber exits.
+      lock holder and waits up to five more seconds. If native lock-holder
+      lookup fails (for example, `/proc/locks` is inaccessible), the hook
+      reports the failure; tracking resumes after the old subscriber exits
+      and a later lifecycle hook elects a replacement.
     - Subscribers from releases that reconnected forever cannot be replaced for
       a deleted session, because that session never runs another startup
       hook. Stop them once with `pkill -f 'herdr-sesh plugin watch-history'`;

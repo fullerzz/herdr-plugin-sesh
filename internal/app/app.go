@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -613,19 +612,18 @@ func electHistoryWatcher(ctx context.Context, stateDir, socketPath string) (rele
 	}
 }
 
-// terminateHistoryWatcher signals every process holding lockPath open. Only
-// plugin hooks open the lock, and losing contenders close it immediately.
+// terminateHistoryWatcher signals the stale election holders. Only plugin
+// hooks open the lock, and losing contenders close it immediately.
 func terminateHistoryWatcher(ctx context.Context, lockPath string) error {
-	//nolint:gosec // lockPath is derived from the plugin-owned state directory.
-	out, err := exec.CommandContext(ctx, "lsof", "-t", "--", lockPath).Output()
-	// lsof exits 1 without output when no process has the file open.
-	var exitErr *exec.ExitError
-	if err != nil && (!errors.As(err, &exitErr) || len(out) > 0) {
+	pids, err := historyWatcherPIDs(ctx, lockPath)
+	if err != nil {
 		return fmt.Errorf("find stale history watcher: %w", err)
 	}
-	for _, field := range strings.Fields(string(out)) {
-		pid, err := strconv.Atoi(field)
-		if err != nil || pid == os.Getpid() {
+	for _, pid := range pids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if pid == os.Getpid() {
 			continue
 		}
 		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {

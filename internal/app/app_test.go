@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -1278,6 +1279,7 @@ func TestPluginWatchHistoryStartupStopsWaitingAfterHandoff(t *testing.T) {
 
 func TestPluginWatchHistoryStartupReplacesStaleWatcher(t *testing.T) {
 	stubHerdrBin(t)
+	t.Setenv("PATH", t.TempDir()) // Replacement must not need an installed lsof.
 	stateDir := filepath.Join(t.TempDir(), "state")
 	socketDir, err := os.MkdirTemp("/tmp", "herdr-sesh-watch-")
 	require.NoError(t, err)
@@ -1323,10 +1325,12 @@ func TestHelperHoldHistoryWatcherLock(t *testing.T) {
 	if os.Getenv("HERDR_SESH_HOLD_WATCHER_LOCK") != "1" {
 		t.Skip("helper process for TestPluginWatchHistoryStartupReplacesStaleWatcher")
 	}
-	_, acquired, err := state.TryHistoryWatcherLock(os.Getenv("HERDR_PLUGIN_STATE_DIR"), os.Getenv("HERDR_SOCKET_PATH"))
+	release, acquired, err := state.TryHistoryWatcherLock(os.Getenv("HERDR_PLUGIN_STATE_DIR"), os.Getenv("HERDR_SOCKET_PATH"))
 	if err != nil || !acquired {
 		os.Exit(2)
 	}
+	defer func() { _ = release() }()
+	runtime.GC() // The lock must survive finalization before the parent replaces it.
 	fmt.Println("locked")
 	time.Sleep(time.Hour)
 }
