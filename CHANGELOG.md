@@ -1,3 +1,37 @@
+## v0.15.0 (2026-10-07)
+
+### 🚀 Features
+
+- feat: add configurable previous-workspace sidebar marker by @fullerzz in [#149](https://github.com/fullerzz/herdr-plugin-sesh/pull/149) ([1e23dcd](https://github.com/fullerzz/herdr-plugin-sesh/commit/1e23dcdc1efb6b0b3697ca70d6c0293cc4d841b7))
+
+
+
+### 🐛 Bug Fixes
+
+- fix: rebuild worktree styles on Herdr theme changes by @fullerzz in [#147](https://github.com/fullerzz/herdr-plugin-sesh/pull/147) ([6407f21](https://github.com/fullerzz/herdr-plugin-sesh/commit/6407f21af88b15d542fe066b1e4f7143dae0e749))
+
+- fix: stop history watcher when its Herdr socket closes by @fullerzz in [#151](https://github.com/fullerzz/herdr-plugin-sesh/pull/151) ([ddd91c9](https://github.com/fullerzz/herdr-plugin-sesh/commit/ddd91c9ef5e18df617602e32a91497bbb6b2fce7))
+
+
+
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update jdx/mise-action action to v5 by @renovate[bot] in [#143](https://github.com/fullerzz/herdr-plugin-sesh/pull/143) ([7e5e516](https://github.com/fullerzz/herdr-plugin-sesh/commit/7e5e5169cf685d30253a4c55438eaa969f13564c))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#142](https://github.com/fullerzz/herdr-plugin-sesh/pull/142) ([2d1dae8](https://github.com/fullerzz/herdr-plugin-sesh/commit/2d1dae82cfe907af752c2cc8be1b4bffd65854f9))
+
+- fix(go-deps): update golang.org/x/perf digest to 406019b by @renovate[bot] in [#144](https://github.com/fullerzz/herdr-plugin-sesh/pull/144) ([2c9a57c](https://github.com/fullerzz/herdr-plugin-sesh/commit/2c9a57c88ee89bfe9171c6161001559f1a757e1c))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#146](https://github.com/fullerzz/herdr-plugin-sesh/pull/146) ([aca76ae](https://github.com/fullerzz/herdr-plugin-sesh/commit/aca76aef73d054439b2351a083738f793c936aa7))
+
+
+
+### 🚜 Refactor
+
+- refactor: extract picker backend from app orchestration by @fullerzz in [#148](https://github.com/fullerzz/herdr-plugin-sesh/pull/148) ([bfb7e0b](https://github.com/fullerzz/herdr-plugin-sesh/commit/bfb7e0b7768568814152b813694c54e8e9a9070f))
+
+
+
 ## v0.14.0 (2026-09-29)
 
 ### 🚀 Features
