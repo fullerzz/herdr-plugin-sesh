@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	clonepkg "github.com/fullerzz/herdr-plugin-sesh/internal/clone"
@@ -510,7 +511,7 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 	stateDir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
 	socketPath := os.Getenv("HERDR_SOCKET_PATH")
 	// Elect first so non-winning startup and focus hooks cannot migrate history.
-	release, acquired, err := state.TryHistoryWatcherLock(stateDir, socketPath)
+	release, acquired, err := electHistoryWatcher(ctx, stateDir, socketPath)
 	if err != nil {
 		return err
 	}
@@ -574,6 +575,62 @@ func (a *App) watchHistory(ctx context.Context) (err error) {
 			return nil
 		},
 	)
+}
+
+// historyWatcherHandoff bounds how long a startup hook waits for the previous
+// server's watcher, which exits once its event stream closes but may still be
+// draining buffered events. Focus and close hooks never wait.
+var historyWatcherHandoff = 5 * time.Second
+
+const historyWatcherHandoffInterval = 50 * time.Millisecond
+
+func electHistoryWatcher(ctx context.Context, stateDir, socketPath string) (release func() error, acquired bool, err error) {
+	deadline := time.Now().Add(historyWatcherHandoff)
+	terminated := false
+	for {
+		release, acquired, err = state.TryHistoryWatcherLock(stateDir, socketPath)
+		if err != nil || acquired || os.Getenv("HERDR_PLUGIN_EVENT") != "startup" {
+			return release, acquired, err
+		}
+		if time.Now().After(deadline) {
+			if terminated {
+				return nil, false, nil
+			}
+			// A holder that outlives the handoff is not draining the previous
+			// server, such as a watcher from an older release that reconnects forever.
+			if err := terminateHistoryWatcher(ctx, state.HistoryWatcherLockPath(stateDir, socketPath)); err != nil {
+				return nil, false, err
+			}
+			terminated = true
+			deadline = time.Now().Add(historyWatcherHandoff)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-time.After(historyWatcherHandoffInterval):
+		}
+	}
+}
+
+// terminateHistoryWatcher signals the stale election holders. Only plugin
+// hooks open the lock, and losing contenders close it immediately.
+func terminateHistoryWatcher(ctx context.Context, lockPath string) error {
+	pids, err := historyWatcherPIDs(ctx, lockPath)
+	if err != nil {
+		return fmt.Errorf("find stale history watcher: %w", err)
+	}
+	for _, pid := range pids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if pid == os.Getpid() {
+			continue
+		}
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("stop stale history watcher %d: %w", pid, err)
+		}
+	}
+	return nil
 }
 
 func retryHistoryMutation(ctx context.Context, mutate func() error) error {

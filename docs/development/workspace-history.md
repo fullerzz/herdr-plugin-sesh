@@ -44,7 +44,17 @@ The plugin manifest routes three lifecycle triggers to the same hidden command:
 session history directory, so non-winning startup and focus hooks cannot trigger
 legacy-history migration. A non-winning close hook still prunes its payload ID.
 The winner holds the lock while `WatchWorkspaceEvents` runs; a later lifecycle
-hook can elect a replacement if the subscriber stops.
+hook can elect a replacement if the subscriber stops. A non-winning startup
+hook retries election for up to five seconds before exiting, covering the
+handoff from a restarted server's previous subscriber; focus and close hooks
+never wait. Herdr runs startup hooks only when a server starts or imports a
+live handoff, so a lock held at startup belongs to the previous server's
+subscriber. If that subscriber still holds the lock after the window, as a
+subscriber from a release that reconnected forever would, the startup hook
+sends `SIGTERM` to the lock holders, then retries for one more window. Linux
+finds the exclusive `flock` owner in `/proc/locks` by the lock file's device and
+inode; macOS uses its bundled `/usr/sbin/lsof`. No additional runtime tool needs
+to be installed, and a restricted hook `PATH` does not affect replacement.
 
 The following diagram maps the production control flow in `internal/app` while
 keeping the hook and subscriber responsibilities separate.
@@ -52,7 +62,12 @@ keeping the hook and subscriber responsibilities separate.
 ```mermaid
 flowchart TD
     Hook["startup / focused / closed hook"] --> Elect{"TryHistoryWatcherLock"}
-    Elect -->|not acquired startup/focused| Exit["Exit hook process"]
+    Elect -->|not acquired startup| Wait["Retry election<br/>up to 5 s"]
+    Wait -->|acquired| Resolve
+    Wait -->|timed out| Terminate["SIGTERM lock holders<br/>retry up to 5 s"]
+    Terminate -->|acquired| Resolve
+    Terminate -->|timed out| Exit
+    Elect -->|not acquired focused| Exit["Exit hook process"]
     Elect -->|not acquired closed| Resolve["Resolve session history"]
     Elect -->|acquired| Resolve
     Resolve --> Apply["applyHistoryHook"]
@@ -69,7 +84,7 @@ flowchart TD
 
 ## Subscriber bootstrap and event ordering
 
-Each connection attempt follows this order:
+The subscriber connects once and follows this order:
 
 1. Open the event connection and subscribe to `workspace.focused` and
    `workspace.closed`.
@@ -88,11 +103,20 @@ Starting the decoder before the protocol probe and initial snapshot request
 closes both bootstrap windows. The protocol 20 path has no timer or fixed replay
 cutoff: a delayed retained event becomes a later batch and is re-anchored to
 current session state. The buffer holds 1,024 events. If the stream ends,
-queued protocol 20 events go through the same snapshot reconciliation before
-the watcher reconnects after 100 ms. Herdr subscriptions do not expose a replay
-cursor, so events that never reached the client before an unexpected disconnect
-can still be lost; the reconnect snapshot restores current focus but cannot
-reconstruct that transient order.[^reconnect-gap]
+already-buffered events are applied on a best-effort basis, then the
+subscriber returns and releases its election lock. Protocol 20 events still
+need a reconciliation snapshot, so they are lost if the closing server no
+longer answers `session.snapshot`. A close between messages is a normal
+shutdown and exits successfully; a close mid-message, a read error, or a
+history write failure exits with an error.
+
+The subscriber never reconnects. A failed initial connection, such as the
+socket of a deleted named session, returns immediately, and an established
+stream that closes ends the process even if a new server later listens on the
+same path. Reconnecting would keep the previous plugin binary running after a
+server restart and would retry forever once a session is gone. The next
+startup, focus, or close hook elects a fresh subscriber that initializes from
+the current session snapshot.
 
 Subscription request names use dotted event types. Incoming event envelopes
 use `workspace_focused` and `workspace_closed`; malformed, unrelated, and
@@ -123,15 +147,17 @@ sequenceDiagram
         E-->>W: workspace event
         W->>H: Reconcile protocol 20 or apply protocol 21
     end
-    E--xW: unexpected EOF
+    E--xW: Stream closes
     W->>H: Drain buffered events
-    W->>E: Reconnect after 100 ms
+    W->>W: Return and release election lock
 ```
 
-Regression tests define four boundaries for this flow: reconcile delayed
+Regression tests define these boundaries for this flow: reconcile delayed
 protocol 20 replay without a timer, preserve queued replay across stream
-failure, preserve an event from the snapshot window, and reconnect after
-unexpected EOF.
+failure, preserve an event from the snapshot window, return after a closed
+stream or unavailable socket, release the election across a server restart on
+the same path, bound the startup handoff wait, and replace a lock holder that
+never exits.
 
 ## Session-scoped persistence
 
@@ -224,7 +250,25 @@ load resets them.
 
     - The subscriber uses one resident plugin command slot per Herdr socket.
     - Herdr does not supervise the command; the next lifecycle hook performs
-      replacement election after a crash.
+      replacement election after a crash or disconnect.
+    - The subscriber exits when its server connection fails or closes instead
+      of reconnecting. Until a later hook elects a replacement, focus changes
+      are not recorded and the sidebar marker can be stale. The replacement's
+      snapshot restores current focus but cannot reconstruct navigation missed
+      in between, and Herdr subscriptions do not expose a replay cursor for
+      events lost at disconnect.[^reconnect-gap]
+    - A restarted server's startup hook waits up to five seconds for the
+      previous subscriber to drain and exit, then terminates any remaining
+      lock holder and waits up to five more seconds. If native lock-holder
+      lookup fails (for example, `/proc/locks` is inaccessible), the hook
+      reports the failure; tracking resumes after the old subscriber exits
+      and a later lifecycle hook elects a replacement.
+    - Subscribers from releases that reconnected forever cannot be replaced for
+      a deleted session, because that session never runs another startup
+      hook. Stop them once with `pkill -f 'herdr-sesh plugin watch-history'`;
+      the next lifecycle hook in each running session elects a replacement.
+    - A plugin update while the server keeps running does not replace the
+      resident subscriber; restart the server to load the new binary.
     - File locking depends on `flock`. Unsupported filesystems fail explicitly.
     - The JSON format and 50-entry cap remain intentionally small; there is no
       database or background compaction layer.
