@@ -86,29 +86,6 @@ behavioral metrics that protect the shape of an optimization:
     active selection still updates. Any other pair is a behavioral regression,
     even if one value moved farther in an apparently favorable direction.
 
-## Continuous benchmarking with CodSpeed
-
-The same benchmarks run on every push to `main` and on every pull request
-through [CodSpeed](https://app.codspeed.io/fullerzz/herdr-plugin-sesh), which
-reports the walltime of each benchmark and comments the comparison against the
-base branch.
-
-For local comparisons on Linux or macOS, use `just bench` and
-`just bench-compare` above; no CodSpeed installation is needed. The repository's
-Ubuntu workflow installs the CodSpeed instrument through its pinned action and
-runs:
-
-```bash
-just bench-codspeed
-```
-
-`just bench-codspeed` alone runs ordinary Go benchmarks; the CI action supplies
-the instrument. It runs `go test -bench=.` over `internal/sources` and
-`internal/picker`. The extra
-`-benchmem`, `-count`, and `-run` flags used by `just bench` are omitted; the
-custom `commands/op`, `canceled/op`, and `completed/op` metrics are still
-reported.
-
 ## Benchmark strategy
 
 1. Benchmark user-facing hot paths with representative, generated data.
@@ -121,11 +98,15 @@ reported.
    does not justify extra commands or missing the exact `7` canceled / `1`
    completed preview target.
 
-The local `benchstat` flow stays a developer tool rather than a CI threshold.
-Shared CI runners are noisy, and fixed performance limits would fail for machine
-variation instead of meaningful regressions. CodSpeed covers the continuous side
-by comparing each pull request against its own base commit on the same runner
-class.
+The `benchstat` flow stays informational rather than a CI threshold. Shared CI
+runners are noisy, and fixed performance limits would fail for machine
+variation instead of meaningful regressions. The
+[`Benchmark` workflow](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/.github/workflows/benchmark.yml)
+runs `just bench 10` against the base and pull request merge revisions on the
+same runner for relevant pull requests to `main`. It reports the `benchstat`
+comparison in the workflow summary and, for branches in this repository, adds
+or updates a `📊 Benchmark results` pull request comment. Confirm notable changes
+locally on one machine with `just bench` and `just bench-compare`.
 
 [Picker benchmarks](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/picker/tea_benchmark_test.go){ .md-button }
 [Workspace-source benchmarks](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/sources/herdr_workspaces_benchmark_test.go){ .md-button }
