@@ -98,10 +98,15 @@ behavioral metrics that protect the shape of an optimization:
    does not justify extra commands or missing the exact `7` canceled / `1`
    completed preview target.
 
-The local `benchstat` flow stays a developer tool rather than a CI threshold.
-Shared CI runners are noisy, and fixed performance limits would fail for machine
-variation instead of meaningful regressions. Run comparisons locally on the
-same machine using `just bench` and `just bench-compare`.
+The `benchstat` flow stays informational rather than a CI threshold. Shared CI
+runners are noisy, and fixed performance limits would fail for machine
+variation instead of meaningful regressions. The
+[`Benchmark` workflow](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/.github/workflows/benchmark.yml)
+runs `just bench 10` against the base and pull request merge revisions on the
+same runner for relevant pull requests to `main`. It reports the `benchstat`
+comparison in the workflow summary and, for branches in this repository, adds
+or updates a `📊 Benchmark results` pull request comment. Confirm notable changes
+locally on one machine with `just bench` and `just bench-compare`.
 
 [Picker benchmarks](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/picker/tea_benchmark_test.go){ .md-button }
 [Workspace-source benchmarks](https://github.com/fullerzz/herdr-plugin-sesh/blob/main/internal/sources/herdr_workspaces_benchmark_test.go){ .md-button }
