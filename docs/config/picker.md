@@ -35,6 +35,7 @@ applies to fzf. Picker sorting does not change JSON output.
 | `workspace_sort` | `"workspace"` | Herdr order (`workspace`), most recently visited first (`recent`), or status priority (`agent`). Press ++ctrl+r++ to cycle `workspace` → `recent` → `agent`. |
 | `show_last_workspace` | `true` | Show the previous-workspace footer. Hiding it does not disable history or `last`. |
 | `show_last_workspace_path` | `true` | Include the previous workspace's working directory in the footer. |
+| `show_bottom_info_row` | `true` | Show the bottom row (keybind help and previous-workspace footer). Hiding it gives its space to the list; close errors and busy status still appear there. |
 
 ### Search ranking
 

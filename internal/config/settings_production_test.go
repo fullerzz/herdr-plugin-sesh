@@ -69,6 +69,17 @@ func TestSettingsMissingAndConcurrentCreation(t *testing.T) {
 	require.Error(t, draft.Save(map[string]any{"picker.show_icons": true}))
 }
 
+func TestSettingsSaveShowBottomInfoRow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("version = 1\n"), 0600))
+	doc, err := OpenSettings(LoadOptions{Path: path})
+	require.NoError(t, err)
+	require.NoError(t, doc.Save(map[string]any{"picker.show_bottom_info_row": false}))
+	cfg, _, err := Load(LoadOptions{Path: path})
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ShowBottomInfoRow)
+}
+
 func TestSettingsRejectsRetargetedSymlink(t *testing.T) {
 	dir := t.TempDir()
 	first, second, link := filepath.Join(dir, "first"), filepath.Join(dir, "second"), filepath.Join(dir, "config.toml")

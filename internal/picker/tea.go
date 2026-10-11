@@ -44,7 +44,7 @@ const (
 	minListWidth       = 36
 	maxPreviewWidth    = 52
 	previewTitleRows   = 1
-	pickerChromeRows   = 8
+	pickerChromeRows   = 6 // excludes footerRows
 	compactPreviewBody = 6
 	horizontalPadding  = 2
 	rowPathMinWidth    = 60
@@ -158,6 +158,7 @@ type DisplayOptions struct {
 	DisableWorktreeIconReplacement bool
 	HideLastWorkspace              bool
 	HideLastWorkspacePath          bool
+	HideBottomInfoRow              bool
 	SeparatorAware                 bool
 	DisableHomePrioritization      bool
 	HidePath                       bool
@@ -244,6 +245,7 @@ type teaModel struct {
 	replaceWorktreeIcon     bool
 	hideLastWorkspace       bool
 	hideLastWorkspacePath   bool
+	hideBottomInfoRow       bool
 	workspaceOrder          []string
 	recentWorkspaceIDs      []string
 	workspaceSort           string
@@ -348,6 +350,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		replaceWorktreeIcon:   !opts.DisableWorktreeIconReplacement,
 		hideLastWorkspace:     opts.HideLastWorkspace,
 		hideLastWorkspacePath: opts.HideLastWorkspacePath,
+		hideBottomInfoRow:     opts.HideBottomInfoRow,
 		workspaceOrder:        workspaceOrder,
 		recentWorkspaceIDs:    append([]string(nil), opts.RecentWorkspaceIDs...),
 		workspaceSort:         workspaceSort,
@@ -807,28 +810,10 @@ func (m teaModel) View() tea.View {
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
-	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
-	if m.backend != nil {
-		help = m.settingsKey() + " settings · " + help
+	if footer, style := m.footerContent(); footer != "" {
+		lines = append(lines, horizontalRule(width), m.footerLine(style.Render(footer), width))
 	}
-	footer := helpStyle.Render(help)
-	if m.settingsBusy {
-		footer = helpStyle.Render("Loading settings…")
-	}
-	if m.closeError != "" {
-		footer = emptyStyle.Render(m.closeError)
-	} else if m.hidePreview && m.closingWorkspaceID != "" {
-		status := "Closing workspace..."
-		if m.quitAfterWorkspaceClose {
-			status = "Cancelling workspace close..."
-		}
-		footer = emptyStyle.Render(status)
-	}
-	lines = append(lines,
-		horizontalRule(width),
-		m.footerLine(footer, width),
-		"",
-	)
+	lines = append(lines, "")
 	for i, line := range lines {
 		if line != "" {
 			lines[i] = fitLine(line, width)
@@ -1027,7 +1012,7 @@ func (m teaModel) previewBodyLines() int {
 	if m.height == 0 {
 		return defaultVisibleRows
 	}
-	lines := m.height - pickerChromeRows - previewTitleRows
+	lines := m.height - pickerChromeRows - m.footerRows() - previewTitleRows
 	if lines < compactPreviewBody {
 		return compactPreviewBody
 	}
@@ -1038,15 +1023,15 @@ func (m teaModel) listOnlyBodyLines() int {
 	if m.height == 0 {
 		return defaultVisibleRows
 	}
-	return maxInt(1, m.height-pickerChromeRows-previewTitleRows)
+	return maxInt(1, m.height-pickerChromeRows-m.footerRows()-previewTitleRows)
 }
 
 func (m teaModel) stackedBodyLines() (int, int) {
 	if m.height == 0 {
 		return defaultVisibleRows, compactPreviewBody
 	}
-	const stackedChromeRows = 10
-	available := m.height - stackedChromeRows
+	const stackedChromeRows = 8
+	available := m.height - stackedChromeRows - m.footerRows()
 	if available < 2 {
 		return 1, 1
 	}
@@ -1109,11 +1094,45 @@ func (m teaModel) lastWorkspaceCompactText() string {
 	return sectionStyle.Render("last:") + rowLabelStyle.Render(" "+label)
 }
 
+// footerContent is the unstyled text and style of the line below the picker
+// body: a transient status, else the keybind help unless the bottom info row
+// is hidden. Statuses show even when the row is hidden so errors are never
+// swallowed. Empty text means the rule and footer line are omitted.
+func (m teaModel) footerContent() (string, lipgloss.Style) {
+	switch {
+	case m.closeError != "":
+		return m.closeError, emptyStyle
+	case m.hidePreview && m.closingWorkspaceID != "":
+		if m.quitAfterWorkspaceClose {
+			return "Cancelling workspace close...", emptyStyle
+		}
+		return "Closing workspace...", emptyStyle
+	case m.settingsBusy:
+		return "Loading settings…", helpStyle
+	case m.hideBottomInfoRow:
+		return "", lipgloss.Style{}
+	}
+	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
+	if m.backend != nil {
+		help = m.settingsKey() + " settings · " + help
+	}
+	return help, helpStyle
+}
+
+// footerRows counts the rule and footer line below the picker body.
+func (m teaModel) footerRows() int {
+	if footer, _ := m.footerContent(); footer == "" {
+		return 0
+	}
+	return 2
+}
+
 // footerLine keeps the keybind help (or a close error, which gets the whole
 // row) intact and fits the last-workspace status into the remaining width,
-// compacting or dropping it rather than truncating the help.
+// compacting or dropping it rather than truncating the help. A hidden bottom
+// info row drops it too, so a transient status shows alone.
 func (m teaModel) footerLine(footer string, width int) string {
-	if m.closeError != "" || m.hideLastWorkspace {
+	if m.closeError != "" || m.hideLastWorkspace || m.hideBottomInfoRow {
 		return fitLine(footer, width)
 	}
 	available := width - lipgloss.Width(footer) - 2

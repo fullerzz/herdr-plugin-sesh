@@ -224,6 +224,7 @@ func pickerOptionsFromConfig(ctx context.Context, output io.Writer, cfg config.C
 		DisableWorktreeIconReplacement: !cfg.TUI.ReplaceWorktreeIcon,
 		HideLastWorkspace:              !cfg.TUI.ShowLastWorkspace,
 		HideLastWorkspacePath:          !cfg.TUI.ShowLastWorkspacePath,
+		HideBottomInfoRow:              !cfg.TUI.ShowBottomInfoRow,
 		SeparatorAware:                 cfg.SeparatorAware,
 		DisableHomePrioritization:      !cfg.TUI.PrioritizeHome,
 		HidePath:                       !cfg.TUI.ShowPath,
