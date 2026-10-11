@@ -65,6 +65,7 @@ type nativePicker struct {
 	ReplaceWorktreeIcon   *bool  `toml:"replace_worktree_icon,omitempty"`
 	ShowLastWorkspace     *bool  `toml:"show_last_workspace,omitempty"`
 	ShowLastWorkspacePath *bool  `toml:"show_last_workspace_path,omitempty"`
+	ShowBottomInfoRow     *bool  `toml:"show_bottom_info_row,omitempty"`
 	Prompt                string `toml:"prompt,omitempty"`
 	Placeholder           string `toml:"placeholder,omitempty"`
 	SeparatorAware        bool   `toml:"separator_aware,omitempty"`
@@ -417,6 +418,9 @@ func (n nativeConfig) apply(cfg *Config) {
 	}
 	if n.Picker.ShowLastWorkspacePath != nil {
 		cfg.TUI.ShowLastWorkspacePath = *n.Picker.ShowLastWorkspacePath
+	}
+	if n.Picker.ShowBottomInfoRow != nil {
+		cfg.TUI.ShowBottomInfoRow = *n.Picker.ShowBottomInfoRow
 	}
 	cfg.TUI.Prompt = n.Picker.Prompt
 	cfg.TUI.Placeholder = n.Picker.Placeholder

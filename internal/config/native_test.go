@@ -47,6 +47,7 @@ prioritize_home = false
 herdr_theme_inherit = true
 show_last_workspace = true
 show_last_workspace_path = true
+show_bottom_info_row = false
 prompt = "P> "
 placeholder = "find"
 separator_aware = true
@@ -657,4 +658,14 @@ path_glob = "/z/**"
 tabs = ["t"]
 `)
 	require.NoError(t, err)
+}
+
+func TestNativePickerShowBottomInfoRowDefaultsTrue(t *testing.T) {
+	cfg, err := loadNative(t, "version = 1\n")
+	require.NoError(t, err)
+	assert.True(t, cfg.TUI.ShowBottomInfoRow)
+
+	cfg, err = loadNative(t, "version = 1\n[picker]\nshow_bottom_info_row = false\n")
+	require.NoError(t, err)
+	assert.False(t, cfg.TUI.ShowBottomInfoRow)
 }

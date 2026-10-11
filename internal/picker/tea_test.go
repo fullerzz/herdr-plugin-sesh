@@ -2146,3 +2146,76 @@ func TestCloseReloadRecentMetadataNilPreservesEmptyClears(t *testing.T) {
 		})
 	}
 }
+
+func TestTeaModelCanHideBottomInfoRow(t *testing.T) {
+	const height = 24
+	sessions := make([]model.Session, 40)
+	for i := range sessions {
+		sessions[i] = model.Session{Name: fmt.Sprintf("ws-%02d", i)}
+	}
+	listed := func(view string) int {
+		count := 0
+		for _, session := range sessions {
+			if strings.Contains(view, session.Name) {
+				count++
+			}
+		}
+		return count
+	}
+	layouts := []struct {
+		name        string
+		width       int
+		hidePreview bool
+	}{
+		{name: "list_only", width: 120, hidePreview: true},
+		{name: "side_by_side", width: 120},
+		{name: "stacked", width: 70},
+	}
+	states := []struct {
+		name     string
+		status   string
+		listOnly bool
+		set      func(*teaModel)
+	}{
+		{name: "no_status", set: func(*teaModel) {}},
+		{name: "close_error", status: "Failed to close workspace: boom", set: func(m *teaModel) { m.closeError = "Failed to close workspace: boom" }},
+		{name: "closing", status: "Closing workspace...", listOnly: true, set: func(m *teaModel) { m.closingWorkspaceID = "w1" }},
+		{name: "settings_busy", status: "Loading settings…", set: func(m *teaModel) { m.settingsBusy = true }},
+	}
+	for _, layout := range layouts {
+		for _, state := range states {
+			if state.listOnly && !layout.hidePreview {
+				continue
+			}
+			t.Run(layout.name+"/"+state.name, func(t *testing.T) {
+				render := func(hide bool) string {
+					m := newTeaModel(sessions, Options{DisplayOptions: DisplayOptions{
+						HideBottomInfoRow: hide,
+						HidePreview:       layout.hidePreview,
+						LastWorkspaceID:   "w-last",
+						HerdrWorkspaces:   []model.Session{{Source: "herdr", Name: "previous", WorkspaceID: "w-last"}},
+					}})
+					updated, _ := m.Update(tea.WindowSizeMsg{Width: layout.width, Height: height})
+					m = updated.(teaModel)
+					state.set(&m)
+					return ansi.Strip(m.View().Content)
+				}
+				shown, hidden := render(false), render(true)
+
+				require.Equal(t, height, lipgloss.Height(shown))
+				assert.Equal(t, height, lipgloss.Height(hidden))
+				assert.NotContains(t, hidden, "LAST WORKSPACE")
+				assert.NotContains(t, hidden, "last: previous")
+				if state.status == "" {
+					require.Contains(t, shown, "ctrl+x close")
+					assert.NotContains(t, hidden, "ctrl+x close")
+					assert.Greater(t, listed(hidden), listed(shown), "hidden footer rows go to the list")
+					return
+				}
+				require.Contains(t, shown, state.status)
+				assert.Contains(t, hidden, state.status)
+				assert.Equal(t, listed(shown), listed(hidden), "a status keeps the footer rows")
+			})
+		}
+	}
+}

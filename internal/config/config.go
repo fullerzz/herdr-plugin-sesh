@@ -61,6 +61,7 @@ type TUIConfig struct {
 	ReplaceWorktreeIcon   bool   `toml:"replace_worktree_icon"`
 	ShowLastWorkspace     bool   `toml:"show_last_workspace"`
 	ShowLastWorkspacePath bool   `toml:"show_last_workspace_path"`
+	ShowBottomInfoRow     bool   `toml:"-"`
 	Prompt                string `toml:"prompt"`
 	Placeholder           string `toml:"placeholder"`
 	DefaultSort           string `toml:"default_sort"`
@@ -91,6 +92,7 @@ func Default() Config {
 			ReplaceWorktreeIcon:   true,
 			ShowLastWorkspace:     true,
 			ShowLastWorkspacePath: true,
+			ShowBottomInfoRow:     true,
 		},
 	}
 }

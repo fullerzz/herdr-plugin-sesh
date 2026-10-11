@@ -221,7 +221,7 @@ func serializedSettingValue(encoded []byte) (string, error) {
 
 func editableSetting(key string) bool {
 	switch key {
-	case "picker.show_icons", "picker.show_path", "picker.show_preview", "picker.preview_mode", "picker.workspace_sort", "picker.prioritize_home", "picker.herdr_theme_inherit", "picker.replace_worktree_icon", "picker.show_last_workspace", "picker.show_last_workspace_path", "picker.separator_aware", "picker.prompt", "picker.placeholder", "list.cache", "list.source_order", "list.blacklist", "naming.path_components", "keys.cycle_preview_mode", "workspace_defaults.startup", "workspace_defaults.preview":
+	case "picker.show_icons", "picker.show_path", "picker.show_preview", "picker.preview_mode", "picker.workspace_sort", "picker.prioritize_home", "picker.herdr_theme_inherit", "picker.replace_worktree_icon", "picker.show_last_workspace", "picker.show_last_workspace_path", "picker.show_bottom_info_row", "picker.separator_aware", "picker.prompt", "picker.placeholder", "list.cache", "list.source_order", "list.blacklist", "naming.path_components", "keys.cycle_preview_mode", "workspace_defaults.startup", "workspace_defaults.preview":
 		return true
 	default:
 		return false

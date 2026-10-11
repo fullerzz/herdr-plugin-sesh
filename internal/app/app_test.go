@@ -449,6 +449,13 @@ func TestPickerOptionsPropagatePreviewVisibility(t *testing.T) {
 	assert.True(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HidePreview, "show_preview=false was not propagated")
 }
 
+func TestPickerOptionsPropagateBottomInfoRowVisibility(t *testing.T) {
+	cfg := config.Default()
+	require.False(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HideBottomInfoRow, "default config hid native picker bottom info row")
+	cfg.TUI.ShowBottomInfoRow = false
+	assert.True(t, pickerOptionsFromConfig(context.Background(), io.Discard, cfg).HideBottomInfoRow, "show_bottom_info_row=false was not propagated")
+}
+
 func TestPickerOptionsPropagatePreviewMode(t *testing.T) {
 	cfg := config.Default()
 	require.Equal(t, "command", pickerOptionsFromConfig(context.Background(), io.Discard, cfg).PreviewMode)
