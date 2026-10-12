@@ -41,6 +41,20 @@ owned() {
 	[[ -n $start && $(started "$pid") == "$start" ]]
 }
 
+# A reused PID is no longer ours; an uninspectable live PID is not proof of exit.
+exited() {
+	local start pids pid
+	start=$(started "$1")
+	if [[ -n $start ]]; then
+		[[ -n $2 && $start != "$2" ]]
+		return
+	fi
+	# Include this shell so a successful empty-target query proves absence, not a ps error.
+	pids=$(ps -o pid= -p "$1" -p "$$" 2>/dev/null) || return 1
+	for pid in $pids; do [[ $pid != "$1" ]] || return 1; done
+	[[ -n $pids ]]
+}
+
 # Builds with the caller's real env (Go caches live under the real HOME); never writes TARGET/bin,
 # which the user's real Herdr may be running.
 build() {
@@ -54,7 +68,7 @@ up_failed() {
 	((code)) || return 0
 	if [[ -f $run/server.pid ]]; then (down "$run") >&2 || true; else rm -rf "$run"; fi
 	rmdir "$evidence" 2>/dev/null || true
-	echo "hsv: up failed (exit $code); tore down $run" >&2
+	echo "hsv: up failed (exit $code); cleanup attempted for $run" >&2
 	exit "$code"
 }
 
@@ -76,13 +90,16 @@ up() {
 	mkdir -p "$run"/{home,cfg,state,data,cache,plugin/bin} "$evidence"
 	cp "$target/herdr-plugin.toml" "$run/plugin/herdr-plugin.toml"
 	build "$target" "$run"
-	cat >"$run/env.sh" <<EOF
-unset \$(env | sed -n 's/^\(HERDR_[A-Za-z0-9_]*\)=.*/\1/p') TMUX _ZO_DATA_DIR
-export HSV_RUN='$run' HSV_TARGET='$target' HSV_EVIDENCE='$evidence' HSV_TMUX='hsv-$id'
-export HOME='$run/home' XDG_CONFIG_HOME='$run/cfg' XDG_STATE_HOME='$run/state' XDG_DATA_HOME='$run/data' XDG_CACHE_HOME='$run/cache'
-export HERDR_SOCKET_PATH='$run/cfg/herdr/herdr.sock' HERDR_BIN_PATH='$herdr_bin'
-export PATH='$run/plugin/bin':"\$PATH"
+	{
+		cat <<'EOF'
+unset $(env | sed -n 's/^\(HERDR_[A-Za-z0-9_]*\)=.*/\1/p') TMUX _ZO_DATA_DIR
 EOF
+		printf 'export HSV_RUN=%q HSV_TARGET=%q HSV_EVIDENCE=%q HSV_TMUX=%q\n' "$run" "$target" "$evidence" "hsv-$id"
+		printf 'export HOME=%q XDG_CONFIG_HOME=%q XDG_STATE_HOME=%q XDG_DATA_HOME=%q XDG_CACHE_HOME=%q\n' "$run/home" "$run/cfg" "$run/state" "$run/data" "$run/cache"
+		printf 'export HERDR_SOCKET_PATH=%q HERDR_BIN_PATH=%q\n' "$run/cfg/herdr/herdr.sock" "$herdr_bin"
+		# shellcheck disable=SC2016
+		printf 'export PATH=%q:"$PATH"\n' "$run/plugin/bin"
+	} >"$run/env.sh"
 	(
 		# shellcheck disable=SC1091
 		. "$run/env.sh"
@@ -110,7 +127,7 @@ EOF
 	cfgdir=$(herdr plugin config-dir fullerzz.sesh)
 	mkdir -p "$cfgdir"
 	cp "$target/testdata/herdr-sesh.toml" "$cfgdir/config.toml"
-	echo "export HERDR_PLUGIN_CONFIG_DIR='$cfgdir'" >>"$run/env.sh"
+	printf 'export HERDR_PLUGIN_CONFIG_DIR=%q\n' "$cfgdir" >>"$run/env.sh"
 	trap - EXIT
 	echo "$run"
 }
@@ -222,35 +239,54 @@ snap() {
 }
 
 down() {
-	local pid k i mine=0
+	local pid k i start pending
 	local -a kids=() kid_starts=()
 	load "$@"
 	tmux -L "$HSV_TMUX" kill-server 2>/dev/null || true
 	pid=$(cat "$run/server.pid")
 	if owned; then
-		mine=1
 		# Children of the server this run started (history watcher, pane shells), with identities.
 		for k in $(pgrep -P "$pid" || true); do
-			kids+=("$k")
-			kid_starts+=("$(started "$k")")
+			printf '%s\t%s\n' "$k" "$(started "$k")" >>"$run/children"
 		done
 	else
 		echo "hsv: pid $pid is not this run's server (exited or reused); signaling nothing" >&2
 	fi
+	# Persisted identities allow retries after the parent exits and its children are orphaned.
+	if [[ -f $run/children ]]; then
+		while IFS=$'\t' read -r k start; do
+			kids+=("$k")
+			kid_starts+=("$start")
+		done <"$run/children"
+	fi
 	# Addressed by this run's socket path, so it cannot reach another Herdr.
 	herdr server stop >/dev/null 2>&1 || true
-	if ((mine)); then
+	if owned; then
 		for i in $(seq 20); do
 			owned || break
 			sleep 0.25
 		done
 		if owned; then kill "$pid" 2>/dev/null || true; fi
-		for i in "${!kids[@]}"; do
-			if [[ -n ${kid_starts[i]} && $(started "${kids[i]}") == "${kid_starts[i]}" ]]; then
-				kill "${kids[i]}" 2>/dev/null || true
-			fi
-		done
 	fi
+	for i in "${!kids[@]}"; do
+		if [[ -n ${kid_starts[i]} && $(started "${kids[i]}") == "${kid_starts[i]}" ]]; then
+			kill "${kids[i]}" 2>/dev/null || true
+		fi
+	done
+	start=$(cat "$run/server.start" 2>/dev/null || true)
+	kids+=("$pid")
+	kid_starts+=("$start")
+	for k in $(seq 20); do
+		pending=0
+		for i in "${!kids[@]}"; do
+			exited "${kids[i]}" "${kid_starts[i]}" || pending=1
+		done
+		((pending)) || break
+		sleep 0.25
+	done
+	for i in "${!kids[@]}"; do
+		exited "${kids[i]}" "${kid_starts[i]}" || die "pid ${kids[i]} has not confirmed exit; kept $run for cleanup retry"
+	done
 	rm -rf "$run"
 	echo "removed $run; evidence kept in $HSV_EVIDENCE"
 }
