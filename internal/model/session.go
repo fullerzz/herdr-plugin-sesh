@@ -16,10 +16,18 @@ type WorktreeRelation struct {
 
 const SourceRemote = "remote"
 
+// RemoteRef identifies a workspace in another machine's Herdr session. Remote
+// rows keep WorkspaceID and Path empty so local actions never see foreign values.
+type RemoteRef struct {
+	Machine     string `json:"machine"`
+	Session     string `json:"session"`
+	WorkspaceID string `json:"workspace_id"`
+	CWD         string `json:"cwd,omitempty"`
+	Offline     bool   `json:"offline,omitempty"`
+}
+
 type Session struct {
-	RemoteMachine         string           `json:"remote_machine,omitempty"`
-	RemoteSession         string           `json:"remote_session,omitempty"`
-	RemoteOffline         bool             `json:"remote_offline,omitempty"`
+	Remote                *RemoteRef       `json:"remote,omitempty"`
 	Source                string           `json:"source"`
 	Name                  string           `json:"name"`
 	Path                  string           `json:"path,omitempty"`
@@ -92,8 +100,8 @@ func IsRemoteTarget(target string) bool { return strings.HasPrefix(target, Sourc
 
 func Key(s Session) string {
 	base := fmt.Sprintf("%s\x00%s\x00%s\x00%s", s.Source, s.Name, s.Path, s.WorkspaceID)
-	if s.Source == SourceRemote {
-		base = fmt.Sprintf("%s\x00%s\x00%s", s.RemoteMachine, s.RemoteSession, s.WorkspaceID)
+	if s.Remote != nil {
+		base = fmt.Sprintf("%s\x00%s\x00%s", s.Remote.Machine, s.Remote.Session, s.Remote.WorkspaceID)
 	}
 	sum := sha256.Sum256([]byte(base))
 	return s.Source + ":" + hex.EncodeToString(sum[:8])
@@ -122,12 +130,12 @@ func (ss *Sessions) Ordered() []Session {
 }
 
 func (s Session) DisplayName() string {
-	if s.Source != SourceRemote {
+	if s.Remote == nil {
 		return s.Name
 	}
 	status := ""
-	if s.RemoteOffline {
+	if s.Remote.Offline {
 		status = " (offline)"
 	}
-	return s.Name + " @ " + s.RemoteMachine + status
+	return s.Name + " @ " + s.Remote.Machine + status
 }

@@ -11,7 +11,7 @@ import (
 
 func TestRemotePreviewOnlyMetadata(t *testing.T) {
 	t.Setenv("HERDR_BIN_PATH", "/does-not-exist")
-	s := model.Session{Source: model.SourceRemote, Name: "remote", Path: "/does-not-exist", WorkspaceID: "w1", RemoteMachine: "peer", RemoteSession: "main", RemoteOffline: true, PreviewCommand: "exit 42"}
+	s := model.Session{Source: model.SourceRemote, Name: "remote", PreviewCommand: "exit 42", Remote: &model.RemoteRef{Machine: "peer", Session: "main", WorkspaceID: "w1", CWD: "/does-not-exist", Offline: true}}
 	for _, render := range []func() (string, error){func() (string, error) { return Render(context.Background(), s, "exit 43") }, func() (string, error) { return RenderPane(context.Background(), s) }} {
 		text, err := render()
 		require.NoError(t, err)

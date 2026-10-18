@@ -44,7 +44,7 @@ func (b *pickerBackend) initialize(ctx context.Context) ([]model.Session, picker
 	if err != nil {
 		return nil, pickerpkg.DisplayOptions{}, fmt.Errorf("resolve workspace history: %w", err)
 	}
-	col, err := b.app.collectPickerWithClient(ctx, b.cfg, nil, b.client)
+	col, err := b.app.collectPickerWithClient(ctx, b.cfg, nil, b.client, b.warnf)
 	if col.HerdrErr != nil {
 		b.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
 	}
@@ -101,7 +101,7 @@ func (b *pickerBackend) CloseWorkspace(ctx context.Context, id string) error {
 }
 
 func (b *pickerBackend) ReloadPicker(ctx context.Context) (pickerpkg.ReloadResult, error) {
-	col, err := b.app.collectPickerWithClient(ctx, b.cfg, nil, b.client)
+	col, err := b.app.collectPickerWithClient(ctx, b.cfg, nil, b.client, b.warnf)
 	if err == nil {
 		err = col.HerdrErr
 	}
@@ -170,7 +170,7 @@ func (b *pickerBackend) ReloadSettings(ctx context.Context, saved settings.Resul
 	if err != nil {
 		return pickerpkg.DisplayOptions{}, pickerpkg.ReloadResult{}, err
 	}
-	col, err := b.app.collectPickerWithClient(ctx, cfg, b.herdrWorkspaces, b.client)
+	col, err := b.app.collectPickerWithClient(ctx, cfg, b.herdrWorkspaces, b.client, b.warnf)
 	result, workspaceID, err := b.reloadMetadata(ctx, cfg, col, err)
 	if err != nil {
 		return pickerpkg.DisplayOptions{}, result, err

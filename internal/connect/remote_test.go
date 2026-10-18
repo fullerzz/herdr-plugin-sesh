@@ -11,7 +11,7 @@ import (
 )
 
 func TestRemoteResolutionCannotShadowLocal(t *testing.T) {
-	remote := model.Session{Source: model.SourceRemote, Name: "same", Path: "/same", WorkspaceID: "w1", RemoteMachine: "peer", RemoteSession: "main"}
+	remote := model.Session{Source: model.SourceRemote, Name: "same", Remote: &model.RemoteRef{Machine: "peer", Session: "main", WorkspaceID: "w1", CWD: "/same"}}
 	local := model.Session{Source: "herdr", Name: "same", Path: "/same", WorkspaceID: "w1"}
 	for _, target := range []string{"same", "/same", "w1"} {
 		got, ok := Resolve([]model.Session{remote, local}, target)

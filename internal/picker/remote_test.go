@@ -10,7 +10,7 @@ import (
 )
 
 func TestRemoteRowsKeepIdentityAndStatus(t *testing.T) {
-	remote := model.Session{Source: model.SourceRemote, Name: "same", WorkspaceID: "w1", RemoteMachine: "peer", RemoteOffline: true, AgentStatus: "working"}
+	remote := model.Session{Source: model.SourceRemote, Name: "same", AgentStatus: "working", Remote: &model.RemoteRef{Machine: "peer", WorkspaceID: "w1", Offline: true}}
 	m := New([]model.Session{{Source: "herdr", Name: "same", WorkspaceID: "w1"}, remote})
 	m.UpdateAgentStatuses(map[string]string{"w1": "idle"})
 	assert.Equal(t, "working", m.All[1].AgentStatus)
