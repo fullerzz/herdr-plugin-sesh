@@ -122,6 +122,13 @@ func (c *StreamClient) stream(ctx context.Context) (*stream, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+		c.mu.Lock()
+		err := c.dialErr
+		c.mu.Unlock()
+		if err != nil {
+			// Report the dial this caller waited for, not the backoff it caused.
+			return nil, err
+		}
 	}
 }
 
@@ -171,7 +178,7 @@ func (c *StreamClient) handshake(ctx context.Context) (*stream, error) {
 	return s, nil
 }
 
-// stream multiplexes newline-delimited requests by id over one transport.
+// stream multiplexes JSON-RPC 2.0 requests by id over one transport.
 type stream struct {
 	rwc  io.ReadWriteCloser
 	wmu  sync.Mutex
@@ -180,12 +187,13 @@ type stream struct {
 	mu      sync.Mutex
 	next    uint64
 	pending map[uint64]chan Response
-	subs    map[uint64]chan Target
-	err     error
+	// sub receives switch notifications; a stream holds at most one controller.
+	sub chan Target
+	err error
 }
 
 func newStream(rwc io.ReadWriteCloser) *stream {
-	s := &stream{rwc: rwc, done: make(chan struct{}), pending: map[uint64]chan Response{}, subs: map[uint64]chan Target{}}
+	s := &stream{rwc: rwc, done: make(chan struct{}), pending: map[uint64]chan Response{}}
 	go s.readLoop()
 	return s
 }
@@ -208,9 +216,9 @@ func (s *stream) fail(err error) {
 	s.err = err
 	close(s.done)
 	_ = s.rwc.Close()
-	for id, ch := range s.subs {
-		close(ch)
-		delete(s.subs, id)
+	if s.sub != nil {
+		close(s.sub)
+		s.sub = nil
 	}
 }
 
@@ -231,33 +239,59 @@ func (s *stream) readLoop() {
 			s.fail(fmt.Errorf("read daemon stream: %w", err))
 			return
 		}
-		var resp Response
-		if err := json.Unmarshal(line, &resp); err != nil {
-			s.fail(fmt.Errorf("decode daemon stream: %w", err))
+		if err := s.dispatch(line); err != nil {
+			s.fail(err)
 			return
 		}
-		if resp.ID == 0 {
-			// Daemons without stream support answer once without an id.
-			s.fail(fmt.Errorf("daemon does not support streams: %s", resp.Error))
-			return
-		}
-		s.route(resp)
 	}
 }
 
-func (s *stream) route(resp Response) {
+// dispatch routes one daemon message to its caller or to the subscription.
+func (s *stream) dispatch(line []byte) error {
+	var m rpcMessage
+	if err := json.Unmarshal(line, &m); err != nil || m.JSONRPC != jsonrpcVersion {
+		// Daemons that predate streams answer once in the plain encoding.
+		var legacy Response
+		if json.Unmarshal(line, &legacy) == nil && legacy.Error != "" {
+			return fmt.Errorf("daemon does not speak JSON-RPC 2.0: %s", legacy.Error)
+		}
+		return errors.New("daemon does not speak JSON-RPC 2.0")
+	}
+	if m.ID == nil {
+		if m.Method == switchNotification {
+			var t Target
+			if err := json.Unmarshal(m.Params, &t); err != nil {
+				return fmt.Errorf("decode switch notification: %w", err)
+			}
+			s.push(t)
+		}
+		return nil
+	}
+	var id uint64
+	if err := json.Unmarshal(m.ID, &id); err != nil {
+		if m.Error != nil {
+			return fmt.Errorf("daemon rejected stream: %s", m.Error.Message)
+		}
+		return errors.New("daemon replied with an unknown id")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if ch, ok := s.pending[resp.ID]; ok {
-		delete(s.pending, resp.ID)
-		ch <- resp
+	if ch, ok := s.pending[id]; ok {
+		delete(s.pending, id)
+		ch <- rpcResponseOf(m)
+	}
+	return nil
+}
+
+func (s *stream) push(t Target) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sub == nil {
 		return
 	}
-	if ch, ok := s.subs[resp.ID]; ok && resp.Switch != nil {
-		select {
-		case ch <- *resp.Switch:
-		default:
-		}
+	select {
+	case s.sub <- t:
+	default:
 	}
 }
 
@@ -269,24 +303,28 @@ func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response
 		s.mu.Unlock()
 		return Response{}, err
 	}
-	s.next++
-	r.ID = s.next
-	s.pending[r.ID] = ch
 	if sub != nil {
-		// Register before sending: a push may follow the response immediately.
-		s.subs[r.ID] = sub
+		if s.sub != nil {
+			s.mu.Unlock()
+			return Response{}, errors.New("stream is already subscribed")
+		}
+		// Register before sending: a notification may follow the reply immediately.
+		s.sub = sub
 	}
+	s.next++
+	id := s.next
+	s.pending[id] = ch
 	s.mu.Unlock()
 	forget := func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		delete(s.pending, r.ID)
-		if _, ok := s.subs[r.ID]; ok && sub != nil {
-			delete(s.subs, r.ID)
+		delete(s.pending, id)
+		if sub != nil && s.sub == sub {
 			close(sub)
+			s.sub = nil
 		}
 	}
-	b, err := json.Marshal(r)
+	b, err := json.Marshal(newRPCRequest(id, r))
 	if err != nil {
 		forget()
 		return Response{}, err
@@ -295,7 +333,12 @@ func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response
 	_, err = s.rwc.Write(append(b, '\n'))
 	s.wmu.Unlock()
 	if err != nil {
-		s.fail(fmt.Errorf("write daemon stream: %w", err))
+		// The reader usually knows why the daemon went away; give it a moment.
+		select {
+		case <-s.done:
+		case <-time.After(time.Second):
+			s.fail(fmt.Errorf("write daemon stream: %w", err))
+		}
 		forget()
 		return Response{}, s.failure()
 	}
@@ -321,11 +364,10 @@ func (s *stream) call(ctx context.Context, r Request) (Response, error) {
 
 func (s *stream) subscribe(ctx context.Context) (*Subscription, error) {
 	ch := make(chan Target, 4)
-	r, err := s.send(ctx, Request{Op: "subscribe"}, ch)
-	if err != nil {
+	if _, err := s.send(ctx, Request{Op: "subscribe"}, ch); err != nil {
 		return nil, err
 	}
-	return &Subscription{stream: s, id: r.ID, targets: ch}, nil
+	return &Subscription{stream: s, targets: ch}, nil
 }
 
 func (s *stream) keepAlive(base context.Context, interval time.Duration) {
@@ -353,7 +395,6 @@ func (s *stream) keepAlive(base context.Context, interval time.Duration) {
 // Subscription receives switch targets pushed to this machine's controller.
 type Subscription struct {
 	stream  *stream
-	id      uint64
 	targets chan Target
 }
 
@@ -365,10 +406,10 @@ func (s *Subscription) Err() error { return s.stream.failure() }
 // Close releases the controller while keeping the shared stream open.
 func (s *Subscription) Close() {
 	s.stream.mu.Lock()
-	_, ok := s.stream.subs[s.id]
+	ok := s.stream.sub == s.targets
 	if ok {
-		delete(s.stream.subs, s.id)
 		close(s.targets)
+		s.stream.sub = nil
 	}
 	s.stream.mu.Unlock()
 	if !ok {

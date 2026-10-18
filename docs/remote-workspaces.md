@@ -78,8 +78,9 @@ keys never go in `remote.toml`.
 
 Each daemon, and each attach wrapper, keeps one long-lived `ssh` process per peer
 that runs the fixed command `herdr-sesh daemon rpc --stream`. Requests to that
-peer share the stream, and the peer daemon pushes switch requests over it, so a
-peer costs one SSH handshake instead of one per request. If the stream drops,
+peer share the stream as newline-delimited JSON-RPC 2.0 messages, and the peer
+daemon pushes switch requests over it as `switch` notifications, so a peer costs
+one SSH handshake instead of one per request. Batch requests are not supported. If the stream drops,
 the next request reconnects, backing off up to 30 seconds while the peer stays
 unreachable. These connections use your `ssh` binary and SSH config, keep
 host-key checks, set `BatchMode=yes`, and disable agent forwarding.
