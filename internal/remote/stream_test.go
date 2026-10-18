@@ -20,18 +20,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fakeRequest is one JSON-RPC call received by fakeDaemon.
+type fakeRequest struct {
+	ID     json.RawMessage
+	Method string
+	Params rpcParams
+}
+
 // fakeDaemon answers hello on conn, then hands every later request to handle.
-func fakeDaemon(conn net.Conn, handle func(Request, *json.Encoder)) {
+func fakeDaemon(conn net.Conn, handle func(fakeRequest, *json.Encoder)) {
 	defer func() { _ = conn.Close() }()
 	dec := json.NewDecoder(conn)
 	enc := json.NewEncoder(conn)
 	for {
-		var r Request
-		if dec.Decode(&r) != nil {
+		var m rpcMessage
+		if dec.Decode(&m) != nil {
 			return
 		}
-		if r.Op == "hello" {
-			_ = enc.Encode(Response{ID: r.ID, Version: ProtocolVersion})
+		r := fakeRequest{ID: m.ID, Method: m.Method}
+		if m.Params != nil && json.Unmarshal(m.Params, &r.Params) != nil {
+			return
+		}
+		if r.Method == "hello" {
+			_ = enc.Encode(rpcReply(r.ID, r.Method, Response{Version: ProtocolVersion}))
 			continue
 		}
 		handle(r, enc)
@@ -41,10 +52,10 @@ func fakeDaemon(conn net.Conn, handle func(Request, *json.Encoder)) {
 func TestStreamMultiplexesOutOfOrderResponses(t *testing.T) {
 	const calls = 3
 	var mu sync.Mutex
-	var held []Request
+	var held []fakeRequest
 	c := NewStreamClient("fake", func(context.Context) (io.ReadWriteCloser, error) {
 		client, server := net.Pipe()
-		go fakeDaemon(server, func(r Request, enc *json.Encoder) {
+		go fakeDaemon(server, func(r fakeRequest, enc *json.Encoder) {
 			mu.Lock()
 			defer mu.Unlock()
 			held = append(held, r)
@@ -53,7 +64,7 @@ func TestStreamMultiplexesOutOfOrderResponses(t *testing.T) {
 			}
 			// Answer in reverse so ids, not arrival order, must route responses.
 			for i := len(held) - 1; i >= 0; i-- {
-				_ = enc.Encode(Response{ID: held[i].ID, Catalog: []Machine{{ID: held[i].WorkspaceID}}})
+				_ = enc.Encode(rpcReply(held[i].ID, held[i].Method, Response{Catalog: []Machine{{ID: held[i].Params.WorkspaceID}}}))
 			}
 		})
 		return client, nil
@@ -95,7 +106,7 @@ func TestStreamClientReconnectsWithBackoff(t *testing.T) {
 		mu.Lock()
 		live = server
 		mu.Unlock()
-		go fakeDaemon(server, func(r Request, enc *json.Encoder) { _ = enc.Encode(Response{ID: r.ID}) })
+		go fakeDaemon(server, func(r fakeRequest, enc *json.Encoder) { _ = enc.Encode(rpcReply(r.ID, r.Method, Response{})) })
 		return client, nil
 	})
 	c.PingInterval = 0
@@ -133,9 +144,9 @@ func TestStreamHandshakeRejectsOtherProtocolVersions(t *testing.T) {
 		client, server := net.Pipe()
 		go func() {
 			defer func() { _ = server.Close() }()
-			var r Request
-			if json.NewDecoder(server).Decode(&r) == nil {
-				_ = json.NewEncoder(server).Encode(Response{ID: r.ID, Version: ProtocolVersion + 1})
+			var m rpcMessage
+			if json.NewDecoder(server).Decode(&m) == nil {
+				_ = json.NewEncoder(server).Encode(rpcReply(m.ID, m.Method, Response{Version: ProtocolVersion + 1}))
 			}
 		}()
 		return client, nil
@@ -143,6 +154,20 @@ func TestStreamHandshakeRejectsOtherProtocolVersions(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 	_, err := c.Call(context.Background(), Request{Op: "list"})
 	require.ErrorContains(t, err, "handshake failed")
+	legacy := NewStreamClient("legacy", func(context.Context) (io.ReadWriteCloser, error) {
+		client, server := net.Pipe()
+		go func() {
+			defer func() { _ = server.Close() }()
+			var m rpcMessage
+			if json.NewDecoder(server).Decode(&m) == nil {
+				_ = json.NewEncoder(server).Encode(Response{Error: "unknown operation"})
+			}
+		}()
+		return client, nil
+	})
+	t.Cleanup(func() { _ = legacy.Close() })
+	_, err = legacy.Call(context.Background(), Request{Op: "list"})
+	require.ErrorContains(t, err, "does not speak JSON-RPC 2.0: unknown operation")
 	s := NewServer(Config{Enabled: true, ID: "local"}, &fakeClient{})
 	assert.Contains(t, s.Handle(context.Background(), Request{Op: "hello", Version: 1}).Error, "protocol version mismatch")
 	assert.Equal(t, ProtocolVersion, s.Handle(context.Background(), Request{Op: "hello", Version: ProtocolVersion}).Version)
@@ -249,24 +274,22 @@ func TestRelayStreamsAndReleasesOnStdinClose(t *testing.T) {
 	responses := bufio.NewScanner(outR)
 	send := func(r Request) Response {
 		t.Helper()
-		b, err := json.Marshal(r)
+		b, err := json.Marshal(newRPCRequest(1, r))
 		require.NoError(t, err)
 		_, err = inW.Write(append(b, '\n'))
 		require.NoError(t, err)
 		require.True(t, responses.Scan())
-		var resp Response
-		require.NoError(t, json.Unmarshal(responses.Bytes(), &resp))
-		return resp
+		var m rpcMessage
+		require.NoError(t, json.Unmarshal(responses.Bytes(), &m))
+		assert.JSONEq(t, "1", string(m.ID))
+		return rpcResponseOf(m)
 	}
-	assert.Equal(t, ProtocolVersion, send(Request{ID: 1, Op: "hello", Version: ProtocolVersion}).Version)
-	assert.Empty(t, send(Request{ID: 2, Op: "subscribe"}).Error)
+	assert.Equal(t, ProtocolVersion, send(Request{Op: "hello", Version: ProtocolVersion}).Version)
+	assert.Empty(t, send(Request{Op: "subscribe"}).Error)
 	_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
 	require.NoError(t, err)
 	require.True(t, responses.Scan())
-	var push Response
-	require.NoError(t, json.Unmarshal(responses.Bytes(), &push))
-	assert.Equal(t, uint64(2), push.ID)
-	require.NotNil(t, push.Switch)
+	assert.JSONEq(t, `{"jsonrpc":"2.0","method":"switch","params":{"machine_id":"local","workspace_id":"ws1"}}`, responses.Text())
 
 	require.NoError(t, inW.Close())
 	go func() { _, _ = io.Copy(io.Discard, outR) }()
@@ -280,4 +303,31 @@ func TestRelayRejectsOversizedRequests(t *testing.T) {
 	c := startDaemon(t, 0)
 	err := Relay(context.Background(), c, strings.NewReader(strings.Repeat("x", maxRequest+1)), io.Discard)
 	require.ErrorContains(t, err, "exceeds")
+}
+
+func TestDaemonStreamFollowsJSONRPC(t *testing.T) {
+	c := startDaemon(t, 0)
+	conn, err := net.Dial("unix", c.Socket)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+	replies := bufio.NewScanner(conn)
+	exchange := func(line string) string {
+		t.Helper()
+		_, err := io.WriteString(conn, line+"\n")
+		require.NoError(t, err)
+		require.True(t, replies.Scan())
+		return replies.Text()
+	}
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"a","result":{"version":2}}`, exchange(`{"jsonrpc":"2.0","id":"a","method":"hello","params":{"version":2}}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`, exchange(`{"jsonrpc":`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"batch requests are not supported"}}`, exchange(`[]`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":3,"error":{"code":-32600,"message":"invalid request"}}`, exchange(`{"jsonrpc":"1.0","id":3,"method":"ping"}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"method not found"}}`, exchange(`{"jsonrpc":"2.0","id":4,"method":"poll"}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"invalid params"}}`, exchange(`{"jsonrpc":"2.0","id":5,"method":"focus","params":["ws1"]}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":6,"error":{"code":-32001,"message":"protocol version mismatch: client speaks v1, daemon speaks v2; install the same herdr-sesh version on both machines"}}`, exchange(`{"jsonrpc":"2.0","id":6,"method":"hello","params":{"version":1}}`))
+	// A notification gets no reply, so the next line answers the request after it.
+	_, err = io.WriteString(conn, `{"jsonrpc":"2.0","method":"ping"}`+"\n")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":7,"result":{}}`, exchange(`{"jsonrpc":"2.0","id":7,"method":"ping"}`))
 }

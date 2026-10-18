@@ -23,14 +23,12 @@ const maxMessage = 4 << 20
 const maxRequest = 16 << 10
 
 type Request struct {
-	ID          uint64 `json:"id,omitempty"`
 	Op          string `json:"op"`
 	Version     int    `json:"version,omitempty"`
 	MachineID   string `json:"machine_id,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 type Response struct {
-	ID      uint64    `json:"id,omitempty"`
 	Version int       `json:"version,omitempty"`
 	Catalog []Machine `json:"catalog,omitempty"`
 	Switch  *Target   `json:"switch,omitempty"`
@@ -232,33 +230,55 @@ func (s *Server) release(c *controller) {
 	}
 }
 
-// serveConn handles newline-delimited requests until the client closes the
-// connection. One-shot clients send a single request; streams multiplex by id.
+// connState is one client connection: JSON-RPC streams or legacy one-shot requests.
+type connState struct {
+	s       *Server
+	conn    net.Conn
+	wmu     sync.Mutex
+	enc     *json.Encoder
+	workers sync.WaitGroup
+	sem     chan struct{}
+	sub     *controller
+}
+
+func (c *connState) write(v any) {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if c.enc.Encode(v) != nil {
+		_ = c.conn.Close()
+	}
+}
+
+// spawn runs a request concurrently so slow Herdr calls do not block the stream.
+func (c *connState) spawn(ctx context.Context, r Request, reply func(Response)) {
+	c.sem <- struct{}{}
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		defer func() { <-c.sem }()
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		reply(c.s.Handle(ctx, r))
+	}()
+}
+
+// serveConn handles newline-delimited messages until the client closes the
+// connection. Streams speak JSON-RPC 2.0; legacy clients send one plain request.
 func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
-	var workers sync.WaitGroup
-	var sub *controller
+	c := &connState{s: s, conn: conn, enc: json.NewEncoder(conn), sem: make(chan struct{}, 8)}
 	defer func() {
-		if sub != nil {
-			s.release(sub)
+		if c.sub != nil {
+			s.release(c.sub)
 		}
-		workers.Wait()
+		c.workers.Wait()
 		_ = conn.Close()
 	}()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	var wmu sync.Mutex
-	enc := json.NewEncoder(conn)
-	write := func(r Response) {
-		wmu.Lock()
-		defer wmu.Unlock()
-		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if enc.Encode(r) != nil {
-			_ = conn.Close()
-		}
-	}
 	reader := bufio.NewReader(conn)
-	sem := make(chan struct{}, 8)
 	deadline := 5 * time.Second
+	rpc := false
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(deadline))
 		line, err := readLine(reader, maxRequest)
@@ -266,68 +286,66 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 		deadline = s.IdleTimeout
+		if rpc = rpc || isRPC(line); rpc {
+			c.serveRPC(ctx, line)
+			continue
+		}
 		var r Request
 		if err := json.Unmarshal(line, &r); err != nil {
-			write(Response{Error: "invalid request"})
+			c.write(Response{Error: "invalid request"})
 			return
 		}
-		switch r.Op {
-		case "subscribe":
-			if c := s.subscribeStream(r, sub, write); c != nil {
-				sub = c
-				workers.Add(1)
-				go func(id uint64) {
-					defer workers.Done()
-					for {
-						select {
-						case t := <-c.targets:
-							write(Response{ID: id, Switch: &t})
-						case <-c.done:
-							return
-						}
-					}
-				}(r.ID)
-			}
-			continue
-		case "unsubscribe":
-			if sub != nil {
-				s.release(sub)
-				sub = nil
-			}
-			write(Response{ID: r.ID})
-			continue
-		}
-		sem <- struct{}{}
-		workers.Add(1)
-		go func(r Request) {
-			defer workers.Done()
-			defer func() { <-sem }()
-			c, cancel := context.WithTimeout(ctx, 3*time.Second)
-			defer cancel()
-			resp := s.Handle(c, r)
-			resp.ID = r.ID
-			write(resp)
-		}(r)
+		c.spawn(ctx, r, func(resp Response) { c.write(resp) })
 	}
 }
 
-// subscribeStream answers a subscribe request before any switch is pushed.
-func (s *Server) subscribeStream(r Request, current *controller, write func(Response)) *controller {
-	resp := Response{ID: r.ID}
-	var c *controller
-	var err error
+func (c *connState) serveRPC(ctx context.Context, line []byte) {
+	r, id, failure := decodeRPC(line)
 	switch {
-	case r.ID == 0:
-		resp.Error = "subscribe requires a daemon stream"
-	case current != nil:
-		resp.Error = "stream is already subscribed"
-	default:
-		if c, err = s.subscribe(); err != nil {
-			resp.Error = err.Error()
+	case failure != nil:
+		c.write(rpcFailure(id, failure.Code, failure.Message))
+	case id == nil:
+		// JSON-RPC notifications never receive a reply.
+	case !rpcMethods[r.Op]:
+		c.write(rpcFailure(id, codeMethodNotFound, "method not found"))
+	case r.Op == "subscribe":
+		c.subscribe(id)
+	case r.Op == "unsubscribe":
+		if c.sub != nil {
+			c.s.release(c.sub)
+			c.sub = nil
 		}
+		c.write(rpcReply(id, r.Op, Response{}))
+	default:
+		c.spawn(ctx, r, func(resp Response) { c.write(rpcReply(id, r.Op, resp)) })
 	}
-	write(resp)
-	return c
+}
+
+// subscribe answers before any switch is pushed on this stream.
+func (c *connState) subscribe(id json.RawMessage) {
+	if c.sub != nil {
+		c.write(rpcFailure(id, codeDaemonError, "stream is already subscribed"))
+		return
+	}
+	sub, err := c.s.subscribe()
+	if err != nil {
+		c.write(rpcFailure(id, codeDaemonError, err.Error()))
+		return
+	}
+	c.write(rpcReply(id, "subscribe", Response{}))
+	c.sub = sub
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		for {
+			select {
+			case t := <-sub.targets:
+				c.write(rpcNotification{JSONRPC: jsonrpcVersion, Method: switchNotification, Params: t})
+			case <-sub.done:
+				return
+			}
+		}
+	}()
 }
 
 func (s *Server) Serve(ctx context.Context) error {
