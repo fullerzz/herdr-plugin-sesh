@@ -320,7 +320,7 @@ func TestConnectWorkspaceStartupChangingDirectoryKeepsConfiguredTabFocus(t *test
 }
 
 func TestRemoteTargetCannotResolveLocalCollision(t *testing.T) {
-	remoteSession := model.Session{Source: model.SourceRemote, RemoteMachine: "peer", WorkspaceID: "w1"}
+	remoteSession := model.Session{Source: model.SourceRemote, Remote: &model.RemoteRef{Machine: "peer", WorkspaceID: "w1"}}
 	target := model.Key(remoteSession)
 	for _, local := range []model.Session{{Name: target}, {Path: target}, {WorkspaceID: target}} {
 		got, ok := Resolve([]model.Session{local, remoteSession}, target)

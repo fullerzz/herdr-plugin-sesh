@@ -19,7 +19,7 @@ import (
 )
 
 func RenderPane(ctx context.Context, s model.Session) (string, error) {
-	if s.Source == model.SourceRemote {
+	if s.Remote != nil {
 		return RemoteMetadata(s), nil
 	}
 	if s.Source != "herdr" || s.WorkspaceID == "" {
@@ -31,7 +31,7 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 }
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
-	if s.Source == model.SourceRemote {
+	if s.Remote != nil {
 		return RemoteMetadata(s), nil
 	}
 	if s.Path == "" {
@@ -116,8 +116,8 @@ func directoryFallback(path string) (string, error) {
 
 func RemoteMetadata(s model.Session) string {
 	status := "online"
-	if s.RemoteOffline {
+	if s.Remote.Offline {
 		status = "offline (cached)"
 	}
-	return fmt.Sprintf("workspace: %s\nmachine: %s\nsession: %s\nid: %s\nstatus: %s\n", s.Name, s.RemoteMachine, s.RemoteSession, s.WorkspaceID, status)
+	return fmt.Sprintf("workspace: %s\nmachine: %s\nsession: %s\nid: %s\nstatus: %s\n", s.Name, s.Remote.Machine, s.Remote.Session, s.Remote.WorkspaceID, status)
 }

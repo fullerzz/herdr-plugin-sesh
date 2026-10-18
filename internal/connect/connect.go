@@ -40,7 +40,7 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	if !ok {
 		return Result{}, errors.New("no matching session")
 	}
-	if match.Source == model.SourceRemote {
+	if match.Remote != nil {
 		return Result{}, errors.New("remote sessions require the attach wrapper")
 	}
 	if match.WorkspaceID != "" {
@@ -68,12 +68,12 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 func Resolve(candidates []model.Session, target string) (model.Session, bool) {
 	for _, s := range candidates {
 		if model.IsRemoteTarget(target) {
-			if s.Source == model.SourceRemote && model.Key(s) == target {
+			if s.Remote != nil && model.Key(s) == target {
 				return s, true
 			}
 			continue
 		}
-		if model.Key(s) == target || s.Source != model.SourceRemote && (s.WorkspaceID == target || s.Name == target || s.Path == target) {
+		if model.Key(s) == target || s.Remote == nil && (s.WorkspaceID == target || s.Name == target || s.Path == target) {
 			return s, true
 		}
 	}

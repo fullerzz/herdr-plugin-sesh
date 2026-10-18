@@ -46,19 +46,13 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 	for _, name := range ordered {
 		ss := by[name]
 		for _, sess := range ss.Ordered() {
-			isbl := isBlacklisted(bl, sess.Name)
-			if len(bl) > 0 || onlyBlacklisted {
-				if isbl != onlyBlacklisted {
-					continue
-				}
+			if !keep(bl, sess.Name, onlyBlacklisted) {
+				continue
 			}
 			if dedupe {
 				key := sess.Name
 				if key == "" {
 					key = sess.Path
-				}
-				if sess.Source == model.SourceRemote {
-					key = model.Key(sess)
 				}
 				if seenName[key] {
 					continue
@@ -69,6 +63,25 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 		}
 	}
 	return out, nil
+}
+
+// FilterBlacklist applies Merge's blacklist rule to sessions collected outside it.
+func FilterBlacklist(sessions []model.Session, blacklist []string, onlyBlacklisted bool) []model.Session {
+	bl := compile(blacklist)
+	out := make([]model.Session, 0, len(sessions))
+	for _, sess := range sessions {
+		if keep(bl, sess.Name, onlyBlacklisted) {
+			out = append(out, sess)
+		}
+	}
+	return out
+}
+
+func keep(bl []*regexp.Regexp, name string, onlyBlacklisted bool) bool {
+	if len(bl) == 0 && !onlyBlacklisted {
+		return true
+	}
+	return isBlacklisted(bl, name) == onlyBlacklisted
 }
 func compile(items []string) []*regexp.Regexp {
 	out := []*regexp.Regexp{}

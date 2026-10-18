@@ -8,8 +8,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
@@ -17,23 +19,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRemoteCatalogDisabledAndUnavailable(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "remote.toml")
-	t.Setenv("HERDR_SESH_REMOTE_CONFIG", configPath)
-	require.NoError(t, os.WriteFile(configPath, []byte("enabled = false\n"), 0600))
-	var warnings bytes.Buffer
-	a := &App{Err: &warnings}
-	assert.Empty(t, a.remoteSessions(context.Background()))
-	assert.Empty(t, warnings.String())
-	socket := filepath.Join(dir, "missing.sock")
-	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, "enabled=true\nid='local'\nsocket=%q\n", socket), 0600))
-	assert.Empty(t, a.remoteSessions(context.Background()))
-	assert.Contains(t, warnings.String(), "remote catalog unavailable")
+// TestMain keeps tests from reading the developer's real remote.toml.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "herdr-sesh-remote-")
+	if err == nil {
+		path := filepath.Join(dir, "remote.toml")
+		if err = os.WriteFile(path, []byte("enabled = false\n"), 0600); err == nil {
+			err = os.Setenv("HERDR_SESH_REMOTE_CONFIG", path)
+		}
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
-func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
-	// A short socket path also works on macOS's limited Unix socket addresses.
+// fakeDaemon serves catalog to `accepts` connections on a short socket path,
+// which macOS needs for Unix socket addresses, and enables remote.toml for it.
+func fakeDaemon(t *testing.T, accepts int, catalog []remote.Machine) (<-chan remote.Request, <-chan error) {
+	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "sesh-ipc-")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
@@ -44,10 +51,10 @@ func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
 	configPath := filepath.Join(dir, "remote.toml")
 	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, "enabled=true\nid='local'\nsocket=%q\n", socket), 0600))
 	t.Setenv("HERDR_SESH_REMOTE_CONFIG", configPath)
-	requests := make(chan remote.Request, 2)
+	requests := make(chan remote.Request, accepts)
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 2; i++ {
+		for range accepts {
 			conn, e := listener.Accept()
 			if e != nil {
 				done <- e
@@ -57,7 +64,7 @@ func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
 			e = json.NewDecoder(conn).Decode(&request)
 			if e == nil {
 				requests <- request
-				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: []remote.Machine{{ID: "peer", Session: "main", Stale: true, Workspaces: []herdr.Workspace{{ID: "w1", Label: "same", CWD: "/remote"}}}}})
+				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: catalog})
 			}
 			_ = conn.Close()
 			if e != nil {
@@ -67,15 +74,34 @@ func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
 		}
 		done <- nil
 	}()
+	return requests, done
+}
+
+func TestRemoteCatalogDisabledAndUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "remote.toml")
+	t.Setenv("HERDR_SESH_REMOTE_CONFIG", configPath)
+	require.NoError(t, os.WriteFile(configPath, []byte("enabled = false\n"), 0600))
+	sessions, err := remoteSessions(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, sessions)
+	socket := filepath.Join(dir, "missing.sock")
+	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, "enabled=true\nid='local'\nsocket=%q\n", socket), 0600))
+	sessions, err = remoteSessions(context.Background())
+	require.ErrorContains(t, err, "remote catalog unavailable")
+	assert.Empty(t, sessions)
+}
+
+func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
+	requests, done := fakeDaemon(t, 2, []remote.Machine{{ID: "peer", Session: "main", Stale: true, Workspaces: []herdr.Workspace{{ID: "w1", Label: "same", CWD: "/remote"}}}})
 	a := &App{Err: &bytes.Buffer{}}
-	sessions := a.remoteSessions(context.Background())
+	sessions, err := remoteSessions(context.Background())
+	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	s := sessions[0]
-	assert.Equal(t, model.SourceRemote, s.Source)
-	assert.True(t, s.RemoteOffline)
-	assert.Equal(t, "main", s.RemoteSession)
+	assert.Equal(t, model.Session{Source: model.SourceRemote, Name: "same", Remote: &model.RemoteRef{Machine: "peer", Session: "main", WorkspaceID: "w1", CWD: "/remote", Offline: true}}, s)
 	require.ErrorContains(t, a.switchRemote(context.Background(), s), "offline")
-	s.RemoteOffline = false
+	s.Remote.Offline = false
 	require.NoError(t, a.switchRemote(context.Background(), s))
 	require.NoError(t, <-done)
 	assert.Equal(t, "list", (<-requests).Op)
@@ -83,12 +109,65 @@ func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
 	assert.Equal(t, "switch", request.Op)
 	assert.Equal(t, "peer", request.MachineID)
 	assert.Equal(t, "w1", request.WorkspaceID)
-	assert.Equal(t, model.Key(s), pickerTarget(s))
-	assert.Empty(t, localSessions(sessions))
+}
+
+func TestRemoteRowsSkipLocalSessionConfig(t *testing.T) {
+	configureFakeSources(t, "")
+	_, done := fakeDaemon(t, 1, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "work", CWD: "/remote"}}}})
+	cfg := config.Default()
+	cfg.DefaultSessionConfig.StartupCommand = "local startup"
+	cfg.DefaultSessionConfig.PreviewCommand = "local preview"
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	sessions, err := a.collectAllowUnavailableHerdr(context.Background(), cfg, "")
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+	require.NotEmpty(t, sessions)
+	got := sessions[len(sessions)-1]
+	require.NotNil(t, got.Remote)
+	assert.Empty(t, got.StartupCommand)
+	assert.Empty(t, got.PreviewCommand)
+}
+
+func TestPickerCollectionRoutesRemoteWarningsToCaller(t *testing.T) {
+	configureFakeSources(t, "")
+	configPath := filepath.Join(t.TempDir(), "remote.toml")
+	require.NoError(t, os.WriteFile(configPath, fmt.Appendf(nil, "enabled=true\nid='local'\nsocket=%q\n", filepath.Join(t.TempDir(), "missing.sock")), 0600))
+	t.Setenv("HERDR_SESH_REMOTE_CONFIG", configPath)
+	var stderr bytes.Buffer
+	var warnings []string
+	a := &App{Err: &stderr}
+	_, err := a.collectPickerWithClient(context.Background(), config.Default(), nil, herdr.NewCLIClient(), func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	})
+	require.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "remote catalog unavailable")
+	assert.Empty(t, stderr.String(), "remote warnings must not write over the picker's alt-screen")
+}
+
+func TestListCachesLocalRowsAndFetchesRemoteRows(t *testing.T) {
+	d := t.TempDir()
+	configureFakeSources(t, "/first\n")
+	_, done := fakeDaemon(t, 2, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "work", CWD: "/remote"}}}})
+	cfgPath := filepath.Join(d, "sesh.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n"), 0600))
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(d, "state"))
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	require.NoError(t, a.list(context.Background(), []string{"--config", cfgPath}))
+	first := out.String()
+	assert.Contains(t, first, "/first")
+	assert.Contains(t, first, "work @ peer")
+	t.Setenv("FAKE_ZOXIDE_OUTPUT", "/second\n")
+	out.Reset()
+	require.NoError(t, a.list(context.Background(), []string{"--config", cfgPath}))
+	assert.Equal(t, first, out.String(), "second list must reuse cached local rows")
+	assert.Equal(t, 1, strings.Count(out.String(), "work @ peer"))
+	require.NoError(t, <-done, "remote rows must be fetched on every list")
 }
 
 func TestRemoteListPrintsQualifiedTarget(t *testing.T) {
-	remoteSession := model.Session{Source: model.SourceRemote, Name: "work", Path: "/remote", WorkspaceID: "w1", RemoteMachine: "peer", RemoteSession: "main", RemoteOffline: true}
+	remoteSession := model.Session{Source: model.SourceRemote, Name: "work", Remote: &model.RemoteRef{Machine: "peer", Session: "main", WorkspaceID: "w1", CWD: "/remote", Offline: true}}
 	var output bytes.Buffer
 	a := &App{Out: &output}
 	require.NoError(t, a.printSessions([]model.Session{remoteSession, {Source: "herdr", Name: "local", Path: "/local"}}, false))
@@ -112,38 +191,9 @@ func TestUnavailableRemotePreviewNeverExecutesLocalCommand(t *testing.T) {
 
 func TestRemoteBlacklistAppliesToPickerAndList(t *testing.T) {
 	configureFakeSources(t, "")
-	dir, err := os.MkdirTemp("/tmp", "sesh-filter-")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	listener, err := net.Listen("unix", filepath.Join(dir, "daemon.sock"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-	cfgPath := filepath.Join(dir, "sesh.toml")
+	_, done := fakeDaemon(t, 3, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "hidden"}, {ID: "w2", Label: "visible"}}}})
+	cfgPath := filepath.Join(t.TempDir(), "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("blacklist = ['^hidden$']\n"), 0600))
-	remotePath := filepath.Join(dir, "remote.toml")
-	require.NoError(t, os.WriteFile(remotePath, fmt.Appendf(nil, "enabled=true\nid='local'\nsocket=%q\n", filepath.Join(dir, "daemon.sock")), 0600))
-	t.Setenv("HERDR_SESH_REMOTE_CONFIG", remotePath)
-	done := make(chan error, 1)
-	go func() {
-		for i := 0; i < 3; i++ {
-			conn, e := listener.Accept()
-			if e != nil {
-				done <- e
-				return
-			}
-			var request remote.Request
-			e = json.NewDecoder(conn).Decode(&request)
-			if e == nil {
-				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "hidden"}, {ID: "w2", Label: "visible"}}}}})
-			}
-			_ = conn.Close()
-			if e != nil {
-				done <- e
-				return
-			}
-		}
-		done <- nil
-	}()
 	var output bytes.Buffer
 	a := &App{Out: &output, Err: &bytes.Buffer{}}
 	cfg, err := a.loadConfig(cfgPath)

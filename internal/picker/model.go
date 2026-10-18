@@ -65,7 +65,7 @@ func (m *Model) Move(delta int) {
 }
 func (m *Model) UpdateAgentStatuses(statuses map[string]string) {
 	for i := range m.All {
-		if m.All[i].Source != model.SourceRemote && m.All[i].WorkspaceID != "" {
+		if m.All[i].WorkspaceID != "" {
 			m.All[i].AgentStatus = statuses[m.All[i].WorkspaceID]
 		}
 	}
