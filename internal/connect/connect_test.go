@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -316,4 +317,32 @@ func TestConnectWorkspaceStartupChangingDirectoryKeepsConfiguredTabFocus(t *test
 	assert.False(t, result.Created)
 	assert.Len(t, f.CreatedWorkspaces, 1)
 	assert.Equal(t, []string{"initial-pane:cd web && npm run dev", "new-pane:nvim"}, f.PaneRuns)
+}
+
+func TestRemoteTargetCannotResolveLocalCollision(t *testing.T) {
+	remoteSession := model.Session{Source: model.SourceRemote, RemoteMachine: "peer", WorkspaceID: "w1"}
+	target := model.Key(remoteSession)
+	for _, local := range []model.Session{{Name: target}, {Path: target}, {WorkspaceID: target}} {
+		got, ok := Resolve([]model.Session{local, remoteSession}, target)
+		require.True(t, ok)
+		assert.Equal(t, remoteSession, got)
+		_, ok = Resolve([]model.Session{local}, target)
+		assert.False(t, ok)
+		client := &herdr.FakeClient{}
+		_, err := Connect(context.Background(), client, []model.Session{local}, target, Options{})
+		require.Error(t, err)
+		assert.Empty(t, client.CreatedWorkspaces)
+		assert.Empty(t, client.FocusedWorkspaces)
+	}
+}
+
+func TestMissingRemoteTargetCannotCreateLocalDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	target := "remote:0123456789abcdef"
+	require.NoError(t, os.Mkdir(target, 0700))
+	client := &herdr.FakeClient{}
+	_, err := Connect(context.Background(), client, nil, target, Options{})
+	require.Error(t, err)
+	assert.Empty(t, client.CreatedWorkspaces)
+	assert.Empty(t, client.FocusedWorkspaces)
 }

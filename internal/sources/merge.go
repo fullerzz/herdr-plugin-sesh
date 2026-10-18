@@ -57,6 +57,9 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 				if key == "" {
 					key = sess.Path
 				}
+				if sess.Source == model.SourceRemote {
+					key = model.Key(sess)
+				}
 				if seenName[key] {
 					continue
 				}

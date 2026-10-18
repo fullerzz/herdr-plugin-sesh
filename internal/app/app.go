@@ -22,6 +22,7 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/namer"
 	pickerpkg "github.com/fullerzz/herdr-plugin-sesh/internal/picker"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/preview"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/sources"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
@@ -42,6 +43,10 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	case "--version", "version":
 		_, err := fmt.Fprintf(a.Out, "herdr-sesh %s\n", Version)
 		return err
+	case "daemon":
+		return a.daemon(ctx, args[1:])
+	case "attach":
+		return a.attach(ctx, args[1:])
 	case "list":
 		return a.list(ctx, args[1:])
 	case "connect":
@@ -67,7 +72,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 }
 func (a *App) usage() error {
-	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|--version")
+	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|daemon|attach|--version")
 	return err
 }
 
@@ -132,7 +137,14 @@ func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, he
 }
 
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
-	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
+	if model.IsRemoteTarget(target) {
+		sessions := a.remoteSessions(ctx)
+		if _, ok := connectpkg.Resolve(sessions, target); !ok {
+			return nil, fmt.Errorf("remote session unavailable: %s", target)
+		}
+		return sessions, nil
+	}
+	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}, remoteSource{app: a}}
 	if target != "" {
 		srcs = append(srcs, sources.DirectPath{
 			Path:  target,
@@ -191,15 +203,19 @@ func (a *App) list(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cacheable := cfg.Cache && !*blacklisted && *hideDup
+	remoteConfig, remoteErr := remote.LoadConfig()
+	if remoteErr != nil {
+		a.warnf("remote catalog configuration: %v", remoteErr)
+	}
+	cacheable := cfg.Cache && !*blacklisted && *hideDup && !remoteConfig.Enabled
 	if cacheable {
 		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
 			a.warnf("ignoring session cache: %v", err)
 		} else if ok {
-			return a.printSessions(cached, *jsonOut)
+			return a.printSessions(localSessions(cached), *jsonOut)
 		}
 	}
-	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
+	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}, remoteSource{app: a}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
 	if err != nil {
 		return err
 	}
@@ -244,10 +260,12 @@ func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
 	}
 	for _, s := range sessions {
 		var err error
-		if s.Path != "" {
-			_, err = fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.Name, s.Path)
+		if s.Source == model.SourceRemote {
+			_, err = fmt.Fprintf(a.Out, "%s\t%s\t%s\t%s\n", s.Source, s.DisplayName(), s.Path, model.Key(s))
+		} else if s.Path != "" {
+			_, err = fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.DisplayName(), s.Path)
 		} else {
-			_, err = fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.Name)
+			_, err = fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.DisplayName())
 		}
 		if err != nil {
 			return err
@@ -298,6 +316,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	if err != nil || !ok {
 		return err
 	}
+	if selected.Source == model.SourceRemote {
+		return a.switchRemote(ctx, selected)
+	}
 	revision := a.historyRevision()
 	res, err := connectpkg.Connect(ctx, backend.client, []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
 		Warnf: a.warnf,
@@ -311,6 +332,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 }
 
 func pickerTarget(s model.Session) string {
+	if s.Source == model.SourceRemote {
+		return model.Key(s)
+	}
 	if s.WorkspaceID != "" {
 		return s.WorkspaceID
 	}
@@ -338,6 +362,16 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	}
 	sessions, err := a.collectAllowUnavailableHerdr(ctx, cfg, target)
 	if err != nil {
+		return err
+	}
+	if selected, ok := connectpkg.Resolve(sessions, target); ok && selected.Source == model.SourceRemote {
+		if *noFocus {
+			return errors.New("--no-focus is unavailable for remote sessions")
+		}
+		if err := a.switchRemote(ctx, selected); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(a.Out, selected.DisplayName())
 		return err
 	}
 	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")

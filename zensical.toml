@@ -16,6 +16,7 @@ nav = [
     { "Layouts" = "config/layouts.md" },
   ] },
   { "Commands" = "commands.md" },
+  { "Remote workspaces" = "remote-workspaces.md" },
   { "Keybindings" = "keybindings.md" },
   { "Troubleshooting" = "troubleshooting.md" },
   { "Development" = [

@@ -1549,7 +1549,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 	if selected {
 		rail = selectedRail
 	}
-	label := s.Name
+	label := s.DisplayName()
 	if label == "" {
 		label = compactHome(s.Path)
 	}

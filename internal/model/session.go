@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,7 +14,12 @@ type WorktreeRelation struct {
 	ParentWorkspaceName string
 }
 
+const SourceRemote = "remote"
+
 type Session struct {
+	RemoteMachine         string           `json:"remote_machine,omitempty"`
+	RemoteSession         string           `json:"remote_session,omitempty"`
+	RemoteOffline         bool             `json:"remote_offline,omitempty"`
 	Source                string           `json:"source"`
 	Name                  string           `json:"name"`
 	Path                  string           `json:"path,omitempty"`
@@ -82,8 +88,13 @@ func NewSessions() Sessions {
 	return Sessions{Directory: map[string]Session{}, OrderedIndex: []string{}}
 }
 
+func IsRemoteTarget(target string) bool { return strings.HasPrefix(target, SourceRemote+":") }
+
 func Key(s Session) string {
 	base := fmt.Sprintf("%s\x00%s\x00%s\x00%s", s.Source, s.Name, s.Path, s.WorkspaceID)
+	if s.Source == SourceRemote {
+		base = fmt.Sprintf("%s\x00%s\x00%s", s.RemoteMachine, s.RemoteSession, s.WorkspaceID)
+	}
 	sum := sha256.Sum256([]byte(base))
 	return s.Source + ":" + hex.EncodeToString(sum[:8])
 }
@@ -108,4 +119,15 @@ func (ss *Sessions) Ordered() []Session {
 		}
 	}
 	return out
+}
+
+func (s Session) DisplayName() string {
+	if s.Source != SourceRemote {
+		return s.Name
+	}
+	status := ""
+	if s.RemoteOffline {
+		status = " (offline)"
+	}
+	return s.Name + " @ " + s.RemoteMachine + status
 }
