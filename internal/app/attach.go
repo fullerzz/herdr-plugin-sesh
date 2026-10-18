@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,7 +22,58 @@ type attachEndpoint struct {
 	peer *remote.Peer
 }
 
-type attachCall func(context.Context, attachEndpoint, remote.Request) (remote.Response, error)
+// attachSubscription is this wrapper's controller registration on one machine.
+type attachSubscription struct {
+	targets <-chan remote.Target
+	err     func() error
+	close   func()
+}
+
+type attachTransport interface {
+	Call(context.Context, attachEndpoint, remote.Request) (remote.Response, error)
+	Subscribe(context.Context, attachEndpoint) (attachSubscription, error)
+}
+
+// streamTransport keeps one daemon stream per machine for the wrapper's lifetime.
+type streamTransport struct {
+	cfg     remote.Config
+	mu      sync.Mutex
+	clients map[string]*remote.StreamClient
+}
+
+func (t *streamTransport) client(endpoint attachEndpoint) *remote.StreamClient {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if c := t.clients[endpoint.id]; c != nil {
+		return c
+	}
+	c := remote.NewUnixClient(t.cfg)
+	if endpoint.peer != nil {
+		c = remote.NewSSHClient(*endpoint.peer)
+	}
+	t.clients[endpoint.id] = c
+	return c
+}
+
+func (t *streamTransport) Call(ctx context.Context, endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
+	return t.client(endpoint).Call(ctx, req)
+}
+
+func (t *streamTransport) Subscribe(ctx context.Context, endpoint attachEndpoint) (attachSubscription, error) {
+	sub, err := t.client(endpoint).Subscribe(ctx)
+	if err != nil {
+		return attachSubscription{}, err
+	}
+	return attachSubscription{targets: sub.Targets(), err: sub.Err, close: sub.Close}, nil
+}
+
+func (t *streamTransport) Close() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, c := range t.clients {
+		_ = c.Close()
+	}
+}
 
 func (a *App) attach(ctx context.Context, args []string) error {
 	if len(args) > 1 {
@@ -56,17 +106,13 @@ func (a *App) attach(ctx context.Context, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	call := func(ctx context.Context, endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
-		if endpoint.peer == nil {
-			return remote.Call(ctx, cfg, req)
-		}
-		return remote.SSHCall(ctx, *endpoint.peer, req)
-	}
+	transport := &streamTransport{cfg: cfg, clients: map[string]*remote.StreamClient{}}
+	defer transport.Close()
 	bin := os.Getenv("HERDR_BIN_PATH")
 	if bin == "" {
 		bin = "herdr"
 	}
-	return runAttach(ctx, cfg, endpoint, call, bin, os.Stdin, os.Stdout, a.Err, func() error {
+	return runAttach(ctx, cfg, endpoint, transport, bin, os.Stdin, os.Stdout, a.Err, func() error {
 		return term.Restore(os.Stdin.Fd(), state)
 	})
 }
@@ -100,39 +146,52 @@ func attachEnvironment(environ []string) []string {
 	return result
 }
 
-func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, call attachCall, bin string, in io.Reader, out, errOut io.Writer, restore func() error) (result error) {
-	var secret [32]byte
-	if _, err := rand.Read(secret[:]); err != nil {
-		return err
-	}
-	token := hex.EncodeToString(secret[:])
+// resubscribeDelays bounds how long a lost controller stream may take to recover.
+var resubscribeDelays = []time.Duration{0, time.Second, 2 * time.Second, 4 * time.Second}
+
+func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, transport attachTransport, bin string, in io.Reader, out, errOut io.Writer, restore func() error) (result error) {
+	// SSH streams may still be completing their first handshake.
 	request := func(ctx context.Context, endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
-		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		return call(ctx, endpoint, req)
+		return transport.Call(ctx, endpoint, req)
 	}
-	unregister := func(endpoint attachEndpoint) {
-		_, _ = request(context.WithoutCancel(ctx), endpoint, remote.Request{Op: "unregister", Token: token})
-	}
-	register := func(endpoint attachEndpoint) error {
+	register := func(endpoint attachEndpoint) (attachSubscription, error) {
 		exported, err := request(ctx, endpoint, remote.Request{Op: "export"})
 		if err != nil {
-			return err
+			return attachSubscription{}, err
 		}
 		session := cfg.HerdrSession
 		if endpoint.peer != nil {
 			session = endpoint.peer.Session
 		}
 		if len(exported.Catalog) != 1 || exported.Catalog[0].ID != endpoint.id || exported.Catalog[0].Session != session {
-			return errors.New("daemon machine or session does not match this client's configuration")
+			return attachSubscription{}, errors.New("daemon machine or session does not match this client's configuration")
 		}
-		_, err = request(ctx, endpoint, remote.Request{Op: "register", Token: token})
-		return err
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		return transport.Subscribe(ctx, endpoint)
 	}
-	if err := register(current); err != nil {
+	resubscribe := func(endpoint attachEndpoint, lost error) (attachSubscription, error) {
+		err := lost
+		for _, delay := range resubscribeDelays {
+			select {
+			case <-ctx.Done():
+				return attachSubscription{}, ctx.Err()
+			case <-time.After(delay):
+			}
+			var sub attachSubscription
+			if sub, err = register(endpoint); err == nil {
+				return sub, nil
+			}
+		}
+		return attachSubscription{}, err
+	}
+	sub, err := register(current)
+	if err != nil {
 		return fmt.Errorf("register attachment controller: %w", err)
 	}
-	defer func() { unregister(current) }()
+	defer func() { sub.close() }()
 	defer func() { result = errors.Join(result, restore()) }()
 	for {
 		// Only this child is replaced. Herdr's session server and pane processes survive.
@@ -145,19 +204,6 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, c
 		}
 		done := make(chan error, 1)
 		go func() { done <- child.Wait() }()
-		pollCtx, cancelPoll := context.WithCancel(ctx)
-		updates := make(chan remote.Target)
-		failures := make(chan error, 1)
-		pollDone := make(chan struct{})
-		endpoint := current
-		go func() {
-			defer close(pollDone)
-			pollAttachment(pollCtx, endpoint, token, request, updates, failures)
-		}()
-		stopPolling := func() {
-			cancelPoll()
-			<-pollDone
-		}
 		stopChild := func() error {
 			return errors.Join(stopAttachment(child, done, 2*time.Second), restore())
 		}
@@ -165,18 +211,22 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, c
 		for !switching {
 			select {
 			case err := <-done:
-				stopPolling()
 				return err
 			case <-ctx.Done():
-				stopPolling()
 				return errors.Join(ctx.Err(), stopChild())
-			case err := <-failures:
-				stopPolling()
-				return errors.Join(fmt.Errorf("attachment controller lost: %w", err), stopChild())
-			case target := <-updates:
+			case target, ok := <-sub.targets:
+				if !ok {
+					next, err := resubscribe(current, sub.err())
+					if err != nil {
+						return errors.Join(fmt.Errorf("attachment controller lost: %w", err), stopChild())
+					}
+					sub = next
+					continue
+				}
 				next, err := resolveAttachEndpoint(cfg, target.MachineID)
+				nextSub := sub
 				if err == nil && next.id != current.id {
-					err = register(next)
+					nextSub, err = register(next)
 				}
 				if err != nil {
 					_, _ = fmt.Fprintf(errOut, "\r\nRemote switch failed: %v\r\n", err)
@@ -185,7 +235,7 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, c
 				_, err = request(ctx, next, remote.Request{Op: "focus", WorkspaceID: target.WorkspaceID})
 				if err != nil {
 					if next.id != current.id {
-						unregister(next)
+						nextSub.close()
 					}
 					_, _ = fmt.Fprintf(errOut, "\r\nRemote switch failed: %v\r\n", err)
 					continue
@@ -193,62 +243,14 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, c
 				if next.id == current.id {
 					continue
 				}
-				stopPolling()
 				if err := stopChild(); err != nil {
-					unregister(next)
+					nextSub.close()
 					return err
 				}
-				unregister(current)
-				current = next
+				sub.close()
+				sub, current = nextSub, next
 				switching = true
 			}
-		}
-	}
-}
-
-func pollAttachment(ctx context.Context, endpoint attachEndpoint, token string, call attachCall, updates chan<- remote.Target, failures chan<- error) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	failed := 0
-	deliveredID := ""
-	for {
-		response, err := call(ctx, endpoint, remote.Request{Op: "poll", Token: token})
-		if ctx.Err() != nil {
-			return
-		}
-		if err == nil && response.Switch != nil {
-			target := *response.Switch
-			if target.RequestID == "" {
-				err = errors.New("daemon returned a switch without a request ID")
-			} else {
-				if target.RequestID != deliveredID {
-					select {
-					case updates <- target:
-						deliveredID = target.RequestID
-					case <-ctx.Done():
-						return
-					}
-				}
-				// A lost acknowledgement may replay the request, but never the action.
-				_, err = call(ctx, endpoint, remote.Request{Op: "ack", Token: token, RequestID: target.RequestID})
-			}
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			failed++
-			if failed >= 3 {
-				failures <- err
-				return
-			}
-		} else {
-			failed = 0
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
 		}
 	}
 }

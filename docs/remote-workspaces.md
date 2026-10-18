@@ -24,18 +24,23 @@ terminal modes. It force-stops that client only if it does not exit within two s
 This is a temporary attachment fallback, not Herdr's native in-window machine
 switching. A plain `herdr` launch can display remote picker entries but cannot
 accept switching requests without a wrapper. One wrapper may control a machine's
-daemon at a time; another registration is rejected until it releases its lease
-or the lease expires after 15 seconds. Other Herdr clients can still attach, but
-picker requests on that machine target its registered wrapper, so use this mode
+daemon at a time. The wrapper subscribes over a persistent stream to the daemon
+of the machine it is attached to, and that stream is the registration: the daemon
+releases the controller as soon as the stream closes, or after 30 seconds without
+the wrapper's keepalive when a network drop leaves it half-open. Another
+subscription is rejected until then. Other Herdr clients can still attach, but
+picker requests on that machine target its subscribed wrapper, so use this mode
 with one interactive switching client.
 
 ## Configure each machine
 
-Install compatible Herdr and this version of `herdr-sesh` on every participating
-machine. Both executables must be available on the SSH user's noninteractive
-`PATH`. Start the configured Herdr session before starting the daemon. Remote
-API polling uses noninteractive SSH; complete authentication and host-key approval
-in a normal terminal first.
+Install compatible Herdr and the same version of `herdr-sesh` on every
+participating machine. Streams begin with a protocol handshake, so a machine
+running an incompatible `herdr-sesh` fails with a version mismatch error instead
+of misreading requests. Both executables must be available on the SSH user's
+noninteractive `PATH`. Start the configured Herdr session before starting the
+daemon. Peer streams use noninteractive SSH; complete authentication and host-key
+approval in a normal terminal first.
 
 Configuration is separate from the regular picker configuration:
 
@@ -68,9 +73,16 @@ The session names default to `default` when omitted, and peer session names must
 match the peer daemon's `herdr_session`.
 
 An SSH target is a hostname, `user@hostname`, or an SSH-config alias. Configure
-ports, identity files, and connection reuse in normal SSH config. Passwords and
-private keys never go in `remote.toml`. Background calls keep host-key checks,
-set `BatchMode=yes`, and disable agent forwarding.
+ports, identity files, and jump hosts in normal SSH config. Passwords and private
+keys never go in `remote.toml`.
+
+Each daemon, and each attach wrapper, keeps one long-lived `ssh` process per peer
+that runs the fixed command `herdr-sesh daemon rpc --stream`. Requests to that
+peer share the stream, and the peer daemon pushes switch requests over it, so a
+peer costs one SSH handshake instead of one per request. If the stream drops,
+the next request reconnects, backing off up to 30 seconds while the peer stays
+unreachable. These connections use your `ssh` binary and SSH config, keep
+host-key checks, set `BatchMode=yes`, and disable agent forwarding.
 
 Absent configuration or `enabled = false` leaves remote integration disabled.
 Neither installing the plugin nor opening the picker starts a daemon or SSH
@@ -128,21 +140,24 @@ herdr-sesh list --json
 ```
 
 The plain list prints a remote connect key in its final column. Pass it to
-`herdr-sesh connect KEY` to queue a switch in the active wrapper. Successful
-submission means queued; a subsequent connection failure is reported by the
-wrapper. The daemon retains each request until the wrapper acknowledges receipt;
-lost poll or acknowledgement responses can be retried without repeating selection.
-Another selection is rejected while a request is still pending. Remote rows obey
+`herdr-sesh connect KEY` to send a switch to the active wrapper. The daemon pushes
+it over the wrapper's stream; successful submission means it was handed to that
+stream, and a subsequent connection failure is reported by the wrapper. Another
+selection is rejected while one is still waiting to be sent. Remote rows obey
 the normal blacklist and provide metadata previews only. Missing remote keys fail
 explicitly instead of being interpreted as local paths. Closing a remote workspace
 and applying local startup/layout configuration to remote entries are disabled.
 Local previous-workspace history remains local to each Herdr session.
 
 If switching reports no active controller, start with `herdr-sesh attach`.
-If it reports another controller, detach the existing wrapper or wait for its
-lease to expire after a crash. The wrapper polls its current machine over SSH
-when remote, and exits after repeated controller failures; running server panes
-remain intact. SSH connection reuse can reduce overhead.
+If it reports another controller, detach the existing wrapper; after a crash or
+network drop the daemon releases it within 30 seconds. When its stream drops,
+the wrapper resubscribes for a few seconds and then exits; running server panes
+remain intact. A protocol handshake failure means the machines run incompatible
+`herdr-sesh` versions, or a daemon started before an upgrade is still running:
+update both and restart their daemons. Older wrappers that still use the
+one-request-per-SSH-call mode can read catalogs for one more release but cannot
+control a newer daemon.
 
 The default socket is under the OS user cache directory in
 `herdr-sesh/remote/daemon.sock`. Set an absolute `socket` in the config when needed;

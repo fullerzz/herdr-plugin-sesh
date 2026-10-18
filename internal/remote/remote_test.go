@@ -54,25 +54,6 @@ func TestCatalogKeepsFailedPeersStaleAndExportLocal(t *testing.T) {
 	require.Len(t, r.Catalog, 1)
 	assert.Equal(t, "local", r.Catalog[0].ID)
 }
-func TestControllerLeaseAndTargetValidation(t *testing.T) {
-	c := testConfig()
-	c.Peers = nil
-	s := NewServer(c, &fakeClient{})
-	s.refresh(context.Background())
-	ctx := context.Background()
-	token := "01234567890123456789012345678901"
-	assert.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "register", Token: token + "x"}).Error)
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "missing"}).Error)
-	assert.Empty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	r := s.Handle(ctx, Request{Op: "poll", Token: token})
-	require.NotNil(t, r.Switch)
-	assert.Equal(t, "ws1", r.Switch.WorkspaceID)
-	assert.Equal(t, r.Switch, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	s.expires = time.Now().Add(-time.Second)
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	assert.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token + "x"}).Error)
-}
 func TestFocusChecksLiveInventory(t *testing.T) {
 	f := &fakeClient{}
 	s := NewServer(testConfig(), f)
@@ -121,9 +102,13 @@ func TestConfigOptInAndValidation(t *testing.T) {
 	}
 }
 func TestSSHUsesFixedCommand(t *testing.T) {
-	assert.Equal(t, []string{"-o", "BatchMode=yes", "-o", "ForwardAgent=no", "-o", "ConnectTimeout=2", "--", "user@host", "herdr-sesh", "daemon", "rpc"}, SSHArgs(Peer{SSH: "user@host", Session: "$(touch bad)"}))
-	_, e := SSHCall(context.Background(), Peer{SSH: "-evil"}, Request{})
-	require.Error(t, e)
+	assert.Equal(t, []string{
+		"-o", "BatchMode=yes", "-o", "ForwardAgent=no", "-o", "ConnectTimeout=5",
+		"-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3",
+		"--", "user@host", "herdr-sesh", "daemon", "rpc", "--stream",
+	}, SSHArgs(Peer{SSH: "user@host", Session: "$(touch bad)"}))
+	_, e := NewSSHClient(Peer{ID: "evil", SSH: "-evil"}).Call(context.Background(), Request{Op: "list"})
+	require.ErrorContains(t, e, "invalid SSH destination")
 }
 
 func TestConfigDefaultsAndUnknownKeys(t *testing.T) {
@@ -169,22 +154,6 @@ func TestRejectsSymlinkSocketDirectory(t *testing.T) {
 	require.Error(t, NewServer(c, &fakeClient{}).Serve(context.Background()))
 }
 
-func TestPollRetriesUnacknowledgedSwitch(t *testing.T) {
-	c := testConfig()
-	c.Peers = nil
-	s := NewServer(c, &fakeClient{})
-	s.refresh(context.Background())
-	ctx := context.Background()
-	token := "01234567890123456789012345678901"
-	require.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	require.Empty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	first := s.Handle(ctx, Request{Op: "poll", Token: token})
-	require.NotNil(t, first.Switch)
-	require.Equal(t, first.Switch, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	require.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	require.Equal(t, first.Switch, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-}
-
 func TestRecoversStaleSocket(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "sesh-stale-")
 	require.NoError(t, err)
@@ -201,45 +170,6 @@ func TestRecoversStaleSocket(t *testing.T) {
 	require.Eventually(t, func() bool { _, err := Call(context.Background(), c, Request{Op: "list"}); return err == nil }, time.Second, 10*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)
-}
-
-func TestAcknowledgmentsAndLeaseReplacement(t *testing.T) {
-	c := testConfig()
-	c.Peers = nil
-	s := NewServer(c, &fakeClient{})
-	ctx := context.Background()
-	s.refresh(ctx)
-	token := "01234567890123456789012345678901"
-	register := func(token string) {
-		t.Helper()
-		require.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	}
-	submit := func() *Target {
-		t.Helper()
-		require.Empty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-		target := s.Handle(ctx, Request{Op: "poll", Token: s.token}).Switch
-		require.NotNil(t, target)
-		require.NotEmpty(t, target.RequestID)
-		return target
-	}
-	ack := func(token, id string) Response { return s.Handle(ctx, Request{Op: "ack", Token: token, RequestID: id}) }
-	register(token)
-	first := submit()
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	assert.NotEmpty(t, ack(token, "").Error)
-	require.Empty(t, ack(token, first.RequestID).Error)
-	require.Empty(t, ack(token, first.RequestID).Error)
-	assert.Nil(t, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	second := submit()
-	assert.NotEqual(t, first.RequestID, second.RequestID)
-	require.Empty(t, ack(token, first.RequestID).Error)
-	assert.Equal(t, second, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	s.expires = time.Now().Add(-time.Second)
-	register(token + "new")
-	third := submit()
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "poll", Token: token}).Error)
-	assert.NotEmpty(t, ack(token, third.RequestID).Error)
-	assert.Equal(t, third, s.Handle(ctx, Request{Op: "poll", Token: token + "new"}).Switch)
 }
 
 func TestSocketRecoveryPreservesLiveListenerAndSymlink(t *testing.T) {
