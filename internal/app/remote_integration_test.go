@@ -93,7 +93,7 @@ func TestRemoteCatalogDisabledAndUnavailable(t *testing.T) {
 }
 
 func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
-	requests, done := fakeDaemon(t, 2, []remote.Machine{{ID: "peer", Session: "main", Stale: true, Workspaces: []herdr.Workspace{{ID: "w1", Label: "same", CWD: "/remote"}}}})
+	requests, done := fakeDaemon(t, 2, []remote.Machine{{ID: "peer", Session: "main", Stale: true, Workspaces: []remote.Workspace{{ID: "w1", Label: "same", CWD: "/remote"}}}})
 	a := &App{Err: &bytes.Buffer{}}
 	sessions, err := remoteSessions(context.Background())
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
 
 func TestRemoteRowsSkipLocalSessionConfig(t *testing.T) {
 	configureFakeSources(t, "")
-	_, done := fakeDaemon(t, 1, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "work", CWD: "/remote"}}}})
+	_, done := fakeDaemon(t, 1, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []remote.Workspace{{ID: "w1", Label: "work", CWD: "/remote"}}}})
 	cfg := config.Default()
 	cfg.DefaultSessionConfig.StartupCommand = "local startup"
 	cfg.DefaultSessionConfig.PreviewCommand = "local preview"
@@ -148,7 +148,7 @@ func TestPickerCollectionRoutesRemoteWarningsToCaller(t *testing.T) {
 func TestListCachesLocalRowsAndFetchesRemoteRows(t *testing.T) {
 	d := t.TempDir()
 	configureFakeSources(t, "/first\n")
-	_, done := fakeDaemon(t, 2, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "work", CWD: "/remote"}}}})
+	_, done := fakeDaemon(t, 2, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []remote.Workspace{{ID: "w1", Label: "work", CWD: "/remote"}}}})
 	cfgPath := filepath.Join(d, "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("cache = true\n"), 0600))
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(d, "state"))
@@ -191,7 +191,7 @@ func TestUnavailableRemotePreviewNeverExecutesLocalCommand(t *testing.T) {
 
 func TestRemoteBlacklistAppliesToPickerAndList(t *testing.T) {
 	configureFakeSources(t, "")
-	_, done := fakeDaemon(t, 3, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "hidden"}, {ID: "w2", Label: "visible"}}}})
+	_, done := fakeDaemon(t, 3, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []remote.Workspace{{ID: "w1", Label: "hidden"}, {ID: "w2", Label: "visible"}}}})
 	cfgPath := filepath.Join(t.TempDir(), "sesh.toml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("blacklist = ['^hidden$']\n"), 0600))
 	var output bytes.Buffer

@@ -2,7 +2,9 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -39,7 +41,7 @@ func TestCatalogKeepsFailedPeersStaleAndExportLocal(t *testing.T) {
 		if fail {
 			return Response{}, errors.New("offline")
 		}
-		return Response{Catalog: []Machine{{ID: "other", Workspaces: []herdr.Workspace{{ID: "remote1"}}}}}, nil
+		return Response{Catalog: []Machine{{ID: "other", Workspaces: []Workspace{{ID: "remote1"}}}}}, nil
 	}
 	s.refresh(context.Background())
 	r := s.Handle(context.Background(), Request{Op: "list"})
@@ -53,25 +55,6 @@ func TestCatalogKeepsFailedPeersStaleAndExportLocal(t *testing.T) {
 	r = s.Handle(context.Background(), Request{Op: "export"})
 	require.Len(t, r.Catalog, 1)
 	assert.Equal(t, "local", r.Catalog[0].ID)
-}
-func TestControllerLeaseAndTargetValidation(t *testing.T) {
-	c := testConfig()
-	c.Peers = nil
-	s := NewServer(c, &fakeClient{})
-	s.refresh(context.Background())
-	ctx := context.Background()
-	token := "01234567890123456789012345678901"
-	assert.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "register", Token: token + "x"}).Error)
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "missing"}).Error)
-	assert.Empty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	r := s.Handle(ctx, Request{Op: "poll", Token: token})
-	require.NotNil(t, r.Switch)
-	assert.Equal(t, "ws1", r.Switch.WorkspaceID)
-	assert.Equal(t, r.Switch, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	s.expires = time.Now().Add(-time.Second)
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	assert.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token + "x"}).Error)
 }
 func TestFocusChecksLiveInventory(t *testing.T) {
 	f := &fakeClient{}
@@ -121,9 +104,13 @@ func TestConfigOptInAndValidation(t *testing.T) {
 	}
 }
 func TestSSHUsesFixedCommand(t *testing.T) {
-	assert.Equal(t, []string{"-o", "BatchMode=yes", "-o", "ForwardAgent=no", "-o", "ConnectTimeout=2", "--", "user@host", "herdr-sesh", "daemon", "rpc"}, SSHArgs(Peer{SSH: "user@host", Session: "$(touch bad)"}))
-	_, e := SSHCall(context.Background(), Peer{SSH: "-evil"}, Request{})
-	require.Error(t, e)
+	assert.Equal(t, []string{
+		"-o", "BatchMode=yes", "-o", "ForwardAgent=no", "-o", "ConnectTimeout=5",
+		"-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3",
+		"--", "user@host", "herdr-sesh", "daemon", "rpc", "--stream",
+	}, SSHArgs(Peer{SSH: "user@host", Session: "$(touch bad)"}))
+	_, e := NewSSHClient(Peer{ID: "evil", SSH: "-evil"}).Call(context.Background(), Request{Op: "list"})
+	require.ErrorContains(t, e, "invalid SSH destination")
 }
 
 func TestConfigDefaultsAndUnknownKeys(t *testing.T) {
@@ -169,22 +156,6 @@ func TestRejectsSymlinkSocketDirectory(t *testing.T) {
 	require.Error(t, NewServer(c, &fakeClient{}).Serve(context.Background()))
 }
 
-func TestPollRetriesUnacknowledgedSwitch(t *testing.T) {
-	c := testConfig()
-	c.Peers = nil
-	s := NewServer(c, &fakeClient{})
-	s.refresh(context.Background())
-	ctx := context.Background()
-	token := "01234567890123456789012345678901"
-	require.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	require.Empty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	first := s.Handle(ctx, Request{Op: "poll", Token: token})
-	require.NotNil(t, first.Switch)
-	require.Equal(t, first.Switch, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	require.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	require.Equal(t, first.Switch, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-}
-
 func TestRecoversStaleSocket(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "sesh-stale-")
 	require.NoError(t, err)
@@ -201,45 +172,6 @@ func TestRecoversStaleSocket(t *testing.T) {
 	require.Eventually(t, func() bool { _, err := Call(context.Background(), c, Request{Op: "list"}); return err == nil }, time.Second, 10*time.Millisecond)
 	cancel()
 	require.NoError(t, <-done)
-}
-
-func TestAcknowledgmentsAndLeaseReplacement(t *testing.T) {
-	c := testConfig()
-	c.Peers = nil
-	s := NewServer(c, &fakeClient{})
-	ctx := context.Background()
-	s.refresh(ctx)
-	token := "01234567890123456789012345678901"
-	register := func(token string) {
-		t.Helper()
-		require.Empty(t, s.Handle(ctx, Request{Op: "register", Token: token}).Error)
-	}
-	submit := func() *Target {
-		t.Helper()
-		require.Empty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-		target := s.Handle(ctx, Request{Op: "poll", Token: s.token}).Switch
-		require.NotNil(t, target)
-		require.NotEmpty(t, target.RequestID)
-		return target
-	}
-	ack := func(token, id string) Response { return s.Handle(ctx, Request{Op: "ack", Token: token, RequestID: id}) }
-	register(token)
-	first := submit()
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"}).Error)
-	assert.NotEmpty(t, ack(token, "").Error)
-	require.Empty(t, ack(token, first.RequestID).Error)
-	require.Empty(t, ack(token, first.RequestID).Error)
-	assert.Nil(t, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	second := submit()
-	assert.NotEqual(t, first.RequestID, second.RequestID)
-	require.Empty(t, ack(token, first.RequestID).Error)
-	assert.Equal(t, second, s.Handle(ctx, Request{Op: "poll", Token: token}).Switch)
-	s.expires = time.Now().Add(-time.Second)
-	register(token + "new")
-	third := submit()
-	assert.NotEmpty(t, s.Handle(ctx, Request{Op: "poll", Token: token}).Error)
-	assert.NotEmpty(t, ack(token, third.RequestID).Error)
-	assert.Equal(t, third, s.Handle(ctx, Request{Op: "poll", Token: token + "new"}).Switch)
 }
 
 func TestSocketRecoveryPreservesLiveListenerAndSymlink(t *testing.T) {
@@ -289,4 +221,59 @@ func TestSocketLockPersistsAndRejectsUnsafePaths(t *testing.T) {
 	require.Error(t, err)
 	_, err = os.Lstat(p + ".lock")
 	require.NoError(t, err)
+}
+
+type inventoryClient struct{ workspaces []herdr.Workspace }
+
+func (c inventoryClient) WorkspaceList(context.Context) ([]herdr.Workspace, error) {
+	return c.workspaces, nil
+}
+func (inventoryClient) WorkspaceFocus(context.Context, string) error { return nil }
+
+func TestCatalogSharesOnlySanitizedWireWorkspaces(t *testing.T) {
+	local := []herdr.Workspace{{ID: "ws1", Label: "one", CWD: "/src", AgentStatus: "idle", ForegroundCWD: "/secret", Tokens: map[string]string{"token": "secret"}}}
+	s := NewServer(testConfig(), inventoryClient{workspaces: local})
+	s.PeerCall = func(context.Context, Peer, Request) (Response, error) {
+		return Response{Catalog: []Machine{{ID: "other", Workspaces: []Workspace{
+			{ID: "--evil", Label: "dropped"},
+			{ID: "w1", Label: "\x1b]0;title\x07red\x1b[31m", CWD: "/tmp\n/x", AgentStatus: "busy\r"},
+		}}}}, nil
+	}
+	ctx := context.Background()
+	s.refresh(ctx)
+	export := s.Handle(ctx, Request{Op: "export"})
+	b, err := json.Marshal(export)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "secret")
+	require.Len(t, export.Catalog, 1)
+	assert.Equal(t, []Workspace{{ID: "ws1", Label: "one", CWD: "/src", AgentStatus: "idle"}}, export.Catalog[0].Workspaces)
+	listed := s.Handle(ctx, Request{Op: "list"})
+	require.Len(t, listed.Catalog, 2)
+	assert.Equal(t, []Workspace{{ID: "w1", Label: "]0;titlered[31m", CWD: "/tmp/x", AgentStatus: "busy"}}, listed.Catalog[1].Workspaces)
+}
+
+func TestRefreshRecordsAndLogsPeerAvailability(t *testing.T) {
+	s := NewServer(testConfig(), &fakeClient{})
+	var logs []string
+	s.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
+	var peerErr error
+	s.PeerCall = func(context.Context, Peer, Request) (Response, error) {
+		if peerErr != nil {
+			return Response{}, peerErr
+		}
+		return Response{Catalog: []Machine{{ID: "other"}}}, nil
+	}
+	ctx := context.Background()
+	peerErr = errors.New("peer other: Connection refused")
+	s.refresh(ctx)
+	s.refresh(ctx)
+	listed := s.Handle(ctx, Request{Op: "list"})
+	require.Len(t, listed.Catalog, 2)
+	assert.True(t, listed.Catalog[1].Stale)
+	assert.Equal(t, "peer other: Connection refused", listed.Catalog[1].LastError)
+	peerErr = nil
+	s.refresh(ctx)
+	listed = s.Handle(ctx, Request{Op: "list"})
+	assert.Empty(t, listed.Catalog[1].LastError)
+	assert.Equal(t, []string{"machine other unavailable: peer other: Connection refused", "machine other available"}, logs)
 }

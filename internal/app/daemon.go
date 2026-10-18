@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -18,8 +19,9 @@ import (
 )
 
 func (a *App) daemon(ctx context.Context, args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: herdr-sesh daemon serve|rpc|list")
+	stream := slices.Equal(args, []string{"rpc", "--stream"})
+	if len(args) != 1 && !stream {
+		return errors.New("usage: herdr-sesh daemon serve|list|rpc [--stream]")
 	}
 	cfg, err := remote.LoadConfig()
 	if err != nil {
@@ -30,11 +32,15 @@ func (a *App) daemon(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "serve":
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 		defer stop()
 		client := herdr.NewCLIClient()
 		client.Runner = daemonHerdrRunner{session: cfg.HerdrSession}
-		return remote.NewServer(cfg, client).Serve(ctx)
+		server := remote.NewServer(cfg, client)
+		server.Logf = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(a.Err, "herdr-sesh daemon: "+format+"\n", args...)
+		}
+		return server.Serve(ctx)
 	case "list":
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -44,6 +50,9 @@ func (a *App) daemon(ctx context.Context, args []string) error {
 		}
 		return json.NewEncoder(a.Out).Encode(response)
 	case "rpc":
+		if stream {
+			return remote.Relay(ctx, cfg, os.Stdin, a.Out)
+		}
 		return daemonRPC(ctx, cfg, os.Stdin, a.Out)
 	default:
 		return fmt.Errorf("unknown daemon command %q", args[0])
@@ -65,6 +74,8 @@ func (r daemonHerdrRunner) Run(ctx context.Context, bin string, args ...string) 
 }
 
 // RPC is a fixed SSH entry point; workspace metadata never becomes shell code.
+// This single-request mode serves clients older than the --stream relay; remove
+// it once those releases are no longer supported.
 func daemonRPC(ctx context.Context, cfg remote.Config, in io.Reader, out io.Writer) error {
 	const maxRequest = 16 * 1024
 	data, err := io.ReadAll(io.LimitReader(in, maxRequest+1))
