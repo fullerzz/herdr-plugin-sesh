@@ -10,9 +10,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 )
@@ -27,20 +29,34 @@ type Request struct {
 	Version     int    `json:"version,omitempty"`
 	MachineID   string `json:"machine_id,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
+	// Machines lists the machine IDs a subscribing controller can attach to.
+	Machines []string `json:"machines,omitempty"`
+	// Failure reports why a delivered switch did not complete.
+	Failure string `json:"failure,omitempty"`
 }
 type Response struct {
 	Version int       `json:"version,omitempty"`
 	Catalog []Machine `json:"catalog,omitempty"`
-	Switch  *Target   `json:"switch,omitempty"`
-	Error   string    `json:"error,omitempty"`
+	// SwitchError is the controller's last reported switch failure.
+	SwitchError string `json:"switch_error,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 type Machine struct {
-	ID         string            `json:"id"`
-	Label      string            `json:"label"`
-	Session    string            `json:"session"`
-	Workspaces []herdr.Workspace `json:"workspaces"`
-	Stale      bool              `json:"stale"`
-	UpdatedAt  time.Time         `json:"updated_at"`
+	ID         string      `json:"id"`
+	Label      string      `json:"label"`
+	Session    string      `json:"session"`
+	Workspaces []Workspace `json:"workspaces"`
+	Stale      bool        `json:"stale"`
+	UpdatedAt  time.Time   `json:"updated_at"`
+	LastError  string      `json:"last_error,omitempty"`
+}
+
+// Workspace is the metadata one machine shares with its peers.
+type Workspace struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	CWD         string `json:"cwd"`
+	AgentStatus string `json:"agent_status"`
 }
 type Target struct {
 	MachineID   string `json:"machine_id"`
@@ -53,20 +69,26 @@ type Client interface {
 
 // controller is the attach wrapper subscribed on one daemon stream.
 type controller struct {
-	targets chan Target
-	done    chan struct{}
+	targets  chan Target
+	done     chan struct{}
+	machines map[string]bool
+	// busy holds a delivered switch until the controller completes it.
+	busy bool
 }
 
 type Server struct {
-	cfg        Config
-	client     Client
-	mu         sync.Mutex
-	catalog    []Machine
-	controller *controller
-	peers      map[string]*StreamClient
-	PeerCall   func(context.Context, Peer, Request) (Response, error)
+	cfg         Config
+	client      Client
+	mu          sync.Mutex
+	catalog     []Machine
+	controller  *controller
+	switchError string
+	peers       map[string]*StreamClient
+	PeerCall    func(context.Context, Peer, Request) (Response, error)
 	// IdleTimeout closes streams that send nothing, including half-open SSH relays.
 	IdleTimeout time.Duration
+	// Logf, when set, reports catalog availability changes.
+	Logf func(format string, args ...any)
 }
 
 func NewServer(c Config, client Client) *Server {
@@ -86,40 +108,98 @@ func (s *Server) refresh(ctx context.Context) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
+			// Slow peers must not delay the local inventory past its expiry.
+			if i > 0 {
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
+				defer func() { <-sem }()
 			}
-			defer func() { <-sem }()
 			c, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			var ws []herdr.Workspace
+			var ws []Workspace
 			var err error
 			if i == 0 {
-				ws, err = s.client.WorkspaceList(c)
-			} else {
-				var r Response
-				r, err = s.PeerCall(c, s.cfg.Peers[i-1], Request{Op: "export"})
-				if err == nil {
-					if len(r.Catalog) != 1 || r.Catalog[0].ID != s.cfg.Peers[i-1].ID || r.Catalog[0].Session != s.cfg.Peers[i-1].Session || r.Catalog[0].Stale {
-						err = errors.New("invalid peer catalog")
-					} else {
-						ws = r.Catalog[0].Workspaces
-					}
+				var local []herdr.Workspace
+				if local, err = s.client.WorkspaceList(c); err == nil {
+					ws = fromHerdr(local)
 				}
+			} else {
+				ws, err = s.exportPeer(c, s.cfg.Peers[i-1])
 			}
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			s.catalog[i].Stale = err != nil
-			if err == nil {
-				s.catalog[i].Workspaces = ws
-				s.catalog[i].UpdatedAt = time.Now()
-			}
+			s.record(i, ws, err)
 		}(i)
 	}
 	wg.Wait()
 }
+
+func (s *Server) exportPeer(ctx context.Context, p Peer) ([]Workspace, error) {
+	r, err := s.PeerCall(ctx, p, Request{Op: "export"})
+	if err != nil {
+		return nil, err
+	}
+	if len(r.Catalog) != 1 || r.Catalog[0].ID != p.ID || r.Catalog[0].Session != p.Session || r.Catalog[0].Stale {
+		return nil, errors.New("invalid peer catalog")
+	}
+	return sanitizeWorkspaces(r.Catalog[0].Workspaces), nil
+}
+
+// record stores one refresh result and logs availability changes.
+func (s *Server) record(i int, ws []Workspace, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := &s.catalog[i]
+	previous := m.LastError
+	m.Stale = err != nil
+	if err != nil {
+		m.LastError = clean(err.Error(), 512)
+		if m.LastError != previous && s.Logf != nil {
+			s.Logf("machine %s unavailable: %s", m.ID, m.LastError)
+		}
+		return
+	}
+	m.Workspaces, m.UpdatedAt, m.LastError = ws, time.Now(), ""
+	if previous != "" && s.Logf != nil {
+		s.Logf("machine %s available", m.ID)
+	}
+}
+
+func fromHerdr(ws []herdr.Workspace) []Workspace {
+	out := make([]Workspace, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, Workspace{ID: w.ID, Label: w.Label, CWD: w.CWD, AgentStatus: w.AgentStatus})
+	}
+	return sanitizeWorkspaces(out)
+}
+
+// sanitizeWorkspaces drops unaddressable workspaces and terminal control text.
+func sanitizeWorkspaces(ws []Workspace) []Workspace {
+	out := make([]Workspace, 0, len(ws))
+	for _, w := range ws {
+		if !identifier.MatchString(w.ID) {
+			continue
+		}
+		out = append(out, Workspace{ID: w.ID, Label: clean(w.Label, 256), CWD: clean(w.CWD, 4096), AgentStatus: clean(w.AgentStatus, 64)})
+	}
+	return out
+}
+
+// clean removes control characters and bounds text taken from another process.
+func clean(text string, limit int) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, text)
+	if len(text) > limit {
+		text = strings.ToValidUTF8(text[:limit], "")
+	}
+	return text
+}
+
 func (s *Server) expireCatalog() {
 	for i := range s.catalog {
 		if time.Since(s.catalog[i].UpdatedAt) > 10*time.Second {
@@ -160,7 +240,7 @@ func (s *Server) Handle(ctx context.Context, r Request) Response {
 		return Response{}
 	case "focus":
 		return s.focusWorkspace(ctx, r.WorkspaceID)
-	case "subscribe", "unsubscribe":
+	case "subscribe", "unsubscribe", "complete":
 		return fail(r.Op + " requires a daemon stream")
 	case "register", "poll", "ack", "unregister":
 		return fail("controller leases were replaced by stream subscriptions; install the same herdr-sesh version on both machines")
@@ -177,7 +257,10 @@ func (s *Server) Handle(ctx context.Context, r Request) Response {
 		b, _ := json.Marshal(s.catalog[:n])
 		var c []Machine
 		_ = json.Unmarshal(b, &c)
-		return Response{Catalog: c}
+		if r.Op == "export" {
+			return Response{Catalog: c}
+		}
+		return Response{Catalog: c, SwitchError: s.switchError}
 	case "switch":
 		return s.queueSwitch(r)
 	default:
@@ -194,16 +277,20 @@ func (s *Server) queueSwitch(r Request) Response {
 	if !identifier.MatchString(r.WorkspaceID) {
 		return fail("invalid workspace id")
 	}
+	if !s.controller.machines[r.MachineID] {
+		return fail(fmt.Sprintf("machine %q is not in the attached wrapper's remote.toml allowlist", r.MachineID))
+	}
+	if s.controller.busy {
+		return fail("a switch is already in progress")
+	}
 	for _, m := range s.catalog {
 		if m.ID == r.MachineID && !m.Stale {
 			for _, w := range m.Workspaces {
 				if w.ID == r.WorkspaceID {
-					select {
-					case s.controller.targets <- Target{MachineID: m.ID, WorkspaceID: w.ID}:
-						return Response{}
-					default:
-						return fail("a switch is already pending")
-					}
+					// busy guarantees the one-slot channel is empty.
+					s.controller.targets <- Target{MachineID: m.ID, WorkspaceID: w.ID}
+					s.controller.busy = true
+					return Response{}
 				}
 			}
 		}
@@ -211,14 +298,34 @@ func (s *Server) queueSwitch(r Request) Response {
 	return fail("workspace unavailable")
 }
 
-func (s *Server) subscribe() (*controller, error) {
+func (s *Server) subscribe(machines []string) (*controller, error) {
+	if len(machines) == 0 || len(machines) > 256 {
+		return nil, errors.New("subscribe requires the controller's reachable machines")
+	}
+	allowed := map[string]bool{}
+	for _, id := range machines {
+		if !identifier.MatchString(id) {
+			return nil, errors.New("invalid machine id")
+		}
+		allowed[id] = true
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.controller != nil {
 		return nil, errors.New("another controller is active")
 	}
-	s.controller = &controller{targets: make(chan Target, 1), done: make(chan struct{})}
+	s.controller = &controller{targets: make(chan Target, 1), done: make(chan struct{}), machines: allowed}
 	return s.controller, nil
+}
+
+// complete ends the controller's in-flight switch and records its outcome.
+func (s *Server) complete(c *controller, failure string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.controller == c {
+		c.busy = false
+		s.switchError = clean(failure, 512)
+	}
 }
 
 func (s *Server) release(c *controller) {
@@ -309,7 +416,14 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 	case !rpcMethods[r.Op]:
 		c.write(rpcFailure(id, codeMethodNotFound, "method not found"))
 	case r.Op == "subscribe":
-		c.subscribe(id)
+		c.subscribe(id, r.Machines)
+	case r.Op == "complete":
+		if c.sub == nil {
+			c.write(rpcFailure(id, codeDaemonError, "stream is not subscribed"))
+			return
+		}
+		c.s.complete(c.sub, r.Failure)
+		c.write(rpcReply(id, r.Op, Response{}))
 	case r.Op == "unsubscribe":
 		if c.sub != nil {
 			c.s.release(c.sub)
@@ -322,12 +436,12 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 }
 
 // subscribe answers before any switch is pushed on this stream.
-func (c *connState) subscribe(id json.RawMessage) {
+func (c *connState) subscribe(id json.RawMessage, machines []string) {
 	if c.sub != nil {
 		c.write(rpcFailure(id, codeDaemonError, "stream is already subscribed"))
 		return
 	}
-	sub, err := c.s.subscribe()
+	sub, err := c.s.subscribe(machines)
 	if err != nil {
 		c.write(rpcFailure(id, codeDaemonError, err.Error()))
 		return

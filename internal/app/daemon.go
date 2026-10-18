@@ -32,11 +32,15 @@ func (a *App) daemon(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "serve":
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 		defer stop()
 		client := herdr.NewCLIClient()
 		client.Runner = daemonHerdrRunner{session: cfg.HerdrSession}
-		return remote.NewServer(cfg, client).Serve(ctx)
+		server := remote.NewServer(cfg, client)
+		server.Logf = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(a.Err, "herdr-sesh daemon: "+format+"\n", args...)
+		}
+		return server.Serve(ctx)
 	case "list":
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()

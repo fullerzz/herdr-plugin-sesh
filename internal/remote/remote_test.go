@@ -2,7 +2,9 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -39,7 +41,7 @@ func TestCatalogKeepsFailedPeersStaleAndExportLocal(t *testing.T) {
 		if fail {
 			return Response{}, errors.New("offline")
 		}
-		return Response{Catalog: []Machine{{ID: "other", Workspaces: []herdr.Workspace{{ID: "remote1"}}}}}, nil
+		return Response{Catalog: []Machine{{ID: "other", Workspaces: []Workspace{{ID: "remote1"}}}}}, nil
 	}
 	s.refresh(context.Background())
 	r := s.Handle(context.Background(), Request{Op: "list"})
@@ -219,4 +221,59 @@ func TestSocketLockPersistsAndRejectsUnsafePaths(t *testing.T) {
 	require.Error(t, err)
 	_, err = os.Lstat(p + ".lock")
 	require.NoError(t, err)
+}
+
+type inventoryClient struct{ workspaces []herdr.Workspace }
+
+func (c inventoryClient) WorkspaceList(context.Context) ([]herdr.Workspace, error) {
+	return c.workspaces, nil
+}
+func (inventoryClient) WorkspaceFocus(context.Context, string) error { return nil }
+
+func TestCatalogSharesOnlySanitizedWireWorkspaces(t *testing.T) {
+	local := []herdr.Workspace{{ID: "ws1", Label: "one", CWD: "/src", AgentStatus: "idle", ForegroundCWD: "/secret", Tokens: map[string]string{"token": "secret"}}}
+	s := NewServer(testConfig(), inventoryClient{workspaces: local})
+	s.PeerCall = func(context.Context, Peer, Request) (Response, error) {
+		return Response{Catalog: []Machine{{ID: "other", Workspaces: []Workspace{
+			{ID: "--evil", Label: "dropped"},
+			{ID: "w1", Label: "\x1b]0;title\x07red\x1b[31m", CWD: "/tmp\n/x", AgentStatus: "busy\r"},
+		}}}}, nil
+	}
+	ctx := context.Background()
+	s.refresh(ctx)
+	export := s.Handle(ctx, Request{Op: "export"})
+	b, err := json.Marshal(export)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "secret")
+	require.Len(t, export.Catalog, 1)
+	assert.Equal(t, []Workspace{{ID: "ws1", Label: "one", CWD: "/src", AgentStatus: "idle"}}, export.Catalog[0].Workspaces)
+	listed := s.Handle(ctx, Request{Op: "list"})
+	require.Len(t, listed.Catalog, 2)
+	assert.Equal(t, []Workspace{{ID: "w1", Label: "]0;titlered[31m", CWD: "/tmp/x", AgentStatus: "busy"}}, listed.Catalog[1].Workspaces)
+}
+
+func TestRefreshRecordsAndLogsPeerAvailability(t *testing.T) {
+	s := NewServer(testConfig(), &fakeClient{})
+	var logs []string
+	s.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
+	var peerErr error
+	s.PeerCall = func(context.Context, Peer, Request) (Response, error) {
+		if peerErr != nil {
+			return Response{}, peerErr
+		}
+		return Response{Catalog: []Machine{{ID: "other"}}}, nil
+	}
+	ctx := context.Background()
+	peerErr = errors.New("peer other: Connection refused")
+	s.refresh(ctx)
+	s.refresh(ctx)
+	listed := s.Handle(ctx, Request{Op: "list"})
+	require.Len(t, listed.Catalog, 2)
+	assert.True(t, listed.Catalog[1].Stale)
+	assert.Equal(t, "peer other: Connection refused", listed.Catalog[1].LastError)
+	peerErr = nil
+	s.refresh(ctx)
+	listed = s.Handle(ctx, Request{Op: "list"})
+	assert.Empty(t, listed.Catalog[1].LastError)
+	assert.Equal(t, []string{"machine other unavailable: peer other: Connection refused", "machine other available"}, logs)
 }

@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +30,6 @@ func TestAttachRoutesOnlyConfiguredMachines(t *testing.T) {
 	assert.Equal(t, []string{"--remote", "user@server", "--session", "work"}, attachArgs(cfg, peer))
 	_, err = resolveAttachEndpoint(cfg, "untrusted")
 	require.Error(t, err)
-	assert.Equal(t, []string{"PATH=/bin", "TERM=xterm", "HERDR_SESH_REMOTE_CONFIG=/custom.toml"}, attachEnvironment([]string{"HERDR_SOCKET_PATH=/wrong", "PATH=/bin", "HERDR_PANE_ID=w1:p1", "TERM=xterm", "HERDR_SESH_REMOTE_CONFIG=/custom.toml"}))
 }
 
 // fakeTransport serves attach requests from in-memory machines.
@@ -64,7 +66,15 @@ func (f *fakeTransport) Subscribe(_ context.Context, endpoint attachEndpoint) (a
 	if err != nil {
 		return attachSubscription{}, err
 	}
-	return attachSubscription{targets: ch, err: func() error { return errors.New("stream lost") }, close: func() { f.record(endpoint.id + ":release") }}, nil
+	return attachSubscription{
+		targets: ch,
+		err:     func() error { return errors.New("stream lost") },
+		close:   func() { f.record(endpoint.id + ":release") },
+		complete: func(_ context.Context, failure error) error {
+			f.record(fmt.Sprintf("%s:complete:%v", endpoint.id, failure))
+			return nil
+		},
+	}, nil
 }
 
 func exportFor(cfg remote.Config) func(attachEndpoint, remote.Request) (remote.Response, error) {
@@ -136,38 +146,131 @@ func TestAttachReplacesOnlyOwnedClientAndReleasesControllers(t *testing.T) {
 	assert.Equal(t, "--session default\n--remote host --session work\n", string(data))
 }
 
-func TestAttachResubscribesAfterLostStream(t *testing.T) {
+func TestAttachKeepsClientWhenControllerIsLost(t *testing.T) {
 	saved := resubscribeDelays
 	resubscribeDelays = []time.Duration{0, 10 * time.Millisecond}
 	t.Cleanup(func() { resubscribeDelays = saved })
 	bin, logFile := fakeHerdr(t)
 	cfg := remote.Config{ID: "local", HerdrSession: "default"}
-	for _, recovers := range []bool{true, false} {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		subscriptions := 0
-		transport := &fakeTransport{call: exportFor(cfg)}
-		transport.subscribe = func(attachEndpoint) (chan remote.Target, error) {
-			subscriptions++
-			switch {
-			case subscriptions == 1:
-				ch := make(chan remote.Target)
-				waitForLog(ctx, logFile, "--session default", func() { close(ch) })
-				return ch, nil
-			case recovers:
-				cancel()
-				return make(chan remote.Target), nil
-			default:
-				return nil, errors.New("another controller is active")
-			}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	var subscriptions atomic.Int32
+	transport := &fakeTransport{call: exportFor(cfg)}
+	transport.subscribe = func(attachEndpoint) (chan remote.Target, error) {
+		switch n := subscriptions.Add(1); {
+		case n == 1:
+			ch := make(chan remote.Target)
+			waitForLog(ctx, logFile, "--session default", func() { close(ch) })
+			return ch, nil
+		case n < 5:
+			// The daemon restarts slower than several retries.
+			return nil, errors.New("connection refused")
+		default:
+			ch := make(chan remote.Target, 1)
+			ch <- remote.Target{MachineID: "local", WorkspaceID: "w1"}
+			return ch, nil
 		}
-		err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, io.Discard, func() error { return nil })
-		cancel()
-		if recovers {
-			require.ErrorIs(t, err, context.Canceled)
-			assert.Equal(t, 2, subscriptions)
+	}
+	transport.call = func(endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
+		if req.Op == "focus" {
+			cancel()
+		}
+		return exportFor(cfg)(endpoint, req)
+	}
+	var errOut bytes.Buffer
+	var mu sync.Mutex
+	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut}, func() error { return nil })
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, err.Error(), "controller lost")
+	assert.Equal(t, int32(5), subscriptions.Load())
+	mu.Lock()
+	assert.Equal(t, 1, strings.Count(errOut.String(), "Remote switching unavailable"))
+	mu.Unlock()
+	data, err := os.ReadFile(logFile.Name())
+	require.NoError(t, err)
+	// The original client stayed attached; switching resumed on the new controller.
+	assert.Equal(t, "--session default\n", string(data))
+	assert.Contains(t, transport.recorded(), "local:focus")
+}
+
+func TestAttachCompletesEachSwitch(t *testing.T) {
+	bin, logFile := fakeHerdr(t)
+	cfg := remote.Config{ID: "local", HerdrSession: "default"}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	targets := make(chan remote.Target, 2)
+	targets <- remote.Target{MachineID: "local", WorkspaceID: "gone"}
+	targets <- remote.Target{MachineID: "local", WorkspaceID: "w1"}
+	transport := &fakeTransport{subscribe: func(attachEndpoint) (chan remote.Target, error) { return targets, nil }}
+	transport.call = func(endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
+		if req.Op == "focus" && req.WorkspaceID == "gone" {
+			return remote.Response{}, errors.New("workspace no longer exists")
+		}
+		return exportFor(cfg)(endpoint, req)
+	}
+	go func() {
+		for ctx.Err() == nil {
+			if slices.Contains(transport.recorded(), "local:complete:<nil>") {
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	var errOut bytes.Buffer
+	var mu sync.Mutex
+	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut}, func() error { return nil })
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, []string{
+		"local:export", "local:subscribe",
+		"local:focus", "local:complete:workspace no longer exists",
+		"local:focus", "local:complete:<nil>",
+		"local:release",
+	}, transport.recorded())
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, errOut.String(), "Remote switch failed: workspace no longer exists")
+}
+
+// lockedWriter lets the test read stderr the attached child also writes.
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+func TestAttachEnvironmentDropsOnlyHerdrContext(t *testing.T) {
+	for _, tc := range []struct {
+		entry string
+		kept  bool
+	}{
+		{"PATH=/bin", true},
+		{"HERDR_CONFIG_PATH=/my/herdr.toml", true},
+		{"HERDR_SESH_CONFIG=/my/sesh.toml", true},
+		{"HERDR_SESH_PICKER=native", true},
+		{"HERDR_SESH_REMOTE_CONFIG=/my/remote.toml", true},
+		{"HERDR_BIN_PATH=/opt/herdr", true},
+		{"HERDR_ENV=1", false},
+		{"HERDR_SESSION=other", false},
+		{"HERDR_SOCKET_PATH=/wrong.sock", false},
+		{"HERDR_CLIENT_SOCKET_PATH=/wrong-client.sock", false},
+		{"HERDR_WORKSPACE_ID=w1", false},
+		{"HERDR_TAB_ID=w1:t1", false},
+		{"HERDR_PANE_ID=w1:p1", false},
+		{"HERDR_PANE_RUNTIME_ID=r1", false},
+		{"HERDR_PLUGIN_STATE_DIR=/state", false},
+		{"HERDR_ACTIVE_PANE_CWD=/src", false},
+	} {
+		got := attachEnvironment([]string{tc.entry})
+		if tc.kept {
+			assert.Equal(t, []string{tc.entry}, got, tc.entry)
 		} else {
-			require.ErrorContains(t, err, "attachment controller lost: another controller is active")
-			assert.Equal(t, 1+len(resubscribeDelays), subscriptions)
+			assert.Empty(t, got, tc.entry)
 		}
 	}
 }
