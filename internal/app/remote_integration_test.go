@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/stretchr/testify/assert"
@@ -57,7 +56,7 @@ func TestRemoteCatalogSnapshotAndSwitch(t *testing.T) {
 			e = json.NewDecoder(conn).Decode(&request)
 			if e == nil {
 				requests <- request
-				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: []remote.Machine{{ID: "peer", Session: "main", Stale: true, Workspaces: []herdr.Workspace{{ID: "w1", Label: "same", CWD: "/remote"}}}}})
+				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: []remote.Machine{{ID: "peer", Session: "main", Stale: true, Workspaces: []remote.Workspace{{ID: "w1", Label: "same", CWD: "/remote"}}}}})
 			}
 			_ = conn.Close()
 			if e != nil {
@@ -134,7 +133,7 @@ func TestRemoteBlacklistAppliesToPickerAndList(t *testing.T) {
 			var request remote.Request
 			e = json.NewDecoder(conn).Decode(&request)
 			if e == nil {
-				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: []remote.Machine{{ID: "peer", Session: "main", Workspaces: []herdr.Workspace{{ID: "w1", Label: "hidden"}, {ID: "w2", Label: "visible"}}}}})
+				e = json.NewEncoder(conn).Encode(remote.Response{Catalog: []remote.Machine{{ID: "peer", Session: "main", Workspaces: []remote.Workspace{{ID: "w1", Label: "hidden"}, {ID: "w2", Label: "visible"}}}}})
 			}
 			_ = conn.Close()
 			if e != nil {

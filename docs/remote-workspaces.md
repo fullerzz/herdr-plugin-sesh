@@ -26,9 +26,10 @@ switching. A plain `herdr` launch can display remote picker entries but cannot
 accept switching requests without a wrapper. One wrapper may control a machine's
 daemon at a time. The wrapper subscribes over a persistent stream to the daemon
 of the machine it is attached to, and that stream is the registration: the daemon
-releases the controller as soon as the stream closes, or after 30 seconds without
-the wrapper's keepalive when a network drop leaves it half-open. Another
-subscription is rejected until then. Other Herdr clients can still attach, but
+releases the controller as soon as the stream closes, including when the
+terminal closes and the wrapper exits, or after 30 seconds without the wrapper's
+keepalive when a network drop leaves it half-open. Another subscription is
+rejected until then. Other Herdr clients can still attach, but
 picker requests on that machine target its subscribed wrapper, so use this mode
 with one interactive switching client.
 
@@ -98,10 +99,12 @@ herdr-sesh daemon serve
 ```
 
 It runs in the foreground for supervision by a user service manager. Stop it with
-Ctrl+C or SIGTERM. A private Unix socket serves local requests; no TCP listener
+Ctrl+C, SIGTERM, or SIGHUP. A private Unix socket serves local requests; no TCP listener
 is opened. Catalog refreshes happen in the daemon, so the picker only makes a
 bounded local request. Unreachable peers retain their last catalog marked offline,
-and switching to offline entries is rejected.
+and switching to offline entries is rejected. Peers share only each workspace's
+ID, label, working directory, and agent status. Received entries with invalid IDs
+are dropped, and control characters are removed from their text.
 
 For a Linux user service, create `~/.config/systemd/user/herdr-sesh-daemon.service`:
 
@@ -143,8 +146,12 @@ herdr-sesh list --json
 The plain list prints a remote connect key in its final column. Pass it to
 `herdr-sesh connect KEY` to send a switch to the active wrapper. The daemon pushes
 it over the wrapper's stream; successful submission means it was handed to that
-stream, and a subsequent connection failure is reported by the wrapper. Another
-selection is rejected while one is still waiting to be sent. Remote rows obey
+stream. Selections the wrapper could never complete are rejected immediately: the
+wrapper tells its daemon which machines its own `remote.toml` allows, so a
+machine known only to the daemon's catalog fails in `connect` and the picker.
+Another selection is rejected until the wrapper finishes the current one. If the
+switch fails later, the wrapper prints the error and the daemon keeps it as
+`switch_error` in `herdr-sesh daemon list` until the next switch succeeds. Remote rows obey
 the normal blacklist and provide metadata previews only. Missing remote keys fail
 explicitly instead of being interpreted as local paths. Closing a remote workspace
 and applying local startup/layout configuration to remote entries are disabled.
@@ -153,8 +160,12 @@ Local previous-workspace history remains local to each Herdr session.
 If switching reports no active controller, start with `herdr-sesh attach`.
 If it reports another controller, detach the existing wrapper; after a crash or
 network drop the daemon releases it within 30 seconds. When its stream drops,
-the wrapper resubscribes for a few seconds and then exits; running server panes
-remain intact. A protocol handshake failure means the machines run incompatible
+for example because the daemon restarts, the wrapper warns once, keeps the
+attached Herdr client running, and resubscribes in the background; only
+switching is unavailable until then. `herdr-sesh daemon list` reports each
+machine's `last_error`, and `herdr-sesh daemon serve` logs when a machine
+becomes unavailable or recovers. SSH failures include the bounded `ssh` error
+output. A protocol handshake failure means the machines run incompatible
 `herdr-sesh` versions, or a daemon started before an upgrade is still running:
 update both and restart their daemons. Older wrappers that still use the
 one-request-per-SSH-call mode can read catalogs for one more release but cannot

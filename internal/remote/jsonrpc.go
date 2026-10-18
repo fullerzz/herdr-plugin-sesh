@@ -23,7 +23,7 @@ const switchNotification = "switch"
 
 var rpcMethods = map[string]bool{
 	"hello": true, "ping": true, "list": true, "export": true, "focus": true,
-	"switch": true, "subscribe": true, "unsubscribe": true,
+	"switch": true, "subscribe": true, "unsubscribe": true, "complete": true,
 }
 
 type rpcError struct {
@@ -62,19 +62,23 @@ type rpcNotification struct {
 }
 
 type rpcParams struct {
-	Version     int    `json:"version,omitempty"`
-	MachineID   string `json:"machine_id,omitempty"`
-	WorkspaceID string `json:"workspace_id,omitempty"`
+	Version     int      `json:"version,omitempty"`
+	MachineID   string   `json:"machine_id,omitempty"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
+	Machines    []string `json:"machines,omitempty"`
+	Failure     string   `json:"failure,omitempty"`
 }
 
 type rpcResult struct {
-	Version int       `json:"version,omitempty"`
-	Catalog []Machine `json:"catalog,omitempty"`
+	Version     int       `json:"version,omitempty"`
+	Catalog     []Machine `json:"catalog,omitempty"`
+	SwitchError string    `json:"switch_error,omitempty"`
 }
 
 func newRPCRequest(id uint64, r Request) rpcRequest {
 	m := rpcRequest{JSONRPC: jsonrpcVersion, ID: id, Method: r.Op}
-	if p := (rpcParams{Version: r.Version, MachineID: r.MachineID, WorkspaceID: r.WorkspaceID}); p != (rpcParams{}) {
+	p := rpcParams{Version: r.Version, MachineID: r.MachineID, WorkspaceID: r.WorkspaceID, Machines: r.Machines, Failure: r.Failure}
+	if p.Version != 0 || p.MachineID != "" || p.WorkspaceID != "" || len(p.Machines) > 0 || p.Failure != "" {
 		m.Params = &p
 	}
 	return m
@@ -116,7 +120,7 @@ func decodeRPC(line []byte) (Request, json.RawMessage, *rpcError) {
 			return Request{}, m.ID, &rpcError{Code: codeInvalidParams, Message: "invalid params"}
 		}
 	}
-	return Request{Op: m.Method, Version: p.Version, MachineID: p.MachineID, WorkspaceID: p.WorkspaceID}, m.ID, nil
+	return Request{Op: m.Method, Version: p.Version, MachineID: p.MachineID, WorkspaceID: p.WorkspaceID, Machines: p.Machines, Failure: p.Failure}, m.ID, nil
 }
 
 // validID accepts the JSON-RPC id forms: string, number, or null.
@@ -140,7 +144,7 @@ func rpcReply(id json.RawMessage, op string, r Response) rpcResponse {
 		}
 		return rpcFailure(id, code, r.Error)
 	}
-	return rpcResponse{JSONRPC: jsonrpcVersion, ID: replyID(id), Result: &rpcResult{Version: r.Version, Catalog: r.Catalog}}
+	return rpcResponse{JSONRPC: jsonrpcVersion, ID: replyID(id), Result: &rpcResult{Version: r.Version, Catalog: r.Catalog, SwitchError: r.SwitchError}}
 }
 
 func rpcFailure(id json.RawMessage, code int, message string) rpcResponse {
@@ -163,5 +167,5 @@ func rpcResponseOf(m rpcMessage) Response {
 	if err := json.Unmarshal(m.Result, &result); err != nil {
 		return Response{Error: "invalid daemon result"}
 	}
-	return Response{Version: result.Version, Catalog: result.Catalog}
+	return Response{Version: result.Version, Catalog: result.Catalog, SwitchError: result.SwitchError}
 }

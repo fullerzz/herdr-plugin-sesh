@@ -72,14 +72,14 @@ func (c *StreamClient) Call(ctx context.Context, r Request) (Response, error) {
 	return s.call(ctx, r)
 }
 
-// Subscribe registers this stream as the machine's attach controller.
-// The daemon releases the controller when the stream closes.
-func (c *StreamClient) Subscribe(ctx context.Context) (*Subscription, error) {
+// Subscribe registers this stream as the machine's attach controller for
+// switches to machines. The daemon releases the controller when the stream closes.
+func (c *StreamClient) Subscribe(ctx context.Context, machines []string) (*Subscription, error) {
 	s, err := c.stream(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.subscribe(ctx)
+	return s.subscribe(ctx, machines)
 }
 
 func (c *StreamClient) Close() error {
@@ -168,11 +168,7 @@ func (c *StreamClient) handshake(ctx context.Context) (*stream, error) {
 	}
 	if err != nil {
 		s.fail(err)
-		if d, ok := rwc.(interface{ diagnostic() string }); ok {
-			if msg := d.diagnostic(); msg != "" {
-				err = fmt.Errorf("%w (remote: %s)", err, msg)
-			}
-		}
+		err = withDiagnostic(rwc, err)
 		return nil, fmt.Errorf("peer %s: protocol v%d handshake failed; install the same herdr-sesh version on both machines and restart their daemons: %w", c.name, ProtocolVersion, err)
 	}
 	return s, nil
@@ -236,7 +232,11 @@ func (s *stream) readLoop() {
 			if errors.Is(err, io.EOF) {
 				err = io.ErrUnexpectedEOF
 			}
-			s.fail(fmt.Errorf("read daemon stream: %w", err))
+			err = fmt.Errorf("read daemon stream: %w", err)
+			if s.alive() {
+				err = withDiagnostic(s.rwc, err)
+			}
+			s.fail(err)
 			return
 		}
 		if err := s.dispatch(line); err != nil {
@@ -362,9 +362,9 @@ func (s *stream) call(ctx context.Context, r Request) (Response, error) {
 	return s.send(ctx, r, nil)
 }
 
-func (s *stream) subscribe(ctx context.Context) (*Subscription, error) {
+func (s *stream) subscribe(ctx context.Context, machines []string) (*Subscription, error) {
 	ch := make(chan Target, 4)
-	if _, err := s.send(ctx, Request{Op: "subscribe"}, ch); err != nil {
+	if _, err := s.send(ctx, Request{Op: "subscribe", Machines: machines}, ch); err != nil {
 		return nil, err
 	}
 	return &Subscription{stream: s, targets: ch}, nil
@@ -402,6 +402,17 @@ type Subscription struct {
 func (s *Subscription) Targets() <-chan Target { return s.targets }
 
 func (s *Subscription) Err() error { return s.stream.failure() }
+
+// Complete ends the delivered switch so the daemon accepts the next one.
+// A non-nil failure is recorded for `herdr-sesh daemon list`.
+func (s *Subscription) Complete(ctx context.Context, failure error) error {
+	r := Request{Op: "complete"}
+	if failure != nil {
+		r.Failure = failure.Error()
+	}
+	_, err := s.stream.call(ctx, r)
+	return err
+}
 
 // Close releases the controller while keeping the shared stream open.
 func (s *Subscription) Close() {
@@ -452,6 +463,16 @@ func SSHArgs(p Peer) []string {
 		"-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3",
 		"--", p.SSH, "herdr-sesh", "daemon", "rpc", "--stream",
 	}
+}
+
+// withDiagnostic appends a transport's bounded error output, such as ssh stderr.
+func withDiagnostic(rwc io.ReadWriteCloser, err error) error {
+	if d, ok := rwc.(interface{ diagnostic() string }); ok {
+		if msg := d.diagnostic(); msg != "" && !strings.Contains(err.Error(), msg) {
+			return fmt.Errorf("%w (remote: %s)", err, msg)
+		}
+	}
+	return err
 }
 
 // sshConn is a stdio stream to `herdr-sesh daemon rpc --stream` on a peer.

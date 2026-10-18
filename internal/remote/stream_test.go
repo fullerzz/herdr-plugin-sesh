@@ -20,6 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// local is the controller allowlist used against startDaemon's machine.
+var local = []string{"local"}
+
 // fakeRequest is one JSON-RPC call received by fakeDaemon.
 type fakeRequest struct {
 	ID     json.RawMessage
@@ -205,11 +208,11 @@ func TestClosingSubscribeStreamReleasesController(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	first := NewUnixClient(c)
-	sub, err := first.Subscribe(ctx)
+	sub, err := first.Subscribe(ctx, local)
 	require.NoError(t, err)
 	second := NewUnixClient(c)
 	t.Cleanup(func() { _ = second.Close() })
-	_, err = second.Subscribe(ctx)
+	_, err = second.Subscribe(ctx, local)
 	require.ErrorContains(t, err, "another controller is active")
 
 	_, err = Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "missing"})
@@ -228,7 +231,7 @@ func TestClosingSubscribeStreamReleasesController(t *testing.T) {
 	assert.False(t, open)
 	var next *Subscription
 	require.Eventually(t, func() bool {
-		next, err = second.Subscribe(ctx)
+		next, err = second.Subscribe(ctx, local)
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
 
@@ -238,7 +241,7 @@ func TestClosingSubscribeStreamReleasesController(t *testing.T) {
 	require.NoError(t, err)
 	third := NewUnixClient(c)
 	t.Cleanup(func() { _ = third.Close() })
-	_, err = third.Subscribe(ctx)
+	_, err = third.Subscribe(ctx, local)
 	require.NoError(t, err)
 	_, err = Call(ctx, c, Request{Op: "subscribe"})
 	require.ErrorContains(t, err, "requires a daemon stream")
@@ -251,7 +254,7 @@ func TestIdleStreamReleasesController(t *testing.T) {
 	quiet := NewUnixClient(c)
 	quiet.PingInterval = 0
 	t.Cleanup(func() { _ = quiet.Close() })
-	sub, err := quiet.Subscribe(ctx)
+	sub, err := quiet.Subscribe(ctx, local)
 	require.NoError(t, err)
 	select {
 	case _, open := <-sub.Targets():
@@ -285,7 +288,7 @@ func TestRelayStreamsAndReleasesOnStdinClose(t *testing.T) {
 		return rpcResponseOf(m)
 	}
 	assert.Equal(t, ProtocolVersion, send(Request{Op: "hello", Version: ProtocolVersion}).Version)
-	assert.Empty(t, send(Request{Op: "subscribe"}).Error)
+	assert.Empty(t, send(Request{Op: "subscribe", Machines: local}).Error)
 	_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
 	require.NoError(t, err)
 	require.True(t, responses.Scan())
@@ -296,7 +299,7 @@ func TestRelayStreamsAndReleasesOnStdinClose(t *testing.T) {
 	require.NoError(t, <-done)
 	other := NewUnixClient(c)
 	t.Cleanup(func() { _ = other.Close() })
-	require.Eventually(t, func() bool { _, err := other.Subscribe(ctx); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { _, err := other.Subscribe(ctx, local); return err == nil }, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestRelayRejectsOversizedRequests(t *testing.T) {
@@ -330,4 +333,68 @@ func TestDaemonStreamFollowsJSONRPC(t *testing.T) {
 	_, err = io.WriteString(conn, `{"jsonrpc":"2.0","method":"ping"}`+"\n")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":7,"result":{}}`, exchange(`{"jsonrpc":"2.0","id":7,"method":"ping"}`))
+}
+
+func TestSwitchWaitsForControllerToComplete(t *testing.T) {
+	c := startDaemon(t, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := NewUnixClient(c)
+	t.Cleanup(func() { _ = client.Close() })
+	sub, err := client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	queue := func() error {
+		_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
+		return err
+	}
+	require.NoError(t, queue())
+	// Delivery alone must not admit a second selection that could be dropped.
+	<-sub.Targets()
+	require.ErrorContains(t, queue(), "already in progress")
+	require.NoError(t, sub.Complete(ctx, errors.New("workspace no longer exists")))
+	listed, err := Call(ctx, c, Request{Op: "list"})
+	require.NoError(t, err)
+	assert.Equal(t, "workspace no longer exists", listed.SwitchError)
+	require.NoError(t, queue())
+	<-sub.Targets()
+	require.NoError(t, sub.Complete(ctx, nil))
+	listed, err = Call(ctx, c, Request{Op: "list"})
+	require.NoError(t, err)
+	assert.Empty(t, listed.SwitchError)
+
+	// Releasing the controller mid-switch also ends that switch.
+	require.NoError(t, queue())
+	require.NoError(t, client.Close())
+	next := NewUnixClient(c)
+	t.Cleanup(func() { _ = next.Close() })
+	require.Eventually(t, func() bool { _, err := next.Subscribe(ctx, local); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.NoError(t, queue())
+}
+
+func TestSwitchRejectsMachinesTheControllerCannotReach(t *testing.T) {
+	c := startDaemon(t, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := NewUnixClient(c)
+	t.Cleanup(func() { _ = client.Close() })
+	_, err := client.Subscribe(ctx, nil)
+	require.ErrorContains(t, err, "reachable machines")
+	_, err = client.Subscribe(ctx, []string{"--bad"})
+	require.ErrorContains(t, err, "invalid machine id")
+	_, err = client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	_, err = Call(ctx, c, Request{Op: "switch", MachineID: "elsewhere", WorkspaceID: "ws1"})
+	require.ErrorContains(t, err, `machine "elsewhere" is not in the attached wrapper's remote.toml allowlist`)
+}
+
+func TestSSHStreamErrorsIncludeStderr(t *testing.T) {
+	dir := t.TempDir()
+	// The fake ssh fails the way an unapproved host key or key does.
+	//nolint:gosec // Executable fixture lives in the test-owned temporary directory.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh"), []byte("#!/bin/sh\necho 'Permission denied (publickey).' >&2\nexit 255\n"), 0700))
+	t.Setenv("PATH", dir)
+	c := NewSSHClient(Peer{ID: "server", SSH: "server"})
+	t.Cleanup(func() { _ = c.Close() })
+	_, err := c.Call(context.Background(), Request{Op: "list"})
+	require.ErrorContains(t, err, "Permission denied (publickey).")
 }
