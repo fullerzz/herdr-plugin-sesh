@@ -19,6 +19,9 @@ import (
 )
 
 func RenderPane(ctx context.Context, s model.Session) (string, error) {
+	if s.Source == model.SourceRemote {
+		return RemoteMetadata(s), nil
+	}
 	if s.Source != "herdr" || s.WorkspaceID == "" {
 		return "Pane preview is only available for running Herdr workspaces\n", nil
 	}
@@ -28,6 +31,9 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 }
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
+	if s.Source == model.SourceRemote {
+		return RemoteMetadata(s), nil
+	}
 	if s.Path == "" {
 		if s.WorkspaceID != "" {
 			return fmt.Sprintf("workspace: %s\nid: %s\npath: %s\n", s.Name, s.WorkspaceID, s.Path), nil
@@ -106,4 +112,12 @@ func directoryFallback(path string) (string, error) {
 	}
 	sort.Strings(lines)
 	return filepath.Clean(path) + "\n" + strings.Join(lines, "\n") + "\n", nil
+}
+
+func RemoteMetadata(s model.Session) string {
+	status := "online"
+	if s.RemoteOffline {
+		status = "offline (cached)"
+	}
+	return fmt.Sprintf("workspace: %s\nmachine: %s\nsession: %s\nid: %s\nstatus: %s\n", s.Name, s.RemoteMachine, s.RemoteSession, s.WorkspaceID, status)
 }

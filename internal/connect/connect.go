@@ -27,7 +27,7 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 		return Result{}, errors.New("herdr client required")
 	}
 	match, ok := Resolve(candidates, target)
-	if !ok {
+	if !ok && !model.IsRemoteTarget(target) {
 		if st, err := os.Stat(target); err == nil && st.IsDir() {
 			name := target
 			if opts.Namer != nil {
@@ -39,6 +39,9 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	}
 	if !ok {
 		return Result{}, errors.New("no matching session")
+	}
+	if match.Source == model.SourceRemote {
+		return Result{}, errors.New("remote sessions require the attach wrapper")
 	}
 	if match.WorkspaceID != "" {
 		if !opts.NoFocus {
@@ -64,7 +67,13 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 
 func Resolve(candidates []model.Session, target string) (model.Session, bool) {
 	for _, s := range candidates {
-		if s.WorkspaceID == target || s.Name == target || s.Path == target {
+		if model.IsRemoteTarget(target) {
+			if s.Source == model.SourceRemote && model.Key(s) == target {
+				return s, true
+			}
+			continue
+		}
+		if model.Key(s) == target || s.Source != model.SourceRemote && (s.WorkspaceID == target || s.Name == target || s.Path == target) {
 			return s, true
 		}
 	}

@@ -95,6 +95,7 @@ func fzfPreviewCommand() string {
 		`source={2}`,
 		`label={4}`,
 		`item_path={5}`,
+		`if [ "$source" = remote ]; then printf '%s\nRemote workspace metadata only\n' "$label"; exit 0; fi`,
 		`if [ -z "$item_path" ] || [ ! -d "$item_path" ]; then`,
 		`  printf 'No item path available\n'`,
 		`  exit 0`,
@@ -125,7 +126,7 @@ func fzfPreviewCommand() string {
 
 func fzfLabel(s sessionmodel.Session) string {
 	if s.Name != "" {
-		return s.Name
+		return s.DisplayName()
 	}
 	return s.Path
 }

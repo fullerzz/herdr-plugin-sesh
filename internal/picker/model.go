@@ -31,7 +31,7 @@ func (m *Model) Filter(q string) {
 	var pathMatches []model.Session
 	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
-		nameMatch := Match(s.Name, q, m.SeparatorAware)
+		nameMatch := Match(s.DisplayName(), q, m.SeparatorAware)
 		pathMatch := Match(s.Path, q, m.SeparatorAware) || homeQuery && isHomePath(s.Path)
 		if !nameMatch && !pathMatch {
 			continue
@@ -65,7 +65,7 @@ func (m *Model) Move(delta int) {
 }
 func (m *Model) UpdateAgentStatuses(statuses map[string]string) {
 	for i := range m.All {
-		if m.All[i].WorkspaceID != "" {
+		if m.All[i].Source != model.SourceRemote && m.All[i].WorkspaceID != "" {
 			m.All[i].AgentStatus = statuses[m.All[i].WorkspaceID]
 		}
 	}

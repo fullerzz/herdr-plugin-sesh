@@ -69,6 +69,7 @@ new workspace from the picker.
 - [Switch previews or change their shortcut](keybindings.md#native-picker-previews).
 - [Open a project with named tabs and split panes](config/layouts.md#pane-layout-walkthrough).
 - [Use direct CLI commands](commands.md#command-reference).
+- [Opt in to remote workspace discovery and switching](remote-workspaces.md).
 - [Diagnose a missing workspace or unexpected result](troubleshooting.md).
 
 ## Documentation versions
