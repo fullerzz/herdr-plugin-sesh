@@ -35,9 +35,15 @@ func LoadConfig() (Config, error) {
 	p := os.Getenv("HERDR_SESH_REMOTE_CONFIG")
 	explicit := p != ""
 	if !explicit {
-		d, e := os.UserConfigDir()
-		if e != nil {
-			return Config{}, e
+		d := os.Getenv("XDG_CONFIG_HOME")
+		if d == "" {
+			var e error
+			d, e = os.UserConfigDir()
+			if e != nil {
+				return Config{}, e
+			}
+		} else if !filepath.IsAbs(d) {
+			return Config{}, errors.New("XDG_CONFIG_HOME must be an absolute path")
 		}
 		p = filepath.Join(d, "herdr-sesh", "remote.toml")
 	}

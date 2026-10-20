@@ -47,9 +47,13 @@ Configuration is separate from the regular picker configuration:
 
 - Linux: `$XDG_CONFIG_HOME/herdr-sesh/remote.toml`, or
   `~/.config/herdr-sesh/remote.toml` when unset.
-- macOS: `~/Library/Application Support/herdr-sesh/remote.toml`.
-- Set `HERDR_SESH_REMOTE_CONFIG` to use an explicit file. The remote SSH entry
-  point reads the remote machine's default file; local overrides are not forwarded.
+- macOS: `$XDG_CONFIG_HOME/herdr-sesh/remote.toml` when set, otherwise
+  `~/Library/Application Support/herdr-sesh/remote.toml`.
+- `XDG_CONFIG_HOME` must be an absolute path. Its config takes precedence over
+  the platform default; a missing file leaves remote support disabled.
+- Set `HERDR_SESH_REMOTE_CONFIG` to use an explicit file, taking precedence over
+  `XDG_CONFIG_HOME`. The remote SSH entry point resolves configuration using the
+  remote process's environment; local overrides are not forwarded.
 
 Example for a laptop:
 
