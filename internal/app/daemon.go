@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,9 +18,10 @@ import (
 )
 
 func (a *App) daemon(ctx context.Context, args []string) error {
+	// rpc is the fixed SSH entry point; workspace metadata never becomes shell code.
 	stream := slices.Equal(args, []string{"rpc", "--stream"})
-	if len(args) != 1 && !stream {
-		return errors.New("usage: herdr-sesh daemon serve|list|rpc [--stream]")
+	if !stream && (len(args) != 1 || args[0] == "rpc") {
+		return errors.New("usage: herdr-sesh daemon serve|list|rpc --stream")
 	}
 	cfg, err := remote.LoadConfig()
 	if err != nil {
@@ -50,10 +50,7 @@ func (a *App) daemon(ctx context.Context, args []string) error {
 		}
 		return json.NewEncoder(a.Out).Encode(response)
 	case "rpc":
-		if stream {
-			return remote.Relay(ctx, cfg, os.Stdin, a.Out)
-		}
-		return daemonRPC(ctx, cfg, os.Stdin, a.Out)
+		return remote.Relay(ctx, cfg, os.Stdin, a.Out)
 	default:
 		return fmt.Errorf("unknown daemon command %q", args[0])
 	}
@@ -71,29 +68,4 @@ func (r daemonHerdrRunner) Run(ctx context.Context, bin string, args ...string) 
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	err := cmd.Run()
 	return out.Bytes(), stderr.Bytes(), err
-}
-
-// RPC is a fixed SSH entry point; workspace metadata never becomes shell code.
-// This single-request mode serves clients older than the --stream relay; remove
-// it once those releases are no longer supported.
-func daemonRPC(ctx context.Context, cfg remote.Config, in io.Reader, out io.Writer) error {
-	const maxRequest = 16 * 1024
-	data, err := io.ReadAll(io.LimitReader(in, maxRequest+1))
-	if err != nil {
-		return err
-	}
-	if len(data) > maxRequest {
-		return errors.New("daemon request exceeds 16 KiB")
-	}
-	var request remote.Request
-	if err := json.Unmarshal(data, &request); err != nil {
-		return fmt.Errorf("decode daemon request: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	response, err := remote.Call(ctx, cfg, request)
-	if err != nil {
-		response = remote.Response{Error: err.Error()}
-	}
-	return json.NewEncoder(out).Encode(response)
 }

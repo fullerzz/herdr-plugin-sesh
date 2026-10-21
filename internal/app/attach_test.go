@@ -140,6 +140,7 @@ func TestAttachReplacesOnlyOwnedClientAndReleasesControllers(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.GreaterOrEqual(t, restored, 2)
 	assert.Empty(t, errOut.String())
+	// The source's switch ends with its release; completing first would reopen it.
 	assert.Equal(t, []string{"local:export", "local:subscribe", "remote:export", "remote:subscribe", "remote:focus", "local:release", "remote:release"}, transport.recorded())
 	data, err := os.ReadFile(logFile.Name())
 	require.NoError(t, err)
@@ -275,12 +276,10 @@ func TestAttachEnvironmentDropsOnlyHerdrContext(t *testing.T) {
 	}
 }
 
-func TestDaemonRPCRejectsInvalidAndOversizedRequests(t *testing.T) {
-	for _, input := range []string{"not json", `{}` + `{}`, strings.Repeat("x", 16*1024+1)} {
-		var out bytes.Buffer
-		err := daemonRPC(context.Background(), remote.Config{}, strings.NewReader(input), &out)
-		require.Error(t, err)
-		assert.Empty(t, out.String())
+func TestDaemonRPCRequiresStream(t *testing.T) {
+	a := &App{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	for _, args := range [][]string{{"daemon", "rpc"}, {"daemon", "rpc", "--json"}} {
+		assert.ErrorContains(t, a.Run(context.Background(), args), "usage: herdr-sesh daemon serve|list|rpc --stream")
 	}
 }
 

@@ -242,8 +242,6 @@ func (s *Server) Handle(ctx context.Context, r Request) Response {
 		return s.focusWorkspace(ctx, r.WorkspaceID)
 	case "subscribe", "unsubscribe", "complete":
 		return fail(r.Op + " requires a daemon stream")
-	case "register", "poll", "ack", "unregister":
-		return fail("controller leases were replaced by stream subscriptions; install the same herdr-sesh version on both machines")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -328,16 +326,27 @@ func (s *Server) complete(c *controller, failure string) {
 	}
 }
 
-func (s *Server) release(c *controller) {
+// release ends the controller's registration and any in-flight switch in the
+// same step, so no new switch can be queued to a controller that is leaving.
+// An unsubscribe mid-switch means the wrapper is completing it on another
+// machine; a dropped stream leaves that outcome unknown.
+func (s *Server) release(c *controller, unsubscribed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.controller == c {
-		s.controller = nil
-		close(c.done)
+	if s.controller != c {
+		return
 	}
+	if c.busy {
+		s.switchError = ""
+		if !unsubscribed {
+			s.switchError = "attach controller disconnected during a switch"
+		}
+	}
+	s.controller = nil
+	close(c.done)
 }
 
-// connState is one client connection: JSON-RPC streams or legacy one-shot requests.
+// connState is one client connection: a JSON-RPC stream or a one-shot local request.
 type connState struct {
 	s       *Server
 	conn    net.Conn
@@ -371,12 +380,13 @@ func (c *connState) spawn(ctx context.Context, r Request, reply func(Response)) 
 }
 
 // serveConn handles newline-delimited messages until the client closes the
-// connection. Streams speak JSON-RPC 2.0; legacy clients send one plain request.
+// connection. Streams speak JSON-RPC 2.0; one-shot local requests from Call send
+// one plain request.
 func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 	c := &connState{s: s, conn: conn, enc: json.NewEncoder(conn), sem: make(chan struct{}, 8)}
 	defer func() {
 		if c.sub != nil {
-			s.release(c.sub)
+			s.release(c.sub, false)
 		}
 		c.workers.Wait()
 		_ = conn.Close()
@@ -426,7 +436,7 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 		c.write(rpcReply(id, r.Op, Response{}))
 	case r.Op == "unsubscribe":
 		if c.sub != nil {
-			c.s.release(c.sub)
+			c.s.release(c.sub, true)
 			c.sub = nil
 		}
 		c.write(rpcReply(id, r.Op, Response{}))

@@ -107,8 +107,10 @@ func (c *StreamClient) stream(ctx context.Context) (*stream, error) {
 			return s, nil
 		}
 		if c.dialing == nil {
-			if wait := time.Until(c.retryAt); wait > 0 {
-				err := fmt.Errorf("peer %s unavailable, retrying in %s: %w", c.name, wait.Round(time.Millisecond), c.dialErr)
+			if time.Now().Before(c.retryAt) {
+				// Repeat the dial error unchanged so status and logs stay stable
+				// for the whole backoff.
+				err := c.dialErr
 				c.mu.Unlock()
 				return nil, err
 			}
@@ -137,23 +139,28 @@ func (c *StreamClient) stream(ctx context.Context) (*stream, error) {
 func (c *StreamClient) connect(base context.Context, done chan struct{}) {
 	ctx, cancel := context.WithTimeout(base, dialTimeout)
 	defer cancel()
+	defer close(done)
 	s, err := c.handshake(ctx)
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	defer close(done)
 	c.dialing = nil
-	if err == nil && c.closed {
-		s.fail(errClientClosed)
+	closed := err == nil && c.closed
+	if closed {
 		err = errClientClosed
 	}
 	if err != nil {
 		c.dialErr = err
 		c.backoff = min(max(2*c.backoff, minBackoff), maxBackoff)
 		c.retryAt = time.Now().Add(c.backoff)
+		c.mu.Unlock()
+		if closed {
+			s.fail(errClientClosed)
+		}
 		return
 	}
 	c.backoff, c.dialErr, c.current = 0, nil, s
-	go s.keepAlive(base, c.PingInterval)
+	interval := c.PingInterval
+	c.mu.Unlock()
+	go s.keepAlive(base, interval)
 }
 
 func (c *StreamClient) handshake(ctx context.Context) (*stream, error) {
@@ -163,15 +170,24 @@ func (c *StreamClient) handshake(ctx context.Context) (*stream, error) {
 	}
 	s := newStream(rwc)
 	r, err := s.call(ctx, Request{Op: "hello", Version: ProtocolVersion})
-	if err == nil && r.Version != ProtocolVersion {
+	mismatch := err == nil && r.Version != ProtocolVersion
+	if mismatch {
 		err = fmt.Errorf("daemon speaks protocol v%d", r.Version)
 	}
-	if err != nil {
-		s.fail(err)
-		err = withDiagnostic(rwc, err)
-		return nil, fmt.Errorf("peer %s: protocol v%d handshake failed; install the same herdr-sesh version on both machines and restart their daemons: %w", c.name, ProtocolVersion, err)
+	if err == nil {
+		return s, nil
 	}
-	return s, nil
+	s.fail(err)
+	err = withDiagnostic(rwc, err)
+	var rerr *rpcError
+	switch {
+	case mismatch || errors.As(err, &rerr) && rerr.Code == codeVersionMismatch:
+		return nil, fmt.Errorf("peer %s: protocol v%d handshake failed; install the same herdr-sesh version on both machines and restart their daemons: %w", c.name, ProtocolVersion, err)
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		// No daemon replied, so the remote output names the actual cause.
+		return nil, fmt.Errorf("peer %s: stream closed before the protocol handshake; herdr-sesh may be missing from the peer's noninteractive SSH PATH, older than this version, or its daemon may not be running: %w", c.name, err)
+	}
+	return nil, fmt.Errorf("peer %s: protocol handshake failed: %w", c.name, err)
 }
 
 // stream multiplexes JSON-RPC 2.0 requests by id over one transport.
@@ -182,14 +198,14 @@ type stream struct {
 
 	mu      sync.Mutex
 	next    uint64
-	pending map[uint64]chan Response
+	pending map[uint64]chan rpcMessage
 	// sub receives switch notifications; a stream holds at most one controller.
 	sub chan Target
 	err error
 }
 
 func newStream(rwc io.ReadWriteCloser) *stream {
-	s := &stream{rwc: rwc, done: make(chan struct{}), pending: map[uint64]chan Response{}}
+	s := &stream{rwc: rwc, done: make(chan struct{}), pending: map[uint64]chan rpcMessage{}}
 	go s.readLoop()
 	return s
 }
@@ -205,17 +221,19 @@ func (s *stream) alive() bool {
 
 func (s *stream) fail(err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.err != nil {
+		s.mu.Unlock()
 		return
 	}
 	s.err = err
 	close(s.done)
-	_ = s.rwc.Close()
 	if s.sub != nil {
 		close(s.sub)
 		s.sub = nil
 	}
+	s.mu.Unlock()
+	// Closing an ssh transport can wait for the process to exit.
+	_ = s.rwc.Close()
 }
 
 func (s *stream) failure() error {
@@ -250,12 +268,7 @@ func (s *stream) readLoop() {
 func (s *stream) dispatch(line []byte) error {
 	var m rpcMessage
 	if err := json.Unmarshal(line, &m); err != nil || m.JSONRPC != jsonrpcVersion {
-		// Daemons that predate streams answer once in the plain encoding.
-		var legacy Response
-		if json.Unmarshal(line, &legacy) == nil && legacy.Error != "" {
-			return fmt.Errorf("daemon does not speak JSON-RPC 2.0: %s", legacy.Error)
-		}
-		return errors.New("daemon does not speak JSON-RPC 2.0")
+		return errors.New("peer printed non-JSON-RPC output; shell startup files must not write to stdout for noninteractive SSH")
 	}
 	if m.ID == nil {
 		if m.Method == switchNotification {
@@ -270,7 +283,7 @@ func (s *stream) dispatch(line []byte) error {
 	var id uint64
 	if err := json.Unmarshal(m.ID, &id); err != nil {
 		if m.Error != nil {
-			return fmt.Errorf("daemon rejected stream: %s", m.Error.Message)
+			return fmt.Errorf("daemon rejected stream: %s", clean(m.Error.Message, 512))
 		}
 		return errors.New("daemon replied with an unknown id")
 	}
@@ -278,7 +291,7 @@ func (s *stream) dispatch(line []byte) error {
 	defer s.mu.Unlock()
 	if ch, ok := s.pending[id]; ok {
 		delete(s.pending, id)
-		ch <- rpcResponseOf(m)
+		ch <- m
 	}
 	return nil
 }
@@ -296,7 +309,7 @@ func (s *stream) push(t Target) {
 }
 
 func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response, error) {
-	ch := make(chan Response, 1)
+	ch := make(chan rpcMessage, 1)
 	s.mu.Lock()
 	if s.err != nil {
 		err := s.err
@@ -315,18 +328,25 @@ func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response
 	id := s.next
 	s.pending[id] = ch
 	s.mu.Unlock()
-	forget := func() {
+	// abandon stops waiting for id unless its reply was already routed.
+	abandon := func() (rpcMessage, bool) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		delete(s.pending, id)
+		select {
+		case m := <-ch:
+			return m, true
+		default:
+		}
 		if sub != nil && s.sub == sub {
 			close(sub)
 			s.sub = nil
 		}
+		return rpcMessage{}, false
 	}
 	b, err := json.Marshal(newRPCRequest(id, r))
 	if err != nil {
-		forget()
+		abandon()
 		return Response{}, err
 	}
 	s.wmu.Lock()
@@ -339,21 +359,32 @@ func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response
 		case <-time.After(time.Second):
 			s.fail(fmt.Errorf("write daemon stream: %w", err))
 		}
-		forget()
-		return Response{}, s.failure()
+	}
+	reply := func(m rpcMessage) (Response, error) {
+		resp, err := rpcResponseOf(m)
+		if err != nil {
+			abandon()
+		}
+		return resp, err
 	}
 	select {
-	case resp := <-ch:
-		if resp.Error != "" {
-			forget()
-			return resp, errors.New(resp.Error)
-		}
-		return resp, nil
+	case m := <-ch:
+		return reply(m)
 	case <-s.done:
-		forget()
+		// A peer may reply and exit before the write returns; keep that reply.
+		if m, ok := abandon(); ok {
+			return reply(m)
+		}
 		return Response{}, s.failure()
 	case <-ctx.Done():
-		forget()
+		if m, ok := abandon(); ok {
+			return reply(m)
+		}
+		if sub != nil {
+			// The daemon may have installed this controller without a reply
+			// reaching us; only closing the stream releases it.
+			s.fail(fmt.Errorf("subscribe: %w", ctx.Err()))
+		}
 		return Response{}, ctx.Err()
 	}
 }
@@ -502,6 +533,9 @@ func dialSSH(p Peer) (io.ReadWriteCloser, error) {
 	c.stderr.limit = 4 << 10
 	c.cmd = exec.Command("ssh", SSHArgs(p)...) // #nosec G204 -- validated SSH destination and fixed remote command.
 	c.cmd.Stdin, c.cmd.Stdout, c.cmd.Stderr = inR, outW, &c.stderr
+	// Stderr is copied by a goroutine, so a pipe inherited by a lingering
+	// process would otherwise keep Wait from returning.
+	c.cmd.WaitDelay = time.Second
 	err = c.cmd.Start()
 	_, _ = inR.Close(), outW.Close()
 	if err != nil {
