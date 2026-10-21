@@ -16,6 +16,7 @@ terminals.
 | To configure… | Start here |
 | --- | --- |
 | Picker appearance, sorting, and shortcuts | [Picker](config/picker.md) |
+| Opt-in discovery and switching across machines | [Remote workspaces](remote-workspaces.md) (separate `remote.toml`) |
 | Edit settings in the picker | [Settings editor](#settings-editor) |
 | A project with a named tab | [Add a workspace with a tab](#add-a-workspace-with-a-tab) |
 | An editor, development server, and logs in split panes | [Pane layout walkthrough](config/layouts.md#pane-layout-walkthrough) |
@@ -160,7 +161,7 @@ Picker shortcuts, appearance, sorting, and history are documented in
 | Field | Runtime effect |
 | --- | --- |
 | `cache` | Default `false`. Caches normal deduplicated `list` results for five seconds in `HERDR_PLUGIN_STATE_DIR`, scoped to the resolved config file. It does not cache `list --blacklisted`, `list --hide-duplicates=false`, `picker`, or `connect`. |
-| `source_order` | Default order: `herdr`, `config`, `zoxide`, `dir`. Reorder these sources; unknown or duplicate names are rejected and omitted sources are appended. |
+| `source_order` | Default order: `herdr`, `config`, `zoxide`, `dir`. Reorder these list sources; unknown or duplicate names are rejected and omitted sources are appended. The native picker always places local and remote Herdr workspaces ahead of other sources; see [Search ranking](config/picker.md#search-ranking). |
 | `blacklist` | Default `[]`. Treats each value as a regular expression matched against workspace names. Normal listings hide matches; `list --blacklisted` shows them. Invalid regexes are rejected. |
 
 ### `[naming]`
