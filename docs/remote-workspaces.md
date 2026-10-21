@@ -37,9 +37,9 @@ with one interactive switching client.
 
 Install compatible Herdr and the same version of `herdr-sesh` on every
 participating machine. Streams begin with a protocol handshake, so a machine
-running an incompatible `herdr-sesh` fails with a version mismatch error instead
-of misreading requests. Both executables must be available on the SSH user's
-noninteractive `PATH`. Start the configured Herdr session before starting the
+running an incompatible `herdr-sesh` fails the handshake instead of misreading
+requests; see [Inspect and troubleshoot](#inspect-and-troubleshoot). Both
+executables must be available on the SSH user's noninteractive `PATH`. Start the configured Herdr session before starting the
 daemon. Peer streams use noninteractive SSH; complete authentication and host-key
 approval in a normal terminal first.
 
@@ -54,6 +54,10 @@ Configuration is separate from the regular picker configuration:
 - Set `HERDR_SESH_REMOTE_CONFIG` to use an explicit file, taking precedence over
   `XDG_CONFIG_HOME`. The remote SSH entry point resolves configuration using the
   remote process's environment; local overrides are not forwarded.
+- Noninteractive SSH must resolve the same file as your login shell. For
+  example, if a macOS config lives under `~/.config` because your interactive
+  shell sets `XDG_CONFIG_HOME`, also set it where noninteractive SSH commands
+  read it, such as `~/.zshenv` for zsh.
 
 Example for a laptop:
 
@@ -155,7 +159,8 @@ wrapper tells its daemon which machines its own `remote.toml` allows, so a
 machine known only to the daemon's catalog fails in `connect` and the picker.
 Another selection is rejected until the wrapper finishes the current one. If the
 switch fails later, the wrapper prints the error and the daemon keeps it as
-`switch_error` in `herdr-sesh daemon list` until the next switch succeeds. Remote rows obey
+`switch_error` in `herdr-sesh daemon list` until the next switch succeeds. If the
+wrapper's stream drops mid-switch, `switch_error` says so. Remote rows obey
 the normal blacklist and provide metadata previews only. Missing remote keys fail
 explicitly instead of being interpreted as local paths. Closing a remote workspace
 and applying local startup/layout configuration to remote entries are disabled.
@@ -169,11 +174,16 @@ attached Herdr client running, and resubscribes in the background; only
 switching is unavailable until then. `herdr-sesh daemon list` reports each
 machine's `last_error`, and `herdr-sesh daemon serve` logs when a machine
 becomes unavailable or recovers. SSH failures include the bounded `ssh` error
-output. A protocol handshake failure means the machines run incompatible
-`herdr-sesh` versions, or a daemon started before an upgrade is still running:
-update both and restart their daemons. Older wrappers that still use the
-one-request-per-SSH-call mode can read catalogs for one more release but cannot
-control a newer daemon.
+output. Peer handshake failures name their cause:
+
+- A version mismatch error means the machines run incompatible `herdr-sesh`
+  versions, or a daemon started before an upgrade is still running. Install the
+  same version on both and restart their daemons.
+- `stream closed before the protocol handshake` means `herdr-sesh` is missing
+  from the peer's noninteractive SSH `PATH`, is older than this version, or its
+  daemon is not running. The peer's stderr is appended to the error.
+- `non-JSON-RPC output` means a shell startup file on the peer writes to stdout
+  during noninteractive SSH. Print only from interactive startup files.
 
 The default socket is under the OS user cache directory in
 `herdr-sesh/remote/daemon.sock`. Set an absolute `socket` in the config when needed;

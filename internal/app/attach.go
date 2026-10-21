@@ -294,7 +294,8 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 					nextSub.release()
 					return err
 				}
-				// Releasing the old controller also ends its in-flight switch.
+				// Unsubscribing ends the source's in-flight switch as completed; a
+				// separate complete would briefly admit switches nobody reads.
 				sub.release()
 				sub, current = nextSub, next
 				switching = true

@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 )
 
 // Daemon streams use JSON-RPC 2.0, one message per line. One-shot local
@@ -30,6 +31,8 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
+
+func (e *rpcError) Error() string { return e.Message }
 
 // rpcMessage decodes any JSON-RPC request, response, or notification.
 type rpcMessage struct {
@@ -158,14 +161,16 @@ func replyID(id json.RawMessage) json.RawMessage {
 	return id
 }
 
-// rpcResponseOf converts a decoded reply into the package's Response.
-func rpcResponseOf(m rpcMessage) Response {
+// rpcResponseOf converts a decoded reply into the package's Response. A daemon
+// error is returned as an *rpcError with its text cleaned for terminal output.
+func rpcResponseOf(m rpcMessage) (Response, error) {
 	if m.Error != nil {
-		return Response{Error: m.Error.Message}
+		e := &rpcError{Code: m.Error.Code, Message: clean(m.Error.Message, 512)}
+		return Response{Error: e.Message}, e
 	}
 	var result rpcResult
 	if err := json.Unmarshal(m.Result, &result); err != nil {
-		return Response{Error: "invalid daemon result"}
+		return Response{Error: "invalid daemon result"}, errors.New("invalid daemon result")
 	}
-	return Response{Version: result.Version, Catalog: result.Catalog, SwitchError: result.SwitchError}
+	return Response{Version: result.Version, Catalog: result.Catalog, SwitchError: result.SwitchError}, nil
 }

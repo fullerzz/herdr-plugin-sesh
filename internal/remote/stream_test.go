@@ -118,8 +118,12 @@ func TestStreamClientReconnectsWithBackoff(t *testing.T) {
 	defer cancel()
 	_, err := c.Call(ctx, Request{Op: "list"})
 	require.ErrorContains(t, err, "connection refused")
-	_, err = c.Call(ctx, Request{Op: "list"})
-	require.ErrorContains(t, err, "retrying in")
+	// Backoff repeats the dial error verbatim so status logs do not churn.
+	for range 2 {
+		_, again := c.Call(ctx, Request{Op: "list"})
+		require.Error(t, again)
+		assert.Equal(t, err.Error(), again.Error())
+	}
 	assert.Equal(t, int32(1), dials.Load())
 
 	c.mu.Lock()
@@ -142,39 +146,186 @@ func TestStreamClientReconnectsWithBackoff(t *testing.T) {
 	assert.Zero(t, c.backoff)
 }
 
-func TestStreamHandshakeRejectsOtherProtocolVersions(t *testing.T) {
-	c := NewStreamClient("old", func(context.Context) (io.ReadWriteCloser, error) {
+// handshakeError dials a peer that answers hello with reply and returns the
+// handshake failure.
+func handshakeError(t *testing.T, reply func(id json.RawMessage) string) error {
+	t.Helper()
+	c := NewStreamClient("peer", func(context.Context) (io.ReadWriteCloser, error) {
 		client, server := net.Pipe()
 		go func() {
 			defer func() { _ = server.Close() }()
 			var m rpcMessage
 			if json.NewDecoder(server).Decode(&m) == nil {
-				_ = json.NewEncoder(server).Encode(rpcReply(m.ID, m.Method, Response{Version: ProtocolVersion + 1}))
+				if line := reply(m.ID); line != "" {
+					_, _ = io.WriteString(server, line+"\n")
+				}
 			}
 		}()
 		return client, nil
 	})
 	t.Cleanup(func() { _ = c.Close() })
 	_, err := c.Call(context.Background(), Request{Op: "list"})
-	require.ErrorContains(t, err, "handshake failed")
-	legacy := NewStreamClient("legacy", func(context.Context) (io.ReadWriteCloser, error) {
-		client, server := net.Pipe()
-		go func() {
-			defer func() { _ = server.Close() }()
-			var m rpcMessage
-			if json.NewDecoder(server).Decode(&m) == nil {
-				_ = json.NewEncoder(server).Encode(Response{Error: "unknown operation"})
-			}
-		}()
-		return client, nil
+	require.Error(t, err)
+	return err
+}
+
+func encodeLine(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(b)
+}
+
+func TestStreamHandshakeRejectsOtherProtocolVersions(t *testing.T) {
+	const hint = "install the same herdr-sesh version on both machines and restart their daemons"
+	newer := handshakeError(t, func(id json.RawMessage) string {
+		return encodeLine(t, rpcReply(id, "hello", Response{Version: ProtocolVersion + 1}))
 	})
-	t.Cleanup(func() { _ = legacy.Close() })
-	_, err = legacy.Call(context.Background(), Request{Op: "list"})
-	require.ErrorContains(t, err, "does not speak JSON-RPC 2.0: unknown operation")
+	require.ErrorContains(t, newer, "peer peer: protocol v2 handshake failed; "+hint)
+	rejected := handshakeError(t, func(id json.RawMessage) string {
+		return encodeLine(t, rpcFailure(id, codeVersionMismatch, "protocol version mismatch"))
+	})
+	require.ErrorContains(t, rejected, hint+": protocol version mismatch")
 	s := NewServer(Config{Enabled: true, ID: "local"}, &fakeClient{})
 	assert.Contains(t, s.Handle(context.Background(), Request{Op: "hello", Version: 1}).Error, "protocol version mismatch")
 	assert.Equal(t, ProtocolVersion, s.Handle(context.Background(), Request{Op: "hello", Version: ProtocolVersion}).Version)
-	assert.Contains(t, s.Handle(context.Background(), Request{Op: "poll"}).Error, "same herdr-sesh version")
+}
+
+func TestStreamHandshakeDoesNotBlameVersionsForOtherFailures(t *testing.T) {
+	const hint = "install the same herdr-sesh version"
+	// A peer without the daemon command, such as v0.15.0, exits without replying.
+	missing := handshakeError(t, func(json.RawMessage) string { return "" })
+	require.ErrorContains(t, missing, "peer peer: stream closed before the protocol handshake; herdr-sesh may be missing from the peer's noninteractive SSH PATH, older than this version, or its daemon may not be running: ")
+	assert.NotContains(t, missing.Error(), hint)
+	banner := handshakeError(t, func(json.RawMessage) string { return "Welcome to server" })
+	require.ErrorContains(t, banner, "peer peer: protocol handshake failed: peer printed non-JSON-RPC output; shell startup files must not write to stdout for noninteractive SSH")
+	assert.NotContains(t, banner.Error(), hint)
+	other := handshakeError(t, func(id json.RawMessage) string {
+		return encodeLine(t, rpcFailure(id, codeDaemonError, "daemon is shutting down"))
+	})
+	assert.EqualError(t, other, "peer peer: protocol handshake failed: daemon is shutting down")
+}
+
+func TestStreamCleansDaemonErrorText(t *testing.T) {
+	c := NewStreamClient("fake", func(context.Context) (io.ReadWriteCloser, error) {
+		client, server := net.Pipe()
+		go fakeDaemon(server, func(r fakeRequest, enc *json.Encoder) {
+			_ = enc.Encode(rpcFailure(r.ID, codeDaemonError, "bad\x1b]0;owned\x07\r\nworkspace"))
+		})
+		return client, nil
+	})
+	c.PingInterval = 0
+	t.Cleanup(func() { _ = c.Close() })
+	_, err := c.Call(context.Background(), Request{Op: "list"})
+	assert.EqualError(t, err, "bad]0;ownedworkspace")
+}
+
+func TestStreamFailsWhenSubscribeOutlivesItsCaller(t *testing.T) {
+	var dials atomic.Int32
+	returned := make(chan struct{})
+	c := NewStreamClient("fake", func(context.Context) (io.ReadWriteCloser, error) {
+		first := dials.Add(1) == 1
+		client, server := net.Pipe()
+		subscribed := false
+		go fakeDaemon(server, func(r fakeRequest, enc *json.Encoder) {
+			if r.Method != "subscribe" {
+				_ = enc.Encode(rpcReply(r.ID, r.Method, Response{}))
+				return
+			}
+			if subscribed {
+				_ = enc.Encode(rpcFailure(r.ID, codeDaemonError, "stream is already subscribed"))
+				return
+			}
+			// Like a daemon, install the controller before replying.
+			subscribed = true
+			if first {
+				<-returned
+			}
+			_ = enc.Encode(rpcReply(r.ID, r.Method, Response{}))
+		})
+		return client, nil
+	})
+	c.PingInterval = 0
+	t.Cleanup(func() { _ = c.Close() })
+	_, err := c.Call(context.Background(), Request{Op: "list"})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err = c.Subscribe(ctx, local)
+	close(returned)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	sub, err := c.Subscribe(context.Background(), local)
+	require.NoError(t, err)
+	assert.NotNil(t, sub)
+	assert.Equal(t, int32(2), dials.Load())
+}
+
+// replyingConn answers each request before Write returns, the way a fast peer
+// can reply before the writer is scheduled again.
+type replyingConn struct {
+	*io.PipeReader
+
+	w        *io.PipeWriter
+	s        *stream
+	closeNow bool
+}
+
+func (c *replyingConn) Write(p []byte) (int, error) {
+	var m rpcMessage
+	if err := json.Unmarshal(p, &m); err != nil {
+		return 0, err
+	}
+	b, err := json.Marshal(rpcReply(m.ID, m.Method, Response{Version: 7}))
+	if err != nil {
+		return 0, err
+	}
+	if _, err := c.w.Write(append(b, '\n')); err != nil {
+		return 0, err
+	}
+	// Wait until the reply has been routed to the caller.
+	for routed := false; !routed; {
+		c.s.mu.Lock()
+		routed = len(c.s.pending) == 0
+		c.s.mu.Unlock()
+	}
+	if c.closeNow {
+		_ = c.w.Close()
+		<-c.s.done
+	}
+	return len(p), nil
+}
+
+func (c *replyingConn) Close() error {
+	_ = c.w.Close()
+	return c.PipeReader.Close()
+}
+
+func TestStreamKeepsRepliesRoutedBeforeTheCallEnds(t *testing.T) {
+	newReplyingStream := func(closeNow bool) *stream {
+		r, w := io.Pipe()
+		conn := &replyingConn{PipeReader: r, w: w, closeNow: closeNow}
+		s := &stream{rwc: conn, done: make(chan struct{}), pending: map[uint64]chan rpcMessage{}}
+		conn.s = s
+		go s.readLoop()
+		t.Cleanup(func() { s.fail(errClientClosed) })
+		return s
+	}
+	t.Run("stream closed", func(t *testing.T) {
+		r, err := newReplyingStream(true).call(context.Background(), Request{Op: "ping"})
+		require.NoError(t, err)
+		assert.Equal(t, 7, r.Version)
+	})
+	t.Run("caller canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		s := newReplyingStream(false)
+		sub, err := s.subscribe(ctx, local)
+		require.NoError(t, err)
+		assert.NotNil(t, sub)
+		assert.True(t, s.alive())
+	})
 }
 
 func startDaemon(t *testing.T, idle time.Duration) Config {
@@ -285,10 +436,12 @@ func TestRelayStreamsAndReleasesOnStdinClose(t *testing.T) {
 		var m rpcMessage
 		require.NoError(t, json.Unmarshal(responses.Bytes(), &m))
 		assert.JSONEq(t, "1", string(m.ID))
-		return rpcResponseOf(m)
+		resp, err := rpcResponseOf(m)
+		require.NoError(t, err)
+		return resp
 	}
 	assert.Equal(t, ProtocolVersion, send(Request{Op: "hello", Version: ProtocolVersion}).Version)
-	assert.Empty(t, send(Request{Op: "subscribe", Machines: local}).Error)
+	send(Request{Op: "subscribe", Machines: local})
 	_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
 	require.NoError(t, err)
 	require.True(t, responses.Scan())
@@ -369,6 +522,45 @@ func TestSwitchWaitsForControllerToComplete(t *testing.T) {
 	t.Cleanup(func() { _ = next.Close() })
 	require.Eventually(t, func() bool { _, err := next.Subscribe(ctx, local); return err == nil }, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, queue())
+}
+
+func TestReleasingMidSwitchEndsItWithoutAdmittingAnother(t *testing.T) {
+	c := startDaemon(t, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	queue := func() error {
+		_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
+		return err
+	}
+	switchError := func() string {
+		listed, err := Call(ctx, c, Request{Op: "list"})
+		require.NoError(t, err)
+		return listed.SwitchError
+	}
+	client := NewUnixClient(c)
+	t.Cleanup(func() { _ = client.Close() })
+	sub, err := client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	require.NoError(t, queue())
+	<-sub.Targets()
+	require.NoError(t, sub.Complete(ctx, errors.New("workspace no longer exists")))
+	require.NoError(t, queue())
+	<-sub.Targets()
+
+	// Leaving to finish the switch elsewhere clears the earlier failure, and the
+	// switch stays in progress until the controller is gone.
+	require.ErrorContains(t, queue(), "already in progress")
+	sub.Close()
+	require.ErrorContains(t, queue(), "no active attach controller")
+	assert.Empty(t, switchError())
+
+	// A stream lost mid-switch cannot report the outcome.
+	sub, err = client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	require.NoError(t, queue())
+	<-sub.Targets()
+	require.NoError(t, client.Close())
+	require.Eventually(t, func() bool { return switchError() == "attach controller disconnected during a switch" }, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestSwitchRejectsMachinesTheControllerCannotReach(t *testing.T) {
