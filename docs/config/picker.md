@@ -26,7 +26,7 @@ applies to fzf. Picker sorting does not change JSON output.
 | `show_path` | `true` | Show the path column when space permits. Does not affect path matching or the history footer. |
 | `show_preview` | `true` | Show previews. `false` gives the list all available space and stops preview commands. |
 | `preview_mode` | `"command"` | Initial preview: `command` or `pane`. See [Preview controls](#preview-controls). |
-| `prioritize_home` | `true` | Put the actual home directory first for an exact `home` search; see [Search ranking](#search-ranking). |
+| `prioritize_home` | `true` | Put the actual home directory first within its source group for an exact `home` search; see [Search ranking](#search-ranking). |
 | `herdr_theme_inherit` | `true` | Use [Herdr colors](#picker-colors); `false` keeps built-in picker colors. |
 | `replace_worktree_icon` | `true` | Use `↳` for linked worktrees; `false` keeps the sheep icon or plain `[herdr]` label. Other worktree cues remain. |
 | `prompt` | `"Sesh> "` | Prompt text; empty uses the default. |
@@ -39,16 +39,21 @@ applies to fzf. Picker sorting does not change JSON output.
 
 ### Search ranking
 
-Names and paths match case-insensitively; name matches precede path-only matches.
-Each group retains its existing order, including `workspace_sort` for Herdr rows.
+The native picker always groups local Herdr workspaces first,
+[remote Herdr workspaces](../remote-workspaces.md) second, and other sources last,
+even when `list.source_order` places another source before Herdr.
+Within these groups, names and paths match case-insensitively; name matches
+precede path-only matches. Matching rows retain their existing order, including
+`workspace_sort` for local Herdr rows. Remote rows match their label and machine
+ID, not their remote working directory.
 An exact `home` query also finds the actual home directory regardless of its
-name: `prioritize_home = true` puts it first; `false` keeps it among path matches.
-The fzf picker uses its own ranking.
+name: `prioritize_home = true` puts it first within its group; `false` keeps it
+among path matches. The fzf picker uses its own ranking.
 
 Agent sorting uses blocked → done → working → idle → unknown/no agent, retaining
 Herdr order for ties and unrecognized states. Live updates preserve the selected
-workspace. Sorting rearranges only Herdr rows within their `list.source_order`
-slots; it cannot move them ahead of sources ordered first. Linked worktrees
+workspace. These sort modes reorder local Herdr rows; remote and other rows
+retain their relative order within their groups. Linked worktrees
 [sort as families](#linked-worktrees).
 
 ### Preview controls

@@ -56,6 +56,9 @@ Use `"$sesh_bin"` followed by a command from this table:
 | Command | Purpose |
 | --- | --- |
 | `--version` or `version` | Print the build version. |
+| `attach [machine-id]` | From an outer terminal, attach locally or to a configured peer and enable cross-machine switching. Requires [remote setup](remote-workspaces.md). |
+| `daemon serve` | Run the opt-in remote workspace daemon in the foreground. |
+| `daemon list` | Inspect the remote catalog and connection/switch diagnostics. |
 | `picker [--config PATH] [--fzf] [--json]` | Open the native picker, use the experimental fzf picker, or print selectable sessions as JSON. |
 | `list [--config PATH] [--json] [--blacklisted] [--hide-duplicates=false]` | List merged session sources, including optional blacklist and duplicate views. |
 | `connect [--config PATH] [--no-focus] TARGET` | Focus or create a workspace by name, path, or workspace ID; `--no-focus` preserves the current focus. |
