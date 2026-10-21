@@ -207,7 +207,7 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 	m = updated.(teaModel)
 	require.Nil(t, enterCmd)
 	require.False(t, m.chosen)
-	m.list.Move(1)
+	m.list.Move(2)
 	m, _ = m.refreshPreview()
 	updated, _ = m.Update(cmd())
 	m = updated.(teaModel)
@@ -2218,4 +2218,42 @@ func TestTeaModelCanHideBottomInfoRow(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestTeaModelGroupsSourcesAcrossSortAndRefresh(t *testing.T) {
+	items := []model.Session{
+		{Source: "config", Name: "api-config"},
+		{Source: model.SourceRemote, Name: "api-remote-first"},
+		{Source: "herdr", Name: "api-first", WorkspaceID: "w1", AgentStatus: "working"},
+		{Source: "zoxide", Name: "api-directory"},
+		{Source: "herdr", Name: "api-second", WorkspaceID: "w2", AgentStatus: "blocked"},
+		{Source: model.SourceRemote, Name: "api-remote-second"},
+	}
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{RecentWorkspaceIDs: []string{"w2", "w1"}, HidePreview: true}})
+	want := func(first, second string) []string {
+		return []string{first, second, "api-remote-first", "api-remote-second", "api-config", "api-directory"}
+	}
+	assert.Equal(t, want("api-first", "api-second"), sessionNames(m.list.Filtered))
+	m = m.filter("api")
+	for _, tc := range []struct {
+		mode          string
+		first, second string
+	}{
+		{workspaceSortRecent, "api-second", "api-first"},
+		{workspaceSortAgent, "api-second", "api-first"},
+		{workspaceSortWorkspace, "api-first", "api-second"},
+	} {
+		m, _ = m.toggleWorkspaceSort()
+		require.Equal(t, tc.mode, m.workspaceSort)
+		assert.Equal(t, want(tc.first, tc.second), sessionNames(m.list.Filtered))
+	}
+	m.workspaceSort = workspaceSortAgent
+	updated, _ := m.Update(agentStatusesMsg{statuses: map[string]string{"w1": "blocked", "w2": "idle"}})
+	m = updated.(teaModel)
+	assert.Equal(t, want("api-first", "api-second"), sessionNames(m.list.Filtered))
+
+	m.closingWorkspaceID = "closed"
+	updated, _ = m.Update(workspaceCloseMsg{workspaceID: "closed", reloadRan: true, result: ReloadResult{Sessions: items}})
+	m = updated.(teaModel)
+	assert.Equal(t, want("api-second", "api-first"), sessionNames(m.list.Filtered))
 }

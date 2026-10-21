@@ -3,6 +3,7 @@ package picker
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -18,10 +19,9 @@ type Model struct {
 }
 
 func New(items []model.Session) Model {
-	return Model{
-		All:      append([]model.Session(nil), items...),
-		Filtered: append([]model.Session(nil), items...),
-	}
+	m := Model{All: append([]model.Session(nil), items...)}
+	m.Filter("")
+	return m
 }
 func (m *Model) Filter(q string) {
 	queryChanged := q != m.Query
@@ -54,10 +54,23 @@ func (m *Model) Filter(q string) {
 	if len(homeMatches) > 0 {
 		m.Filtered = append(homeMatches, m.Filtered...)
 	}
+	sort.SliceStable(m.Filtered, func(i, j int) bool {
+		return pickerSourceRank(m.Filtered[i]) < pickerSourceRank(m.Filtered[j])
+	})
 	if queryChanged {
 		m.Selected = 0
 	}
 	m.clampSelected()
+}
+func pickerSourceRank(s model.Session) int {
+	switch s.Source {
+	case "herdr":
+		return 0
+	case model.SourceRemote:
+		return 1
+	default:
+		return 2
+	}
 }
 func (m *Model) Move(delta int) {
 	m.Selected += delta
