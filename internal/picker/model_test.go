@@ -31,7 +31,7 @@ func TestFilterResetsSelectionWhenQueryChanges(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "api", cur.Name)
 }
-func TestFilterRanksNameMatchesBeforePathMatches(t *testing.T) {
+func TestFilterRanksNameMatchesBeforePathMatchesWithinSources(t *testing.T) {
 	m := New([]model.Session{
 		{Source: "zoxide", Path: "/work/api-unnamed"},
 		{Source: "config", Name: "api-service", Path: "/work/service"},
@@ -42,7 +42,7 @@ func TestFilterRanksNameMatchesBeforePathMatches(t *testing.T) {
 
 	m.Filter("api")
 
-	want := []string{"api-service", "api-both", "api-web", "", "worker"}
+	want := []string{"api-both", "worker", "api-service", "api-web", ""}
 	require.Len(t, m.Filtered, len(want))
 	for i, name := range want {
 		require.Equal(t, name, m.Filtered[i].Name)
@@ -166,4 +166,22 @@ func TestSeparatorAwareMatchIsAdditive(t *testing.T) {
 func TestSeparatorUnawareMatchLeavesQueryLiteral(t *testing.T) {
 	require.True(t, Match("my-api.service", "api.service", false), "expected literal match when separator awareness is off")
 	assert.False(t, Match("my-api.service", "api service", false), "did not expect separator normalization when it is off")
+}
+
+func TestFilterGroupsWorkspaceSourcesAndPreservesMatchOrder(t *testing.T) {
+	t.Setenv("HOME", "/Users/test")
+	items := []model.Session{
+		{Source: "config", Name: "home-config"},
+		{Source: model.SourceRemote, Name: "home-remote-first"},
+		{Source: "herdr", Name: "local-path", Path: "/work/home"},
+		{Source: "zoxide", Name: "home-directory"},
+		{Source: "herdr", Name: "home-local-name"},
+		{Source: model.SourceRemote, Name: "home-remote-second"},
+		{Source: "config", Name: "actual-home", Path: "/Users/test"},
+	}
+	m := New(items)
+	assert.Equal(t, []string{"local-path", "home-local-name", "home-remote-first", "home-remote-second", "home-config", "home-directory", "actual-home"}, sessionNames(m.Filtered))
+	m.Filter("home")
+	assert.Equal(t, []string{"home-local-name", "local-path", "home-remote-first", "home-remote-second", "actual-home", "home-config", "home-directory"}, sessionNames(m.Filtered))
+	assert.Equal(t, items, m.All)
 }
