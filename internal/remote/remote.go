@@ -101,35 +101,30 @@ func NewServer(c Config, client Client) *Server {
 	}
 	return s
 }
-func (s *Server) refresh(ctx context.Context) {
+func (s *Server) refreshLocal(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	local, err := s.client.WorkspaceList(ctx)
+	s.record(0, fromHerdr(local), err)
+}
+
+func (s *Server) refreshPeers(ctx context.Context) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
-	for i := range s.catalog {
+	for i := range s.cfg.Peers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			// Slow peers must not delay the local inventory past its expiry.
-			if i > 0 {
-				select {
-				case sem <- struct{}{}:
-				case <-ctx.Done():
-					return
-				}
-				defer func() { <-sem }()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
 			}
+			defer func() { <-sem }()
 			c, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			var ws []Workspace
-			var err error
-			if i == 0 {
-				var local []herdr.Workspace
-				if local, err = s.client.WorkspaceList(c); err == nil {
-					ws = fromHerdr(local)
-				}
-			} else {
-				ws, err = s.exportPeer(c, s.cfg.Peers[i-1])
-			}
-			s.record(i, ws, err)
+			ws, err := s.exportPeer(c, s.cfg.Peers[i])
+			s.record(i+1, ws, err)
 		}(i)
 	}
 	wg.Wait()
@@ -532,22 +527,25 @@ func (s *Server) Serve(ctx context.Context) error {
 			_ = c.Close()
 		}
 	}()
-	workers.Add(2)
+	workers.Add(3)
 	go func() { defer workers.Done(); <-ctx.Done(); _ = l.Close() }()
-	go func() {
-		defer workers.Done()
-		s.refresh(ctx)
-		t := time.NewTicker(3 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				s.refresh(ctx)
+	// Local inventory must stay fresh even when peer batches exceed its expiry.
+	for _, refresh := range []func(context.Context){s.refreshLocal, s.refreshPeers} {
+		go func() {
+			defer workers.Done()
+			refresh(ctx)
+			t := time.NewTicker(3 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					refresh(ctx)
+				}
 			}
-		}
-	}()
+		}()
+	}
 	sem := make(chan struct{}, 32)
 	for {
 		conn, e := l.Accept()

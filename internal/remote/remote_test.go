@@ -43,12 +43,14 @@ func TestCatalogKeepsFailedPeersStaleAndExportLocal(t *testing.T) {
 		}
 		return Response{Catalog: []Machine{{ID: "other", Workspaces: []Workspace{{ID: "remote1"}}}}}, nil
 	}
-	s.refresh(context.Background())
+	s.refreshLocal(context.Background())
+	s.refreshPeers(context.Background())
 	r := s.Handle(context.Background(), Request{Op: "list"})
 	require.Len(t, r.Catalog, 2)
 	assert.False(t, r.Catalog[1].Stale)
 	fail = true
-	s.refresh(context.Background())
+	s.refreshLocal(context.Background())
+	s.refreshPeers(context.Background())
 	r = s.Handle(context.Background(), Request{Op: "list"})
 	assert.True(t, r.Catalog[1].Stale)
 	require.Len(t, r.Catalog[1].Workspaces, 1)
@@ -130,7 +132,8 @@ func TestExpiredCatalogCannotBeSwitched(t *testing.T) {
 	c := testConfig()
 	c.Peers = nil
 	s := NewServer(c, &fakeClient{})
-	s.refresh(context.Background())
+	s.refreshLocal(context.Background())
+	s.refreshPeers(context.Background())
 	s.catalog[0].UpdatedAt = time.Now().Add(-time.Minute)
 	r := s.Handle(context.Background(), Request{Op: "export"})
 	require.Len(t, r.Catalog, 1)
@@ -140,7 +143,8 @@ func TestPeerCannotReturnTransitiveOrWrongSession(t *testing.T) {
 	for _, catalog := range [][]Machine{{{ID: "other", Session: "wrong"}}, {{ID: "other"}, {ID: "third"}}} {
 		s := NewServer(testConfig(), &fakeClient{})
 		s.PeerCall = func(context.Context, Peer, Request) (Response, error) { return Response{Catalog: catalog}, nil }
-		s.refresh(context.Background())
+		s.refreshLocal(context.Background())
+		s.refreshPeers(context.Background())
 		r := s.Handle(context.Background(), Request{Op: "list"})
 		require.Len(t, r.Catalog, 2)
 		assert.True(t, r.Catalog[1].Stale)
@@ -240,7 +244,8 @@ func TestCatalogSharesOnlySanitizedWireWorkspaces(t *testing.T) {
 		}}}}, nil
 	}
 	ctx := context.Background()
-	s.refresh(ctx)
+	s.refreshLocal(ctx)
+	s.refreshPeers(ctx)
 	export := s.Handle(ctx, Request{Op: "export"})
 	b, err := json.Marshal(export)
 	require.NoError(t, err)
@@ -265,15 +270,57 @@ func TestRefreshRecordsAndLogsPeerAvailability(t *testing.T) {
 	}
 	ctx := context.Background()
 	peerErr = errors.New("peer other: Connection refused")
-	s.refresh(ctx)
-	s.refresh(ctx)
+	s.refreshLocal(ctx)
+	s.refreshPeers(ctx)
+	s.refreshLocal(ctx)
+	s.refreshPeers(ctx)
 	listed := s.Handle(ctx, Request{Op: "list"})
 	require.Len(t, listed.Catalog, 2)
 	assert.True(t, listed.Catalog[1].Stale)
 	assert.Equal(t, "peer other: Connection refused", listed.Catalog[1].LastError)
 	peerErr = nil
-	s.refresh(ctx)
+	s.refreshLocal(ctx)
+	s.refreshPeers(ctx)
 	listed = s.Handle(ctx, Request{Op: "list"})
 	assert.Empty(t, listed.Catalog[1].LastError)
 	assert.Equal(t, []string{"machine other unavailable: peer other: Connection refused", "machine other available"}, logs)
+}
+
+func TestServeRefreshesLocalInventoryWhilePeersAreSlow(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "sesh-refresh-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	cfg := Config{Enabled: true, ID: "local", Socket: filepath.Join(dir, "daemon.sock")}
+	for i := range 24 {
+		id := fmt.Sprintf("peer%d", i)
+		cfg.Peers = append(cfg.Peers, Peer{ID: id, SSH: id})
+	}
+	s := NewServer(cfg, &fakeClient{})
+	s.PeerCall = func(ctx context.Context, _ Peer, _ Request) (Response, error) {
+		<-ctx.Done()
+		return Response{}, ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			assert.NoError(t, err)
+		case <-time.After(3 * time.Second):
+			t.Error("daemon did not stop after cancellation")
+		}
+	})
+	var first time.Time
+	require.Eventually(t, func() bool {
+		catalog := s.Handle(ctx, Request{Op: "export"}).Catalog
+		first = catalog[0].UpdatedAt
+		return !catalog[0].Stale
+	}, time.Second, 10*time.Millisecond)
+	// A complete peer batch takes at least 12 seconds; local refresh must not wait.
+	require.Eventually(t, func() bool {
+		local := s.Handle(ctx, Request{Op: "export"}).Catalog[0]
+		return !local.Stale && local.UpdatedAt.After(first)
+	}, 5*time.Second, 10*time.Millisecond)
 }
