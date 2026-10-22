@@ -9,6 +9,12 @@ second, then other sources**, including while searching. Remote rows show their
 machine ID. See [Search ranking](config/picker.md#search-ranking) for sorting within
 these groups.
 
+Press **F3** in the native picker to show only remote Herdr workspaces; press it
+again to show all sources. The search text still filters the visible rows. The
+heading shows the active mode, and reopening the picker resets it to all sources.
+If preview cycling is bound to F3, use **Ctrl+G** instead. Offline remote rows
+remain visible in this mode.
+
 ## Configure each machine
 
 ### 1. Prepare binaries and SSH

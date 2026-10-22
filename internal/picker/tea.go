@@ -613,6 +613,14 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, previewCmd)
 	}
 	m.closeError = ""
+	if key.String() == m.remoteFilterKey() {
+		m.list.RemoteOnly = !m.list.RemoteOnly
+		m.list.Selected = 0
+		m.list.Filter(m.list.Query)
+		m.smearActive = false
+		m.focusSmearActive = false
+		return m.refreshPreview()
+	}
 	if m.cyclePreviewModeKey != "" && key.String() == m.cyclePreviewModeKey {
 		if m.hidePreview || m.closingWorkspaceID != "" {
 			return m, nil
@@ -797,16 +805,16 @@ func (m teaModel) View() tea.View {
 	lines = append(lines, fitLine(input.View(), width), horizontalRule(width))
 
 	if m.hidePreview {
-		lines = append(lines, sectionStyle.Render("WORKSPACES"))
+		lines = append(lines, m.workspaceHeading())
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(width, m.listOnlyBodyLines()), "\n"), "\n")...)
 	} else if previewWidth > 0 {
 		previewLines := m.previewBodyLines()
-		list := sectionStyle.Render("WORKSPACES") + "\n" + m.listView(listWidth, previewLines)
+		list := m.workspaceHeading() + "\n" + m.listView(listWidth, previewLines)
 		preview := m.previewView(previewWidth, previewLines)
 		lines = append(lines, strings.Split(joinPanels(list, preview, listWidth, previewWidth), "\n")...)
 	} else {
 		listRows, previewLines := m.stackedBodyLines()
-		lines = append(lines, sectionStyle.Render("WORKSPACES"))
+		lines = append(lines, m.workspaceHeading())
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
@@ -1047,10 +1055,24 @@ func (m teaModel) contentWidth() int {
 	return maxInt(1, width-horizontalPadding*2)
 }
 
+func (m teaModel) remoteFilterKey() string {
+	if m.cyclePreviewModeKey == "f3" {
+		return "ctrl+g"
+	}
+	return "f3"
+}
+
+func (m teaModel) workspaceHeading() string {
+	if m.list.RemoteOnly {
+		return sectionStyle.Render("REMOTE WORKSPACES · " + m.remoteFilterKey() + " all")
+	}
+	return sectionStyle.Render("WORKSPACES · " + m.remoteFilterKey() + " remote")
+}
+
 func (m teaModel) header(width int) string {
 	title := titleStyle.Render("herdr / sesh")
 	countText := fmt.Sprintf("%d workspaces", len(m.list.All))
-	if m.list.Query != "" {
+	if m.list.Query != "" || m.list.RemoteOnly {
 		countText = fmt.Sprintf("%d/%d workspaces", len(m.list.Filtered), len(m.list.All))
 	}
 	count := countStyle.Render(countText)
