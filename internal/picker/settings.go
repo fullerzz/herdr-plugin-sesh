@@ -97,6 +97,7 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 		next.previewRequestID = m.previewRequestID + 1
 		next.refreshGeneration = m.refreshGeneration
 		next.input.SetValue(m.input.Value())
+		next.list.RemoteOnly = m.list.RemoteOnly
 		next.list.Filter(m.list.Query)
 		next.list.Selected = min(m.list.Selected, max(0, len(next.list.Filtered)-1))
 		for i, item := range next.list.Filtered {
