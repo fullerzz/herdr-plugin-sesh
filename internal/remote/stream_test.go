@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -330,6 +332,12 @@ func TestStreamKeepsRepliesRoutedBeforeTheCallEnds(t *testing.T) {
 
 func startDaemon(t *testing.T, idle time.Duration) Config {
 	t.Helper()
+	return serveDaemon(t, idle, nil)
+}
+
+// serveDaemon starts startDaemon's server after configure adjusts it.
+func serveDaemon(t *testing.T, idle time.Duration, configure func(*Server)) Config {
+	t.Helper()
 	// Unix socket paths are length limited, so avoid the long test temp root.
 	dir, err := os.MkdirTemp("/tmp", "sesh-stream-")
 	require.NoError(t, err)
@@ -339,6 +347,9 @@ func startDaemon(t *testing.T, idle time.Duration) Config {
 	s := NewServer(c, &fakeClient{})
 	if idle > 0 {
 		s.IdleTimeout = idle
+	}
+	if configure != nil {
+		configure(s)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -522,6 +533,48 @@ func TestSwitchWaitsForControllerToComplete(t *testing.T) {
 	t.Cleanup(func() { _ = next.Close() })
 	require.Eventually(t, func() bool { _, err := next.Subscribe(ctx, local); return err == nil }, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, queue())
+}
+
+func TestDaemonLogsSwitchLifecycle(t *testing.T) {
+	var mu sync.Mutex
+	var logs []string
+	c := serveDaemon(t, 0, func(s *Server) {
+		s.Logf = func(format string, args ...any) {
+			mu.Lock()
+			defer mu.Unlock()
+			logs = append(logs, fmt.Sprintf(format, args...))
+		}
+	})
+	logged := func(want string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.ContainsFunc(logs, func(line string) bool { return strings.Contains(line, want) })
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := NewUnixClient(c)
+	sub, err := client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	_, err = Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
+	require.NoError(t, err)
+	<-sub.Targets()
+	require.NoError(t, sub.Complete(ctx, nil))
+	require.NoError(t, client.Close())
+
+	for _, want := range []string{
+		"stream opened",
+		"hello version=2 -> ok",
+		"controller registered on conn",
+		"switch to local/ws1 queued for controller",
+		"switch machine=local workspace=ws1 -> ok",
+		"switch to local/ws1 pushed to controller",
+		"completed its switch",
+		"disconnected",
+		"stream closed after",
+	} {
+		assert.Eventually(t, func() bool { return logged(want) }, 2*time.Second, 10*time.Millisecond, want)
+	}
+	assert.False(t, logged(" export"), "routine requests stay quiet")
 }
 
 func TestReleasingMidSwitchEndsItWithoutAdmittingAnother(t *testing.T) {

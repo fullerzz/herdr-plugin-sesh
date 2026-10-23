@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode"
@@ -69,6 +70,8 @@ type Client interface {
 
 // controller is the attach wrapper subscribed on one daemon stream.
 type controller struct {
+	// conn is the daemon connection that registered the controller.
+	conn     uint64
 	targets  chan Target
 	done     chan struct{}
 	machines map[string]bool
@@ -87,8 +90,15 @@ type Server struct {
 	PeerCall    func(context.Context, Peer, Request) (Response, error)
 	// IdleTimeout closes streams that send nothing, including half-open SSH relays.
 	IdleTimeout time.Duration
-	// Logf, when set, reports catalog availability changes.
-	Logf func(format string, args ...any)
+	// Logf, when set, reports catalog availability, stream, and switch lifecycle events.
+	Logf  func(format string, args ...any)
+	conns atomic.Uint64
+}
+
+func (s *Server) logf(format string, args ...any) {
+	if s.Logf != nil {
+		s.Logf(format, args...)
+	}
 }
 
 func NewServer(c Config, client Client) *Server {
@@ -150,14 +160,14 @@ func (s *Server) record(i int, ws []Workspace, err error) {
 	m.Stale = err != nil
 	if err != nil {
 		m.LastError = clean(err.Error(), 512)
-		if m.LastError != previous && s.Logf != nil {
-			s.Logf("machine %s unavailable: %s", m.ID, m.LastError)
+		if m.LastError != previous {
+			s.logf("machine %s unavailable: %s", m.ID, m.LastError)
 		}
 		return
 	}
 	m.Workspaces, m.UpdatedAt, m.LastError = ws, time.Now(), ""
-	if previous != "" && s.Logf != nil {
-		s.Logf("machine %s available", m.ID)
+	if previous != "" {
+		s.logf("machine %s available", m.ID)
 	}
 }
 
@@ -283,6 +293,7 @@ func (s *Server) queueSwitch(r Request) Response {
 					// busy guarantees the one-slot channel is empty.
 					s.controller.targets <- Target{MachineID: m.ID, WorkspaceID: w.ID}
 					s.controller.busy = true
+					s.logf("switch to %s/%s queued for controller on conn %d", m.ID, w.ID, s.controller.conn)
 					return Response{}
 				}
 			}
@@ -291,7 +302,7 @@ func (s *Server) queueSwitch(r Request) Response {
 	return fail("workspace unavailable")
 }
 
-func (s *Server) subscribe(machines []string) (*controller, error) {
+func (s *Server) subscribe(conn uint64, machines []string) (*controller, error) {
 	if len(machines) == 0 || len(machines) > 256 {
 		return nil, errors.New("subscribe requires the controller's reachable machines")
 	}
@@ -305,9 +316,10 @@ func (s *Server) subscribe(machines []string) (*controller, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.controller != nil {
-		return nil, errors.New("another controller is active")
+		return nil, fmt.Errorf("another controller is active on conn %d", s.controller.conn)
 	}
-	s.controller = &controller{targets: make(chan Target, 1), done: make(chan struct{}), machines: allowed}
+	s.controller = &controller{conn: conn, targets: make(chan Target, 1), done: make(chan struct{}), machines: allowed}
+	s.logf("controller registered on conn %d for machines %s", conn, strings.Join(machines, ","))
 	return s.controller, nil
 }
 
@@ -315,10 +327,17 @@ func (s *Server) subscribe(machines []string) (*controller, error) {
 func (s *Server) complete(c *controller, failure string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.controller == c {
-		c.busy = false
-		s.switchError = clean(failure, 512)
+	if s.controller != c {
+		s.logf("conn %d completed a switch after its controller was released", c.conn)
+		return
 	}
+	c.busy = false
+	s.switchError = clean(failure, 512)
+	if s.switchError != "" {
+		s.logf("controller on conn %d failed its switch: %s", c.conn, s.switchError)
+		return
+	}
+	s.logf("controller on conn %d completed its switch", c.conn)
 }
 
 // release ends the controller's registration and any in-flight switch in the
@@ -331,19 +350,28 @@ func (s *Server) release(c *controller, unsubscribed bool) {
 	if s.controller != c {
 		return
 	}
+	how := "disconnected"
+	if unsubscribed {
+		how = "unsubscribed"
+	}
 	if c.busy {
 		s.switchError = ""
 		if !unsubscribed {
 			s.switchError = "attach controller disconnected during a switch"
 		}
+		how += " during a switch"
 	}
+	s.logf("controller on conn %d %s", c.conn, how)
 	s.controller = nil
 	close(c.done)
 }
 
 // connState is one client connection: a JSON-RPC stream or a one-shot local request.
 type connState struct {
-	s       *Server
+	s  *Server
+	id uint64
+	// rpc marks a JSON-RPC stream; other connections carry one plain request.
+	rpc     bool
 	conn    net.Conn
 	wmu     sync.Mutex
 	enc     *json.Encoder
@@ -352,13 +380,17 @@ type connState struct {
 	sub     *controller
 }
 
-func (c *connState) write(v any) {
+// write reports whether v was sent; a failed write closes the connection.
+func (c *connState) write(v any) bool {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if c.enc.Encode(v) != nil {
+	if err := c.enc.Encode(v); err != nil {
+		c.s.logf("conn %d write failed, closing: %v", c.id, err)
 		_ = c.conn.Close()
+		return false
 	}
+	return true
 }
 
 // spawn runs a request concurrently so slow Herdr calls do not block the stream.
@@ -370,35 +402,91 @@ func (c *connState) spawn(ctx context.Context, r Request, reply func(Response)) 
 		defer func() { <-c.sem }()
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		reply(c.s.Handle(ctx, r))
+		start := time.Now()
+		resp := c.s.Handle(ctx, r)
+		c.logRequest(r, resp, time.Since(start))
+		reply(resp)
 	}()
+}
+
+// routineOps repeat every few seconds; they are logged only when they fail or stall.
+var routineOps = map[string]bool{"ping": true, "list": true, "export": true}
+
+func (c *connState) logRequest(r Request, resp Response, elapsed time.Duration) {
+	slow := elapsed > time.Second
+	if routineOps[r.Op] && resp.Error == "" && !slow {
+		return
+	}
+	outcome := "ok"
+	if resp.Error != "" {
+		outcome = "error: " + resp.Error
+	}
+	c.s.logf("conn %d %s%s -> %s (%s)", c.id, r.Op, requestDetail(r), outcome, elapsed.Round(time.Millisecond))
+}
+
+func requestDetail(r Request) string {
+	var b strings.Builder
+	if r.MachineID != "" {
+		fmt.Fprintf(&b, " machine=%s", clean(r.MachineID, 64))
+	}
+	if r.WorkspaceID != "" {
+		fmt.Fprintf(&b, " workspace=%s", clean(r.WorkspaceID, 64))
+	}
+	if r.Op == "hello" {
+		fmt.Fprintf(&b, " version=%d", r.Version)
+	}
+	return b.String()
+}
+
+// closeReason names why a connection's read loop ended.
+func closeReason(err error) string {
+	switch {
+	case errors.Is(err, io.EOF):
+		return "closed by client"
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return "idle timeout"
+	case errors.Is(err, net.ErrClosed):
+		return "closed by daemon"
+	case err == nil:
+		return "invalid request"
+	}
+	return err.Error()
 }
 
 // serveConn handles newline-delimited messages until the client closes the
 // connection. Streams speak JSON-RPC 2.0; one-shot local requests from Call send
 // one plain request.
 func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
-	c := &connState{s: s, conn: conn, enc: json.NewEncoder(conn), sem: make(chan struct{}, 8)}
+	c := &connState{s: s, id: s.conns.Add(1), conn: conn, enc: json.NewEncoder(conn), sem: make(chan struct{}, 8)}
+	opened := time.Now()
+	var readErr error
 	defer func() {
 		if c.sub != nil {
 			s.release(c.sub, false)
 		}
 		c.workers.Wait()
 		_ = conn.Close()
+		if c.rpc {
+			s.logf("conn %d stream closed after %s: %s", c.id, time.Since(opened).Round(time.Millisecond), closeReason(readErr))
+		}
 	}()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	reader := bufio.NewReader(conn)
 	deadline := 5 * time.Second
-	rpc := false
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(deadline))
 		line, err := readLine(reader, maxRequest)
 		if err != nil {
+			readErr = err
 			return
 		}
 		deadline = s.IdleTimeout
-		if rpc = rpc || isRPC(line); rpc {
+		if !c.rpc && isRPC(line) {
+			c.rpc = true
+			s.logf("conn %d stream opened", c.id)
+		}
+		if c.rpc {
 			c.serveRPC(ctx, line)
 			continue
 		}
@@ -415,15 +503,18 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 	r, id, failure := decodeRPC(line)
 	switch {
 	case failure != nil:
+		c.s.logf("conn %d rejected message: %s", c.id, failure.Message)
 		c.write(rpcFailure(id, failure.Code, failure.Message))
 	case id == nil:
 		// JSON-RPC notifications never receive a reply.
 	case !rpcMethods[r.Op]:
+		c.s.logf("conn %d unknown method %s", c.id, clean(r.Op, 64))
 		c.write(rpcFailure(id, codeMethodNotFound, "method not found"))
 	case r.Op == "subscribe":
 		c.subscribe(id, r.Machines)
 	case r.Op == "complete":
 		if c.sub == nil {
+			c.s.logf("conn %d complete rejected: stream is not subscribed", c.id)
 			c.write(rpcFailure(id, codeDaemonError, "stream is not subscribed"))
 			return
 		}
@@ -443,11 +534,13 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 // subscribe answers before any switch is pushed on this stream.
 func (c *connState) subscribe(id json.RawMessage, machines []string) {
 	if c.sub != nil {
+		c.s.logf("conn %d subscribe rejected: stream is already subscribed", c.id)
 		c.write(rpcFailure(id, codeDaemonError, "stream is already subscribed"))
 		return
 	}
-	sub, err := c.s.subscribe(machines)
+	sub, err := c.s.subscribe(c.id, machines)
 	if err != nil {
+		c.s.logf("conn %d subscribe rejected: %v", c.id, err)
 		c.write(rpcFailure(id, codeDaemonError, err.Error()))
 		return
 	}
@@ -459,7 +552,9 @@ func (c *connState) subscribe(id json.RawMessage, machines []string) {
 		for {
 			select {
 			case t := <-sub.targets:
-				c.write(rpcNotification{JSONRPC: jsonrpcVersion, Method: switchNotification, Params: t})
+				if c.write(rpcNotification{JSONRPC: jsonrpcVersion, Method: switchNotification, Params: t}) {
+					c.s.logf("conn %d switch to %s/%s pushed to controller", c.id, t.MachineID, t.WorkspaceID)
+				}
 			case <-sub.done:
 				return
 			}
@@ -522,6 +617,12 @@ func (s *Server) Serve(ctx context.Context) error {
 	if e = os.Chmod(p, 0600); e != nil {
 		return e
 	}
+	peers := make([]string, 0, len(s.cfg.Peers))
+	for _, peer := range s.cfg.Peers {
+		peers = append(peers, peer.ID)
+	}
+	s.logf("serving machine %s (herdr session %s) on %s; peers: %s", s.cfg.ID, s.cfg.HerdrSession, p, strings.Join(peers, ","))
+	defer s.logf("stopped")
 	defer func() {
 		for _, c := range s.peers {
 			_ = c.Close()

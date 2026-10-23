@@ -48,6 +48,11 @@ install-plugin: build
     @echo "{{ BOLD + BLUE + BG_BLACK }} Relinking Herdr plugin...{{ NORMAL }}"
     herdr plugin link "$PWD"
 
+# Rebuild and run the remote workspace daemon in the foreground
+daemon: build
+    @echo "{{ BOLD + BLUE + BG_BLACK }} Starting remote workspace daemon...{{ NORMAL }}"
+    ./bin/herdr-sesh daemon serve
+
 # Run linters on the codebase
 lint:
     @echo "{{ BOLD + GREEN + BG_BLACK }} Running linters...{{ NORMAL }}"
