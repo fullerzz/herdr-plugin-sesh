@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -37,9 +38,7 @@ func (a *App) daemon(ctx context.Context, args []string) error {
 		client := herdr.NewCLIClient()
 		client.Runner = daemonHerdrRunner{session: cfg.HerdrSession}
 		server := remote.NewServer(cfg, client)
-		server.Logf = func(format string, args ...any) {
-			_, _ = fmt.Fprintf(a.Err, "herdr-sesh daemon: "+format+"\n", args...)
-		}
+		server.Logf = log.New(a.Err, "herdr-sesh daemon: ", log.LstdFlags|log.Lmicroseconds|log.Lmsgprefix).Printf
 		return server.Serve(ctx)
 	case "list":
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
