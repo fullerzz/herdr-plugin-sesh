@@ -614,6 +614,9 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.closeError = ""
 	if key.String() == m.remoteFilterKey() {
+		if m.closingWorkspaceID != "" {
+			return m, nil
+		}
 		m.list.RemoteOnly = !m.list.RemoteOnly
 		m.list.Selected = 0
 		m.list.Filter(m.list.Query)

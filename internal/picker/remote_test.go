@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestRemoteOnlyFilterKeepsSearchAndRefreshes(t *testing.T) {
 	peer := model.Session{Source: model.SourceRemote, Name: "api", Remote: &model.RemoteRef{Machine: "server", WorkspaceID: "w1"}}
 	offline := model.Session{Source: model.SourceRemote, Name: "api-offline", Remote: &model.RemoteRef{Machine: "backup", WorkspaceID: "w2", Offline: true}}
 	items := []model.Session{{Source: "herdr", Name: "api-local", WorkspaceID: "w1"}, {Source: "config", Name: "api-config"}, peer, offline}
-	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true, HideBottomInfoRow: true}})
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{WorkspaceSort: "agent", HidePreview: true, HideBottomInfoRow: true}})
 	m.width, m.height = 120, 24
 	m.input.SetValue("api")
 	m.list.Filter("api")
@@ -81,4 +82,21 @@ func TestRemoteOnlyFilterEmptyAndPreviewShortcut(t *testing.T) {
 	assert.Contains(t, ansi.Strip(m.View().Content), "No matching workspaces")
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.False(t, updated.(teaModel).chosen)
+}
+
+func TestRemoteOnlyFilterIgnoredWhileClosingWorkspace(t *testing.T) {
+	remote := model.Session{Source: model.SourceRemote, Name: "peer", Remote: &model.RemoteRef{Machine: "server", WorkspaceID: "w2"}}
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}, remote}, Options{DisplayOptions: DisplayOptions{HidePreview: true}, Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error { return nil }}})
+	m, _ = m.closeSelectedWorkspace()
+	t.Cleanup(func() {
+		if m.cancelWorkspaceClose != nil {
+			m.cancelWorkspaceClose()
+		}
+	})
+	require.Equal(t, "w1", m.closingWorkspaceID)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyF3})
+	m = updated.(teaModel)
+	assert.Nil(t, cmd)
+	assert.False(t, m.list.RemoteOnly)
+	assert.Len(t, m.list.Filtered, 2)
 }
