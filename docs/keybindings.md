@@ -18,6 +18,7 @@ icon: lucide/keyboard
 | ++ctrl+r++ | Cycle workspace → recent → agent sorting for Herdr workspaces. |
 | ++ctrl+o++ | Switch command/pane previews, unless overridden by `keys.cycle_preview_mode`. |
 | ++f2++ | Open settings; uses **Ctrl+,** when preview cycling is bound to F2. |
+| ++f3++ | Toggle all sources / remote Herdr workspaces only, keeping the search text; uses **Ctrl+G** when preview cycling is bound to F3. |
 | ++ctrl+x++ | Close the selected running Herdr workspace and refresh the list. |
 
 Typing updates the filter even when the list is focused. These controls describe

@@ -16,6 +16,7 @@ type Model struct {
 	Selected                  int
 	SeparatorAware            bool
 	DisableHomePrioritization bool
+	RemoteOnly                bool
 }
 
 func New(items []model.Session) Model {
@@ -31,6 +32,9 @@ func (m *Model) Filter(q string) {
 	var pathMatches []model.Session
 	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
+		if m.RemoteOnly && s.Remote == nil {
+			continue
+		}
 		nameMatch := Match(s.DisplayName(), q, m.SeparatorAware)
 		pathMatch := Match(s.Path, q, m.SeparatorAware) || homeQuery && isHomePath(s.Path)
 		if !nameMatch && !pathMatch {
