@@ -27,7 +27,10 @@ type pickerBackend struct {
 }
 
 func (b *pickerBackend) warnf(format string, args ...any) {
-	b.warnings = append(b.warnings, fmt.Sprintf(format, args...))
+	warning := fmt.Sprintf(format, args...)
+	if !slices.Contains(b.warnings, warning) {
+		b.warnings = append(b.warnings, warning)
+	}
 }
 
 // The alt-screen would overwrite warnings, so print them after it exits.
