@@ -346,3 +346,14 @@ func TestMissingRemoteTargetCannotCreateLocalDirectory(t *testing.T) {
 	assert.Empty(t, client.CreatedWorkspaces)
 	assert.Empty(t, client.FocusedWorkspaces)
 }
+
+func TestLocalRemotePrefixNameResolvesAndConnects(t *testing.T) {
+	local := model.Session{Source: "config", Name: "remote:prod", WorkspaceID: "ws1"}
+	got, ok := Resolve([]model.Session{local}, local.Name)
+	require.True(t, ok)
+	assert.Equal(t, local, got)
+	client := &herdr.FakeClient{}
+	_, err := Connect(context.Background(), client, []model.Session{local}, local.Name, Options{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ws1"}, client.FocusedWorkspaces)
+}

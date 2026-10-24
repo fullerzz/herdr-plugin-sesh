@@ -96,7 +96,11 @@ func NewSessions() Sessions {
 	return Sessions{Directory: map[string]Session{}, OrderedIndex: []string{}}
 }
 
-func IsRemoteTarget(target string) bool { return strings.HasPrefix(target, SourceRemote+":") }
+// Only the canonical key namespace is reserved; names like remote:prod stay local.
+func IsRemoteTarget(target string) bool {
+	suffix, ok := strings.CutPrefix(target, SourceRemote+":")
+	return ok && len(suffix) == 16 && strings.Trim(suffix, "0123456789abcdef") == ""
+}
 
 func Key(s Session) string {
 	base := fmt.Sprintf("%s\x00%s\x00%s\x00%s", s.Source, s.Name, s.Path, s.WorkspaceID)

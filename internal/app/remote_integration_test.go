@@ -220,3 +220,88 @@ func TestRemoteBlacklistAppliesToPickerAndList(t *testing.T) {
 	}
 	require.NoError(t, <-done)
 }
+
+func TestExplicitRemoteTargetHonorsBlacklist(t *testing.T) {
+	_, done := fakeDaemon(t, 1, []remote.Machine{{ID: "peer", Session: "main", Workspaces: []remote.Workspace{{ID: "w1", Label: "hidden"}}}})
+	cfg := config.Default()
+	cfg.Blacklist = []string{"^hidden$"}
+	target := model.Key(model.Session{Source: model.SourceRemote, Remote: &model.RemoteRef{Machine: "peer", Session: "main", WorkspaceID: "w1"}})
+	rows, err := (&App{Err: &bytes.Buffer{}}).collectAllowUnavailableHerdr(context.Background(), cfg, target)
+	require.ErrorContains(t, err, "remote session unavailable")
+	assert.Empty(t, rows)
+	require.NoError(t, <-done)
+}
+
+func TestLocalRemotePrefixPreviewDoesNotContactRemoteCatalog(t *testing.T) {
+	configureFakeSources(t, "")
+	requests, _ := fakeDaemon(t, 1, nil)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "sesh.toml")
+	require.NoError(t, os.WriteFile(cfgPath, fmt.Appendf(nil, "version=1\n[[workspace]]\nname='remote:prod'\npath=%q\npreview='printf local-preview'\n", dir), 0600))
+	var out, warnings bytes.Buffer
+	a := &App{Out: &out, Err: &warnings}
+	require.NoError(t, a.preview(context.Background(), []string{"--config", cfgPath, "remote:prod"}))
+	assert.Equal(t, "local-preview", out.String())
+	assert.Empty(t, warnings.String())
+	select {
+	case request := <-requests:
+		t.Fatalf("local target contacted remote catalog: %+v", request)
+	default:
+	}
+}
+
+func TestLocalRemotePrefixConnectAndPreviewWhenRemotesDisabled(t *testing.T) {
+	configureHerdrScript(t, `#!/bin/sh
+case "$1 $2" in
+"workspace list") printf '[{"id":"ws1","label":"remote:prod"}]\n' ;;
+"workspace focus") ;;
+*) exit 1 ;;
+esac
+`)
+	dir := t.TempDir()
+	remoteConfig := filepath.Join(dir, "remote.toml")
+	require.NoError(t, os.WriteFile(remoteConfig, []byte("enabled=false\n"), 0600))
+	t.Setenv("HERDR_SESH_REMOTE_CONFIG", remoteConfig)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	cfgPath := filepath.Join(dir, "herdr-sesh.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("version=1\n"), 0600))
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	require.NoError(t, a.connect(context.Background(), []string{"--config", cfgPath, "remote:prod"}))
+	assert.Equal(t, "remote:prod\n", out.String())
+	out.Reset()
+	require.NoError(t, a.preview(context.Background(), []string{"--config", cfgPath, "remote:prod"}))
+	assert.Equal(t, "workspace: remote:prod\nid: ws1\npath: \n", out.String())
+}
+
+func TestLocalCollectionDoesNotContactRemoteCatalog(t *testing.T) {
+	configureFakeSources(t, "")
+	requests, _ := fakeDaemon(t, 1, nil)
+	var warnings bytes.Buffer
+	_, err := (&App{Err: &warnings}).collectAllowUnavailableHerdr(context.Background(), config.Default(), "local-name")
+	require.NoError(t, err)
+	assert.Empty(t, warnings.String())
+	select {
+	case request := <-requests:
+		t.Fatalf("local collection contacted remote catalog: %+v", request)
+	default:
+	}
+}
+
+func TestPickerWarningsDeduplicateUntilFlush(t *testing.T) {
+	var out bytes.Buffer
+	b := &pickerBackend{app: &App{Err: &out}}
+	for range 7 {
+		b.warnf("remote catalog unavailable: %s", "connection refused")
+	}
+	b.warnf("remote catalog unavailable: %s", "connection timed out")
+	require.Len(t, b.warnings, 2)
+	b.flushWarnings()
+	assert.Equal(t, 2, strings.Count(out.String(), "remote catalog unavailable"))
+	assert.Contains(t, out.String(), "connection timed out")
+	assert.Empty(t, b.warnings)
+	b.warnf("remote catalog unavailable: %s", "connection refused")
+	require.Len(t, b.warnings, 1)
+	b.flushWarnings()
+	assert.Equal(t, 3, strings.Count(out.String(), "remote catalog unavailable"))
+}

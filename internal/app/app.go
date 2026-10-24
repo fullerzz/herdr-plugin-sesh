@@ -142,12 +142,16 @@ func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, he
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source, warnf func(string, ...any)) ([]model.Session, error) {
 	if model.IsRemoteTarget(target) {
 		sessions, err := remoteSessions(ctx)
+		sessions = sources.FilterBlacklist(sessions, cfg.Blacklist, false)
 		if _, ok := connectpkg.Resolve(sessions, target); !ok {
 			return nil, errors.Join(fmt.Errorf("remote session unavailable: %s", target), err)
 		}
 		return sessions, nil
 	}
-	remoteRows := startRemoteRows(ctx, cfg.Blacklist, false)
+	var remoteRows func(func(string, ...any)) []model.Session
+	if target == "" {
+		remoteRows = startRemoteRows(ctx, cfg.Blacklist, false)
+	}
 	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
 	if target != "" {
 		srcs = append(srcs, sources.DirectPath{
@@ -156,7 +160,10 @@ func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string,
 		})
 	}
 	merged, err := sources.Merge(ctx, srcs, cfg.SortOrder, cfg.Blacklist, false, true)
-	peers := remoteRows(warnf)
+	var peers []model.Session
+	if remoteRows != nil {
+		peers = remoteRows(warnf)
+	}
 	if err != nil {
 		return nil, err
 	}

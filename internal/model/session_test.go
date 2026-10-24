@@ -44,3 +44,10 @@ func TestKeyIsStableAndSourceScoped(t *testing.T) {
 	b.Worktree = WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}
 	assert.Equal(t, Key(b), Key(a))
 }
+
+func TestIsRemoteTargetReservesOnlyCanonicalKeys(t *testing.T) {
+	assert.True(t, IsRemoteTarget(Key(Session{Source: SourceRemote})))
+	for _, target := range []string{"remote:prod", "remote:", "remote:0123456789abcde", "remote:0123456789abcdef0", "remote:0123456789abcdeg", "remote:0123456789ABCDEF"} {
+		assert.False(t, IsRemoteTarget(target), target)
+	}
+}
