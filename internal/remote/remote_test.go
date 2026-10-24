@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -323,4 +324,67 @@ func TestServeRefreshesLocalInventoryWhilePeersAreSlow(t *testing.T) {
 		local := s.Handle(ctx, Request{Op: "export"}).Catalog[0]
 		return !local.Stale && local.UpdatedAt.After(first)
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestExportPeerPreservesStaleErrorAfterIdentityValidation(t *testing.T) {
+	s := NewServer(testConfig(), &fakeClient{})
+	machine := Machine{ID: "other", Stale: true, LastError: "Herdr\nnot running" + strings.Repeat("x", 600)}
+	s.PeerCall = func(context.Context, Peer, Request) (Response, error) {
+		return Response{Catalog: []Machine{machine}}, nil
+	}
+	_, err := s.exportPeer(context.Background(), s.cfg.Peers[0])
+	require.Error(t, err)
+	assert.Equal(t, clean(machine.LastError, 512), err.Error())
+	machine.ID = "untrusted"
+	_, err = s.exportPeer(context.Background(), s.cfg.Peers[0])
+	assert.EqualError(t, err, "invalid peer catalog")
+}
+
+type shutdownClient struct{ entered, cancelled, release chan struct{} }
+
+func (c *shutdownClient) WorkspaceList(ctx context.Context) ([]herdr.Workspace, error) {
+	close(c.entered)
+	<-ctx.Done()
+	close(c.cancelled)
+	<-c.release
+	return nil, ctx.Err()
+}
+func (c *shutdownClient) WorkspaceFocus(context.Context, string) error { return nil }
+
+func TestServeRetainsSocketOwnershipUntilWorkersStop(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "sesh-shutdown-")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(dir) }()
+	cfg := Config{Enabled: true, ID: "local", Socket: filepath.Join(dir, "d.sock")}
+	client := &shutdownClient{make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- NewServer(cfg, client).Serve(ctx) }()
+	defer func() { close(client.release); require.NoError(t, <-done) }()
+	select {
+	case <-client.entered:
+	case <-time.After(time.Second):
+		t.Fatal("server did not start")
+	}
+	cancel()
+	select {
+	case <-client.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not cancel")
+	}
+	// The cancellation worker closes the listener; wait until its shutdown path runs.
+	require.Eventually(t, func() bool {
+		conn, e := net.Dial("unix", cfg.Socket)
+		if e == nil {
+			_ = conn.Close()
+		}
+		return e != nil
+	}, time.Second, time.Millisecond)
+	lock, err := lockSocket(cfg.Socket)
+	if lock != nil {
+		defer func() { _ = lock.Close() }()
+	}
+	require.Error(t, err, "ownership must remain locked while a worker is still stopping")
+	assert.FileExists(t, cfg.Socket)
 }

@@ -281,7 +281,7 @@ func (s *stream) dispatch(line []byte) error {
 		return nil
 	}
 	var id uint64
-	if err := json.Unmarshal(m.ID, &id); err != nil {
+	if err := json.Unmarshal(m.ID, &id); err != nil || bytes.Equal(bytes.TrimSpace(m.ID), []byte("null")) {
 		if m.Error != nil {
 			return fmt.Errorf("daemon rejected stream: %s", clean(m.Error.Message, 512))
 		}
@@ -446,7 +446,10 @@ func (s *Subscription) Complete(ctx context.Context, failure error) error {
 }
 
 // Close releases the controller while keeping the shared stream open.
-func (s *Subscription) Close() {
+func (s *Subscription) Close() { s.CloseWithFailure(nil) }
+
+// CloseWithFailure releases the controller and records a failed handoff atomically.
+func (s *Subscription) CloseWithFailure(failure error) {
 	s.stream.mu.Lock()
 	ok := s.stream.sub == s.targets
 	if ok {
@@ -459,7 +462,11 @@ func (s *Subscription) Close() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := s.stream.call(ctx, Request{Op: "unsubscribe"}); err != nil {
+	r := Request{Op: "unsubscribe"}
+	if failure != nil {
+		r.Failure = failure.Error()
+	}
+	if _, err := s.stream.call(ctx, r); err != nil {
 		// Closing the stream is the authoritative release.
 		s.stream.fail(fmt.Errorf("release controller: %w", err))
 	}
@@ -579,7 +586,7 @@ func (c *sshConn) diagnostic() string {
 	}, c.stderr.String())
 	msg = strings.Join(strings.Fields(msg), " ")
 	if len(msg) > 512 {
-		msg = msg[:512]
+		msg = strings.ToValidUTF8(msg[:512], "")
 	}
 	return msg
 }
