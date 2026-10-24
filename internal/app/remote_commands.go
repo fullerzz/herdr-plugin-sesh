@@ -27,20 +27,22 @@ type remoteService interface {
 }
 
 type remoteCommands struct {
-	service   remoteService
-	configure func(context.Context, remote.Config) (remote.Config, error)
-	call      func(context.Context, remote.Config, remote.Request) (remote.Response, error)
+	service    remoteService
+	serviceErr error
+	checkSSH   func(context.Context, remote.Peer) error
+	configure  func(context.Context, remote.Config) (remote.Config, error)
+	call       func(context.Context, remote.Config, remote.Request) (remote.Response, error)
 }
 
 func (a *App) remote(ctx context.Context, args []string) error {
-	if len(args) != 1 || (args[0] != "enable" && args[0] != "disable" && args[0] != "status") {
-		return errors.New("usage: herdr-sesh remote enable|status|disable")
+	if len(args) != 1 || (args[0] != "enable" && args[0] != "disable" && args[0] != "status" && args[0] != "doctor") {
+		return errors.New("usage: herdr-sesh remote enable|status|disable|doctor")
 	}
 	service, err := remoteservice.New()
-	if err != nil {
+	if err != nil && args[0] != "doctor" {
 		return err
 	}
-	commands := remoteCommands{service: service, call: remote.Call, configure: func(ctx context.Context, cfg remote.Config) (remote.Config, error) {
+	commands := remoteCommands{service: service, serviceErr: err, checkSSH: remote.CheckSSH, call: remote.Call, configure: func(ctx context.Context, cfg remote.Config) (remote.Config, error) {
 		if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 			return cfg, errors.New("initial remote setup requires an interactive terminal; create remote.toml first for unattended setup")
 		}
@@ -50,6 +52,9 @@ func (a *App) remote(ctx context.Context, args []string) error {
 }
 
 func (c remoteCommands) run(ctx context.Context, a *App, action string) error {
+	if action == "doctor" {
+		return c.doctor(ctx, a)
+	}
 	if action == "enable" || action == "disable" {
 		return c.service.WithLock(ctx, func(ctx context.Context) error {
 			return c.runAction(ctx, a, action)
@@ -94,7 +99,7 @@ func (c remoteCommands) runAction(ctx context.Context, a *App, action string) er
 	case "status":
 		return c.status(ctx, a, path)
 	default:
-		return errors.New("usage: herdr-sesh remote enable|status|disable")
+		return errors.New("usage: herdr-sesh remote enable|status|disable|doctor")
 	}
 }
 

@@ -310,6 +310,6 @@ func TestRemoteStatusDoesNotEnableOrContactPeersWhenDisabled(t *testing.T) {
 func TestRemoteCommandsRejectInvalidArguments(t *testing.T) {
 	a := &App{Out: new(bytes.Buffer), Err: new(bytes.Buffer)}
 	for _, args := range [][]string{{"remote"}, {"remote", "enable", "extra"}, {"remote", "unknown"}} {
-		require.ErrorContains(t, a.Run(context.Background(), args), "usage: herdr-sesh remote enable|status|disable")
+		require.ErrorContains(t, a.Run(context.Background(), args), "usage: herdr-sesh remote enable|status|disable|doctor")
 	}
 }

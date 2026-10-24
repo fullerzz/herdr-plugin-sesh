@@ -199,6 +199,29 @@ remain visible with their last known metadata, but cannot be selected for switch
 
 ## Inspect and troubleshoot
 
+Start with:
+
+```sh
+herdr-sesh remote doctor
+```
+
+The command prints `OK`, `FAIL`, or `SKIP` for configuration, background service,
+daemon connectivity and identity, catalog health, and each configured peer's SSH
+access. Failures include suggested repairs and produce a nonzero exit status.
+Independent checks continue after a failure, so a stopped local daemon does not
+prevent checking peer SSH access.
+
+Doctor does not change configuration, start services, or repair anything
+automatically. Disabled setups skip daemon and SSH probes. For enabled setups,
+each SSH probe runs `true` without a terminal, password prompts, agent forwarding,
+or accepting new host keys, and has a ten-second timeout. Approve an unknown host
+key yourself after verifying it, then rerun doctor. Successful SSH access does
+not prove the peer daemon is running or that reverse SSH access works.
+
+Run doctor from the same environment used to enable the service. The current
+terminal's SSH agent and environment may differ from the background service's;
+rerun `remote enable` after fixing its environment if needed.
+
 `herdr-sesh daemon list` reports the catalog, per-machine `last_error`, and
 `switch_error`. `herdr-sesh list --json` exposes typed remote metadata. The plain
 `herdr-sesh list` output includes a remote connect key in its final column;

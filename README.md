@@ -168,6 +168,7 @@ The plugin binary also exposes its underlying operations directly:
 | `herdr-sesh config migrate` | Convert a legacy Sesh-style config to the native format. |
 | `herdr-sesh remote enable` | Configure and start the opt-in remote workspace background service. |
 | `herdr-sesh remote status` | Inspect the service and local/peer workspace availability. |
+| `herdr-sesh remote doctor` | Diagnose remote configuration, service, daemon, and peer SSH access with repair guidance. |
 | `herdr-sesh remote disable` | Stop the managed service and disable remote support, retaining settings. |
 
 The binary lives inside Herdr's managed plugin checkout after installation; the
