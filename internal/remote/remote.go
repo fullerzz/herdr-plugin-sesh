@@ -629,13 +629,14 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	s.logf("serving machine %s (herdr session %s) on %s; peers: %s", s.cfg.ID, s.cfg.HerdrSession, p, strings.Join(peers, ","))
 	defer s.logf("stopped")
+	// Close transports to release blocked writes before waiting; keep socket ownership until workers stop.
 	defer func() {
+		cancel()
 		for _, c := range s.peers {
 			_ = c.Close()
 		}
+		workers.Wait()
 	}()
-	// Stop workers before removing the socket or releasing its ownership lock.
-	defer func() { cancel(); workers.Wait() }()
 	workers.Add(3)
 	go func() { defer workers.Done(); <-ctx.Done(); _ = l.Close() }()
 	// Local inventory must stay fresh even when peer batches exceed its expiry.
