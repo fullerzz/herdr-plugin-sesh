@@ -84,10 +84,11 @@ func decodeConfig(b []byte) (Config, error) {
 
 // ConfigEdit binds an edit to the file observed before interactive input.
 type ConfigEdit struct {
-	Config Config
-	Exists bool
-	path   string
-	before configSnapshot
+	Config  Config
+	Exists  bool
+	path    string
+	before  configSnapshot
+	written configSnapshot
 }
 
 // PrepareConfig reads and validates the same snapshot that a later save checks.
@@ -121,12 +122,24 @@ func (e *ConfigEdit) Save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return writeConfig(e.path, b, e.before)
+	return e.write(b)
 }
 
-// Restore replaces the saved file with the exact prepared text, rejecting later edits.
-func (e *ConfigEdit) Restore(writtenInfo os.FileInfo, writtenData []byte) error {
-	return writeConfig(e.path, e.before.data, configSnapshot{info: writtenInfo, data: writtenData})
+// Restore restores the prepared file only while our publication is still current.
+func (e *ConfigEdit) Restore() error {
+	if e.written.info == nil {
+		return errors.New("remote config has not been saved")
+	}
+	_, err := writeConfig(e.path, e.before.data, e.written)
+	return err
+}
+
+func (e *ConfigEdit) write(data []byte) error {
+	written, err := writeConfig(e.path, data, e.before)
+	if err == nil {
+		e.written = written
+	}
+	return err
 }
 
 // SaveConfig atomically replaces a regular config file with private permissions.
@@ -182,12 +195,12 @@ func (e *ConfigEdit) SetEnabled(enabled bool) error {
 		updated := append([]byte{}, b[:r.Offset]...)
 		updated = append(updated, strconv.FormatBool(enabled)...)
 		updated = append(updated, b[r.Offset+r.Length:]...)
-		return writeConfig(e.path, updated, e.before)
+		return e.write(updated)
 	}
 	if err := parser.Error(); err != nil {
 		return err
 	}
-	return writeConfig(e.path, append([]byte("enabled = "+strconv.FormatBool(enabled)+"\n"), b...), e.before)
+	return e.write(append([]byte("enabled = "+strconv.FormatBool(enabled)+"\n"), b...))
 }
 
 type configSnapshot struct {
@@ -215,49 +228,62 @@ func configFileInfo(path string) (os.FileInfo, error) {
 	return info, nil
 }
 
-func writeConfig(path string, data []byte, before configSnapshot) error {
+// A nil data slice removes a newly created configuration during rollback.
+func writeConfig(path string, data []byte, before configSnapshot) (configSnapshot, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
+		return configSnapshot{}, err
 	}
 	lock, err := lockConfig(path + ".lock")
 	if err != nil {
-		return err
+		return configSnapshot{}, err
 	}
 	defer func() { _ = lock.Close() }()
 	f, err := os.CreateTemp(filepath.Dir(path), ".remote-*.toml")
 	if err != nil {
-		return err
+		return configSnapshot{}, err
 	}
 	defer func() { _ = os.Remove(f.Name()) }()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
-		return err
+		return configSnapshot{}, err
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
-		return err
+		return configSnapshot{}, err
+	}
+	writtenInfo, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return configSnapshot{}, err
 	}
 	if err := f.Close(); err != nil {
-		return err
+		return configSnapshot{}, err
 	}
 	after, err := readConfigSnapshot(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return configSnapshot{}, err
 	}
 	if (before.info == nil) != (after.info == nil) || (before.info != nil && !os.SameFile(before.info, after.info)) || !bytes.Equal(before.data, after.data) {
-		return errors.New("remote config changed while saving")
+		return configSnapshot{}, errors.New("remote config changed while saving")
 	}
+	if data == nil {
+		return configSnapshot{}, os.Remove(path)
+	}
+	written := configSnapshot{info: writtenInfo, data: bytes.Clone(data)}
 	if before.info == nil {
 		// Linking publishes the complete file without replacing a concurrent creator.
 		if err := os.Link(f.Name(), path); err != nil {
 			if errors.Is(err, os.ErrExist) {
-				return errors.New("remote config changed while saving")
+				return configSnapshot{}, errors.New("remote config changed while saving")
 			}
-			return err
+			return configSnapshot{}, err
 		}
-		return nil
+		return written, nil
 	}
-	return os.Rename(f.Name(), path)
+	if err := os.Rename(f.Name(), path); err != nil {
+		return configSnapshot{}, err
+	}
+	return written, nil
 }
 
 func (c Config) Validate() error {
