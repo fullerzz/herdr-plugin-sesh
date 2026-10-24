@@ -44,6 +44,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return err
 	case "daemon":
 		return a.daemon(ctx, args[1:])
+	case "remote":
+		return a.remote(ctx, args[1:])
 	case "attach":
 		return a.attach(ctx, args[1:])
 	case "list":
@@ -71,7 +73,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 }
 func (a *App) usage() error {
-	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|daemon|attach|--version")
+	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|daemon|remote|attach|--version")
 	return err
 }
 

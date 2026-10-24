@@ -59,6 +59,10 @@ Use `"$sesh_bin"` followed by a command from this table:
 | `attach [machine-id]` | From an outer terminal, attach locally or to a configured peer and enable cross-machine switching. Requires [remote setup](remote-workspaces.md). |
 | `daemon serve` | Run the opt-in remote workspace daemon in the foreground. |
 | `daemon list` | Inspect the remote catalog and connection/switch diagnostics. |
+| `remote enable` | Explicitly opt in, configure remote support if needed, and install/start a per-user background service. |
+| `remote status` | Show service installation/running state, daemon availability, and local/peer catalog health. |
+| `remote doctor` | Check configuration, background service, daemon connectivity, and peer SSH access; print repair guidance and exit nonzero when checks fail. |
+| `remote disable` | Stop and remove the managed service, disable remote support, and retain peer settings. |
 | `picker [--config PATH] [--fzf] [--json]` | Open the native picker, use the experimental fzf picker, or print selectable sessions as JSON. |
 | `list [--config PATH] [--json] [--blacklisted] [--hide-duplicates=false]` | List merged session sources, including optional blacklist and duplicate views. |
 | `connect [--config PATH] [--no-focus] TARGET` | Focus or create a workspace by name, path, or workspace ID; `--no-focus` preserves the current focus. |
