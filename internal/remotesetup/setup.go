@@ -3,6 +3,7 @@ package remotesetup
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -10,22 +11,29 @@ import (
 	"strings"
 
 	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/uitheme"
 )
 
 // Configure collects configuration without writing files or contacting peers.
-func Configure(ctx context.Context, initial remote.Config, in *os.File, out io.Writer) (remote.Config, error) {
+func Configure(ctx context.Context, initial remote.Config, palette uitheme.Palette, in *os.File, out io.Writer) (remote.Config, error) {
 	hostname, _ := os.Hostname()
 	accessible, _ := strconv.ParseBool(os.Getenv("ACCESSIBLE"))
 	accessible = accessible || os.Getenv("TERM") == "dumb"
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		palette = uitheme.Palette{}
+	}
 	input := &accessibleInput{reader: in, ctx: ctx}
-	return configure(initial, hostname, func(fields ...huh.Field) error {
+	theme := formTheme(palette)
+	return configure(initial, hostname, palette, out, func(fields ...huh.Field) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		form := huh.NewForm(huh.NewGroup(fields...)).WithInput(in).WithOutput(out)
+		form := huh.NewForm(huh.NewGroup(fields...)).WithTheme(theme).WithInput(in).WithOutput(out)
 		if accessible {
-			form.WithAccessible(true).WithInput(input)
+			form.WithAccessible(true).WithInput(input).WithOutput(colorprofile.NewWriter(out, os.Environ()))
 		}
 		if err := form.RunWithContext(ctx); err != nil {
 			return err
@@ -37,7 +45,7 @@ func Configure(ctx context.Context, initial remote.Config, in *os.File, out io.W
 	})
 }
 
-func configure(initial remote.Config, hostname string, run func(...huh.Field) error) (remote.Config, error) {
+func configure(initial remote.Config, hostname string, palette uitheme.Palette, out io.Writer, run func(...huh.Field) error) (remote.Config, error) {
 	cfg := initial
 	cfg.Peers = slices.Clone(initial.Peers)
 	cfg.Enabled = true
@@ -48,11 +56,11 @@ func configure(initial remote.Config, hostname string, run func(...huh.Field) er
 		cfg.Peers[i].Session = cmp.Or(cfg.Peers[i].Session, "default")
 	}
 	if err := run(
-		huh.NewInput().Title("Machine ID").Description("A stable, unique name for this machine.").Value(&cfg.ID).
-			Validate(func(value string) error {
+		newInput("Machine ID", "A stable, unique name for this machine.", &cfg.ID,
+			func(value string) error {
 				return (remote.Config{Enabled: true, ID: cmp.Or(value, defaultID)}).Validate()
 			}),
-		huh.NewInput().Title("Herdr session").Value(&cfg.HerdrSession).Validate(validateSession),
+		newInput("Herdr session", "", &cfg.HerdrSession, validateSession),
 	); err != nil {
 		return remote.Config{}, err
 	}
@@ -60,7 +68,13 @@ func configure(initial remote.Config, hostname string, run func(...huh.Field) er
 	cfg.HerdrSession = cmp.Or(cfg.HerdrSession, "default")
 	for {
 		var add bool
-		if err := run(huh.NewConfirm().Title("Add an SSH peer?").Description("Use an existing SSH alias or user@host. No connection is made during setup.").Value(&add)); err != nil {
+		confirm := huh.NewConfirm().Title("Add an SSH peer before continuing?").
+			Description("Use an existing SSH alias or user@host. No connection is made during setup.").
+			Affirmative("Add machine").Negative("Continue").Value(&add)
+		if len(cfg.Peers) > 0 {
+			confirm.Title("Add another SSH peer before continuing?").Affirmative("Add another machine")
+		}
+		if err := run(confirm); err != nil {
 			return remote.Config{}, err
 		}
 		if !add {
@@ -71,20 +85,24 @@ func configure(initial remote.Config, hostname string, run func(...huh.Field) er
 		}
 		peer := remote.Peer{Session: "default"}
 		if err := run(
-			huh.NewInput().Title("Peer machine ID").Value(&peer.ID).Validate(func(value string) error {
+			newInput("Peer machine ID", "", &peer.ID, func(value string) error {
 				candidate := cfg
 				candidate.Peers = append(slices.Clone(cfg.Peers), remote.Peer{ID: value, SSH: "host"})
 				return candidate.Validate()
 			}),
-			huh.NewInput().Title("SSH alias or user@host").Value(&peer.SSH).Validate(func(value string) error {
+			newInput("SSH alias or user@host", "", &peer.SSH, func(value string) error {
 				return (remote.Config{Enabled: true, ID: cfg.ID, Peers: []remote.Peer{{ID: peer.ID, SSH: value}}}).Validate()
 			}),
-			huh.NewInput().Title("Peer Herdr session").Value(&peer.Session).Validate(validateSession),
+			newInput("Peer Herdr session", "", &peer.Session, validateSession),
 		); err != nil {
 			return remote.Config{}, err
 		}
 		peer.Session = cmp.Or(peer.Session, "default")
 		cfg.Peers = append(cfg.Peers, peer)
+		message := fmt.Sprintf("Peer %q added to setup (SSH: %s).", peer.ID, peer.SSH)
+		if _, err := lipgloss.Fprintln(out, lipgloss.NewStyle().Foreground(palette.Green).Bold(true).Render(message)); err != nil {
+			return remote.Config{}, err
+		}
 	}
 }
 
