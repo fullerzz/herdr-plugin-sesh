@@ -42,6 +42,9 @@ tabs.
   outside the plugin, with separate history for each Herdr session.
 - Clone a Git repository and connect to it in one command.
 - Use the built-in picker by default or opt into the experimental fzf picker.
+- Opt into [remote workspaces](docs/remote-workspaces.md) with guided setup and a
+  macOS LaunchAgent or Linux systemd user service. Remote support stays disabled
+  until explicitly enabled.
 
 Sesh concepts map onto Herdr as follows:
 
@@ -163,6 +166,9 @@ The plugin binary also exposes its underlying operations directly:
 | `herdr-sesh config edit [--config PATH]` | Edit global settings with a review before saving. |
 | `herdr-sesh config validate [PATH]` | Validate the active or specified config and print its resolved path. |
 | `herdr-sesh config migrate` | Convert a legacy Sesh-style config to the native format. |
+| `herdr-sesh remote enable` | Configure and start the opt-in remote workspace background service. |
+| `herdr-sesh remote status` | Inspect the service and local/peer workspace availability. |
+| `herdr-sesh remote disable` | Stop the managed service and disable remote support, retaining settings. |
 
 The binary lives inside Herdr's managed plugin checkout after installation; the
 plugin actions are the normal entry points for day-to-day use.

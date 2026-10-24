@@ -17,6 +17,27 @@ remain visible in this mode.
 
 ## Configure each machine
 
+Remote support is **disabled by default**. Installing or updating the plugin,
+opening the picker, and checking status do not create a service or enable it.
+After preparing binaries and SSH below, run this on each participating machine:
+
+```sh
+herdr-sesh remote enable
+herdr-sesh remote status
+```
+
+On first use, a terminal form asks for the machine ID, Herdr session, and optional
+peers. Set `ACCESSIBLE=1` for the screen-reader-friendly form. Canceling setup
+does not write configuration or install a service. Existing configurations are
+reused without prompting; for unattended setup, create `remote.toml` first.
+The command installs and starts a user service and verifies the local daemon
+socket. Unavailable sessions and peers are reported separately; the service
+does not create Herdr sessions or configure remote machines.
+
+Only one `remote enable` or `remote disable` operation can run per user at a time;
+if another is in progress, wait for it to finish and retry. If configuration
+changes while the setup form is open, enable stops and preserves those changes.
+
 ### 1. Prepare binaries and SSH
 
 Install Herdr and the Sesh plugin on every participating machine, using the same
@@ -47,7 +68,10 @@ For zsh, put required `PATH` and config environment exports in `~/.zshenv`, not
 only `~/.zshrc`. Keep noninteractive shell startup silent: output on stdout
 interferes with the daemon protocol.
 
-### 2. Create `remote.toml`
+### 2. Configure `remote.toml`
+
+`remote enable` creates this file during initial setup. You can also create or
+edit it manually using the examples below, then run `remote enable` to apply it.
 
 This is separate from the normal picker `config.toml` and has no `version` key.
 The first applicable location wins:
@@ -112,13 +136,22 @@ switch to; the daemon rejects selections outside that allowlist.
 
 ### 3. Start and check each daemon
 
-Start the configured Herdr session on each machine, then run:
+Start the configured Herdr session on each machine, then enable the background
+service:
+
+```sh
+herdr-sesh remote enable
+herdr-sesh remote status
+```
+
+For troubleshooting or a manually managed installation, run in the foreground:
 
 ```sh
 herdr-sesh daemon serve
 ```
 
-Leave this foreground process running. In another terminal on each machine:
+Leave this foreground process running only when using manual startup. Stop a
+manually started daemon before enabling the managed service. On each machine:
 
 ```sh
 herdr-sesh daemon list
@@ -127,12 +160,14 @@ herdr-sesh list
 
 Confirm both machines and their workspaces appear without stale/offline status
 or `last_error` before testing a switch. The daemon logs peer failures and
-recovery. Restart daemons and attach wrappers after changing their configuration;
-restart daemons after upgrading their binaries.
+recovery. Rerun `remote enable` after changing configuration, upgrading the binary,
+or changing the environment needed by the service. Restart attach wrappers after
+configuration changes. Use a stable installation path; a service cannot restart
+a binary that has been moved or deleted.
 
 Neither installing the plugin nor opening the picker starts a daemon
-automatically. The daemon does not start a missing Herdr session, install services,
-change SSH configuration, or update remote software.
+automatically. Only `remote enable` installs the user service. The daemon does not
+start a missing Herdr session, change SSH configuration, or update remote software.
 
 ## Switching before native client APIs
 
@@ -196,36 +231,39 @@ automatic rollback; rerun `herdr-sesh attach`.
 
 ## Optional background service
 
-After foreground setup works, use a user service manager. For Linux, create
-`~/.config/systemd/user/herdr-sesh-daemon.service`:
+`remote enable` manages one service for the current user. It does not require a
+system-wide service installation or run the daemon as root. Repeating the command
+updates the managed definition and restarts the daemon; it refuses to overwrite
+an unrelated service using the same name.
 
-```ini
-[Unit]
-Description=Herdr Sesh remote workspace catalog
+| Platform | Service | Lifetime |
+| --- | --- | --- |
+| macOS | `~/Library/LaunchAgents/com.herdr-sesh.daemon.plist` | Starts at login; survives terminal closure, ends at logout. |
+| Linux with systemd | `$XDG_CONFIG_HOME/systemd/user/herdr-sesh-daemon.service` (normally `~/.config/systemd/user/`) | Runs under the systemd user manager. |
 
-[Service]
-ExecStart=/absolute/path/to/herdr-sesh daemon serve
-Restart=on-failure
-RestartSec=5
-Environment=PATH=/home/YOU/.local/bin:/usr/local/bin:/usr/bin:/bin
+The definition uses absolute binary/config paths and explicit environment
+settings, including the selected Herdr binary, `PATH`, config/cache locations,
+and `SSH_AUTH_SOCK` when present. It does not load shell startup files or copy
+the whole shell environment. An SSH agent socket may change after login; rerun
+`remote enable` if necessary. Incoming SSH commands still need their own working
+noninteractive environment, as described above.
 
-[Install]
-WantedBy=default.target
-```
+`remote status` prints the service definition and how to read its logs, plus
+whether the local Herdr session and each peer are available. A running daemon
+does not mean SSH credentials, peer configuration, or Herdr sessions are ready.
 
-Replace the executable and `PATH` values for your installation. If needed, add
-`Environment=XDG_CONFIG_HOME=/absolute/config/directory` or
-`Environment=HERDR_SESH_REMOTE_CONFIG=/absolute/path/to/remote.toml`, then enable it:
+On Linux, starting at boot and continuing after logout requires **separate,
+explicit opt-in** to user lingering:
 
 ```sh
-systemctl --user daemon-reload
-systemctl --user enable --now herdr-sesh-daemon
+loginctl enable-linger "$USER"
 ```
 
-On macOS, use a per-user LaunchAgent with `ProgramArguments` containing the
-absolute executable path, `daemon`, and `serve`. Set `PATH` and any config
-overrides in its `EnvironmentVariables`. These services do not start Herdr;
-ensure the configured session is running separately.
+The command may require administrator authorization under local policy.
+`remote enable` never changes lingering. `remote disable` also leaves lingering
+alone because other user services may rely on it. macOS startup before login and
+Linux service managers other than systemd are not supported by this setup command;
+`daemon serve` remains available for manual supervision.
 
 ## Transport and local socket
 
@@ -249,7 +287,18 @@ adjacent `.lock` file in place.
 
 ## Disable
 
-Stop the daemon (Ctrl+C, SIGTERM, or SIGHUP), or stop and disable its user service,
-and set `enabled = false` or remove the default config file. If using
+For a managed installation, run:
+
+```sh
+herdr-sesh remote disable
+```
+
+This stops and removes the managed service and sets `enabled = false`, retaining
+machine and peer settings for later reuse. Use the same configuration environment
+as when enabling it. Editing `enabled` alone does not stop an already-running
+daemon, which reads configuration at startup.
+
+For manual startup, stop the daemon (Ctrl+C, SIGTERM, or SIGHUP), then set
+`enabled = false` or remove the default config file. If using
 `HERDR_SESH_REMOTE_CONFIG`, unset it when removing that file. Herdr sessions and
 running panes are left intact.
