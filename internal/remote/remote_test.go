@@ -361,7 +361,7 @@ func TestServeRetainsSocketOwnershipUntilWorkersStop(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- NewServer(cfg, client).Serve(ctx) }()
-	defer func() { close(client.release); require.NoError(t, <-done) }()
+	defer func() { cancel(); close(client.release); require.NoError(t, <-done) }()
 	select {
 	case <-client.entered:
 	case <-time.After(time.Second):
