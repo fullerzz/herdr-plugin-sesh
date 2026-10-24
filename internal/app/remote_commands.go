@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remoteservice"
@@ -46,16 +48,18 @@ func (a *App) remote(ctx context.Context, args []string) error {
 		if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 			return cfg, errors.New("initial remote setup requires an interactive terminal; create remote.toml first for unattended setup")
 		}
-		settings, err := a.loadConfig("")
-		palette := uitheme.Default()
-		if err != nil {
-			a.warnf("could not load UI theme settings: %v", err)
-		} else {
-			palette = uitheme.Resolve(settings.TUI.HerdrThemeInherit)
-		}
-		return remotesetup.Configure(ctx, cfg, palette, os.Stdin, a.Out)
+		return remotesetup.Configure(ctx, cfg, a.remoteSetupPalette(), os.Stdin, a.Out)
 	}}
 	return commands.run(ctx, a, args[0])
+}
+
+func (a *App) remoteSetupPalette() uitheme.Palette {
+	settings, _, err := config.Load(config.LoadOptions{Warn: io.Discard})
+	if err != nil {
+		a.warnf("could not load UI theme settings: %v", err)
+		return uitheme.Default()
+	}
+	return uitheme.Resolve(settings.TUI.HerdrThemeInherit)
 }
 
 func (c remoteCommands) run(ctx context.Context, a *App, action string) error {

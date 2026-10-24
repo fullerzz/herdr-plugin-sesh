@@ -15,10 +15,12 @@ type themedInput struct {
 }
 
 func newInput(title, description string, value *string, validate func(string) error) *themedInput {
+	input := huh.NewInput().Title(title).Description(description).Value(value).Validate(validate)
 	return &themedInput{
-		Input:    huh.NewInput().Title(title).Description(description).Value(value).Validate(validate),
-		inactive: huh.NewText().Title(title).Description(description).Lines(1).CharLimit(0),
-		value:    value,
+		Input: input,
+		inactive: huh.NewText().Title(title).Description(description).Lines(1).CharLimit(0).
+			Validate(func(string) error { return input.Error() }),
+		value: value,
 	}
 }
 
@@ -45,7 +47,9 @@ func (i *themedInput) View() string {
 		return i.Input.View()
 	}
 	// Huh Input ignores blurred text styles; Text applies them correctly.
-	i.inactive.Value(i.value)
+	value := *i.value
+	i.inactive.Value(&value)
+	i.inactive.Blur()
 	return i.inactive.View()
 }
 

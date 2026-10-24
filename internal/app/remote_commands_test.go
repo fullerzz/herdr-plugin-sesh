@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remoteservice"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/uitheme"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -105,6 +108,43 @@ func TestRemoteEnableCreatesConfigAndVerifiesDaemon(t *testing.T) {
 	assert.True(t, filepath.IsAbs(service.options.HerdrBinary))
 	assert.Contains(t, output.String(), "Remote support enabled")
 	assert.Contains(t, output.String(), "Local Herdr session laptop (default): unavailable")
+}
+
+func TestRemoteSetupPaletteQuietlyLoadsLegacySettings(t *testing.T) {
+	dir := t.TempDir()
+	themePath := filepath.Join(dir, "herdr.toml")
+	require.NoError(t, os.WriteFile(themePath, []byte("[theme]\nname = 'terminal'\n[theme.custom]\naccent = '#123456'\n"), 0600))
+	t.Setenv("HERDR_CONFIG_PATH", themePath)
+	for _, inherit := range []bool{true, false} {
+		t.Run(fmt.Sprintf("inherit=%t", inherit), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sesh.toml")
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, "[tui]\nherdr_theme_inherit = %t\n", inherit), 0600))
+			t.Setenv("HERDR_SESH_CONFIG", path)
+			var output, warnings bytes.Buffer
+			a := &App{Out: &output, Err: &warnings}
+			want := uitheme.Default()
+			if inherit {
+				want.Accent = lipgloss.Color("#123456")
+			}
+			assert.Equal(t, want, a.remoteSetupPalette())
+			assert.Empty(t, output.String())
+			assert.Empty(t, warnings.String())
+		})
+	}
+}
+
+func TestRemoteSetupPaletteDefaultsAndWarnsOnceOnInvalidSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sesh.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[tui]\ndefault_sort = 'invalid'\n"), 0600))
+	t.Setenv("HERDR_SESH_CONFIG", path)
+	var output, warnings bytes.Buffer
+	a := &App{Out: &output, Err: &warnings}
+	assert.Equal(t, uitheme.Default(), a.remoteSetupPalette())
+	assert.Empty(t, output.String())
+	assert.Equal(t, 1, strings.Count(warnings.String(), "warning:"))
+	assert.Contains(t, warnings.String(), "could not load UI theme settings")
+	assert.Contains(t, warnings.String(), "tui.default_sort")
+	assert.NotContains(t, warnings.String(), "deprecated")
 }
 
 func TestRemoteEnableHoldsLockThroughSetupAndReadiness(t *testing.T) {

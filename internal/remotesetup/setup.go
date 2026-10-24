@@ -12,6 +12,7 @@ import (
 
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/uitheme"
 )
@@ -32,7 +33,7 @@ func Configure(ctx context.Context, initial remote.Config, palette uitheme.Palet
 		}
 		form := huh.NewForm(huh.NewGroup(fields...)).WithTheme(theme).WithInput(in).WithOutput(out)
 		if accessible {
-			form.WithAccessible(true).WithInput(input)
+			form.WithAccessible(true).WithInput(input).WithOutput(colorprofile.NewWriter(out, os.Environ()))
 		}
 		if err := form.RunWithContext(ctx); err != nil {
 			return err
@@ -99,7 +100,7 @@ func configure(initial remote.Config, hostname string, palette uitheme.Palette, 
 		peer.Session = cmp.Or(peer.Session, "default")
 		cfg.Peers = append(cfg.Peers, peer)
 		message := fmt.Sprintf("Peer %q added to setup (SSH: %s).", peer.ID, peer.SSH)
-		if _, err := fmt.Fprintln(out, lipgloss.NewStyle().Foreground(palette.Green).Bold(true).Render(message)); err != nil {
+		if _, err := lipgloss.Fprintln(out, lipgloss.NewStyle().Foreground(palette.Green).Bold(true).Render(message)); err != nil {
 			return remote.Config{}, err
 		}
 	}

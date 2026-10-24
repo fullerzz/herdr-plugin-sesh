@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/uitheme"
 	"github.com/stretchr/testify/assert"
@@ -102,6 +103,8 @@ func TestConfigureUsesPaletteColors(t *testing.T) {
 	t.Setenv("ACCESSIBLE", "1")
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("CLICOLOR_FORCE", "1")
+	t.Setenv("COLORTERM", "truecolor")
 	palette := uitheme.Default()
 	palette.Accent = lipgloss.Color("#123456")
 	palette.Green = lipgloss.Color("#456789")
@@ -116,12 +119,67 @@ func TestConfigureUsesPaletteColors(t *testing.T) {
 func TestConfigureRespectsNoColor(t *testing.T) {
 	t.Setenv("ACCESSIBLE", "1")
 	t.Setenv("NO_COLOR", "1")
+	t.Setenv("CLICOLOR_FORCE", "0")
+	t.Setenv("TTY_FORCE", "0")
 	var output bytes.Buffer
 	_, err := Configure(context.Background(), remote.Config{}, uitheme.Default(),
 		setupInput(t, "local\n\ny\npeer\nhost\n\nn\n"), &output)
 	require.NoError(t, err)
-	assert.NotContains(t, output.String(), "38;")
+	assert.NotContains(t, output.String(), "\x1b[")
 	assert.Contains(t, output.String(), `Peer "peer" added to setup (SSH: host).`)
+}
+
+func TestConfigureDumbTerminalHasNoEscapeSequences(t *testing.T) {
+	t.Setenv("TERM", "dumb")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("CLICOLOR_FORCE", "0")
+	t.Setenv("TTY_FORCE", "0")
+	var output bytes.Buffer
+	_, err := Configure(context.Background(), remote.Config{}, uitheme.Default(),
+		setupInput(t, "local\n\ny\npeer\nhost\n\nn\n"), &output)
+	require.NoError(t, err)
+	assert.NotContains(t, output.String(), "\x1b[")
+	assert.Contains(t, output.String(), `Peer "peer" added to setup (SSH: host).`)
+}
+
+func TestConfigurePipedOutputHasNoEscapeSequences(t *testing.T) {
+	t.Setenv("ACCESSIBLE", "1")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("CLICOLOR_FORCE", "0")
+	t.Setenv("TTY_FORCE", "0")
+	var output bytes.Buffer
+	_, err := Configure(context.Background(), remote.Config{}, uitheme.Default(),
+		setupInput(t, "local\n\ny\npeer\nhost\n\nn\n"), &output)
+	require.NoError(t, err)
+	assert.NotContains(t, output.String(), "\x1b[")
+}
+
+func TestSetupInputInactiveLongValueKeepsPrefix(t *testing.T) {
+	value := "user@really-long-hostname.example.internal"
+	input := newInput("SSH", "", &value, func(string) error { return nil })
+	input.WithTheme(formTheme(uitheme.Default()))
+	input.WithWidth(24)
+	input.Focus()
+	input.Blur()
+	view := ansi.Strip(input.View())
+	assert.Contains(t, view, "user@really-long-")
+	assert.LessOrEqual(t, lipgloss.Width(view), 24)
+	assert.Equal(t, "user@really-long-hostname.example.internal", value)
+}
+
+func TestSetupInputInactiveViewKeepsValidationIndicator(t *testing.T) {
+	value := "invalid"
+	rejected := errors.New("invalid session")
+	input := newInput("Herdr session", "", &value, func(string) error { return rejected })
+	input.WithTheme(formTheme(uitheme.Default()))
+	input.WithWidth(50)
+	input.Focus()
+	input.Blur()
+	require.ErrorIs(t, input.Error(), rejected)
+	assert.Contains(t, ansi.Strip(input.View()), "*")
+	assert.Equal(t, []error{rejected}, huh.NewGroup(input).Errors())
 }
 
 func TestSetupInputsKeepThemeTextAfterBlur(t *testing.T) {
