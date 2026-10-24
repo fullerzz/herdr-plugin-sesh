@@ -136,7 +136,7 @@ func TestAttachReplacesOnlyOwnedClientAndReleasesControllers(t *testing.T) {
 	}
 	restored := 0
 	var errOut bytes.Buffer
-	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &errOut, func() error { restored++; return nil })
+	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, &attachTerminal{restore: func() error { restored++; return nil }}, logFile, &errOut)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.GreaterOrEqual(t, restored, 2)
 	assert.Empty(t, errOut.String())
@@ -180,7 +180,7 @@ func TestAttachKeepsClientWhenControllerIsLost(t *testing.T) {
 	}
 	var errOut bytes.Buffer
 	var mu sync.Mutex
-	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut}, func() error { return nil })
+	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.NotContains(t, err.Error(), "controller lost")
 	assert.Equal(t, int32(5), subscriptions.Load())
@@ -220,7 +220,7 @@ func TestAttachCompletesEachSwitch(t *testing.T) {
 	}()
 	var errOut bytes.Buffer
 	var mu sync.Mutex
-	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut}, func() error { return nil })
+	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{
 		"local:export", "local:subscribe",
@@ -290,7 +290,7 @@ func TestAttachRejectsWrongDaemonBeforeRegisteringOrStartingClient(t *testing.T)
 			return remote.Response{Catalog: []remote.Machine{machine}}, nil
 		}}
 		var output bytes.Buffer
-		err := runAttach(context.Background(), cfg, attachEndpoint{id: "local"}, transport, "missing-executable", nil, &output, &output, func() error { return nil })
+		err := runAttach(context.Background(), cfg, attachEndpoint{id: "local"}, transport, "missing-executable", nil, &output, &output)
 		require.ErrorContains(t, err, "does not match")
 		assert.Equal(t, []string{"local:export"}, transport.recorded())
 	}
