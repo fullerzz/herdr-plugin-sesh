@@ -643,3 +643,64 @@ func TestSSHStreamErrorsIncludeStderr(t *testing.T) {
 	_, err := c.Call(context.Background(), Request{Op: "list"})
 	require.ErrorContains(t, err, "Permission denied (publickey).")
 }
+
+func TestStreamRejectsNullIDError(t *testing.T) {
+	client, peer := net.Pipe()
+	defer func() { _ = peer.Close() }()
+	s := newStream(client)
+	defer s.fail(errors.New("test done"))
+	written := make(chan error, 1)
+	go func() {
+		_, err := readLine(bufio.NewReader(peer), maxRequest)
+		if err == nil {
+			err = json.NewEncoder(peer).Encode(rpcFailure(nil, codeParseError, "parse error"))
+		}
+		written <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := s.call(ctx, Request{Op: "hello", Version: ProtocolVersion})
+	require.ErrorContains(t, err, "daemon rejected stream: parse error")
+	require.NoError(t, <-written)
+	assert.ErrorContains(t, s.failure(), "parse error")
+}
+
+func TestSSHDiagnosticTruncatesAtUnicodeBoundary(t *testing.T) {
+	c := &sshConn{waited: make(chan struct{})}
+	close(c.waited)
+	c.stderr.limit = 4096
+	_, err := c.stderr.Write([]byte(strings.Repeat("a", 511) + "é"))
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("a", 511), c.diagnostic())
+}
+
+func TestUnsubscribeRecordsFailureAndRejectsFurtherSwitches(t *testing.T) {
+	cfg := startDaemon(t, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := NewUnixClient(cfg)
+	defer func() { _ = client.Close() }()
+	sub, err := client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	_, err = client.Call(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
+	require.NoError(t, err)
+	select {
+	case <-sub.Targets():
+	case <-ctx.Done():
+		t.Fatal("switch was not delivered")
+	}
+	sub.CloseWithFailure(errors.New("restore\nfailed"))
+	response, err := client.Call(ctx, Request{Op: "list"})
+	require.NoError(t, err)
+	assert.Equal(t, "restorefailed", response.SwitchError)
+	_, err = client.Call(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
+	require.ErrorContains(t, err, "no active attach controller")
+	// A second close must not erase the failure or affect another subscription.
+	sub.Close()
+	next, err := client.Subscribe(ctx, local)
+	require.NoError(t, err)
+	next.Close()
+	response, err = client.Call(ctx, Request{Op: "list"})
+	require.NoError(t, err)
+	assert.Equal(t, "restorefailed", response.SwitchError)
+}

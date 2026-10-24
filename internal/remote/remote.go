@@ -145,8 +145,14 @@ func (s *Server) exportPeer(ctx context.Context, p Peer) ([]Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(r.Catalog) != 1 || r.Catalog[0].ID != p.ID || r.Catalog[0].Session != p.Session || r.Catalog[0].Stale {
+	if len(r.Catalog) != 1 || r.Catalog[0].ID != p.ID || r.Catalog[0].Session != p.Session {
 		return nil, errors.New("invalid peer catalog")
+	}
+	if r.Catalog[0].Stale {
+		if message := clean(r.Catalog[0].LastError, 512); message != "" {
+			return nil, errors.New(message)
+		}
+		return nil, errors.New("peer catalog is stale")
 	}
 	return sanitizeWorkspaces(r.Catalog[0].Workspaces), nil
 }
@@ -342,9 +348,9 @@ func (s *Server) complete(c *controller, failure string) {
 
 // release ends the controller's registration and any in-flight switch in the
 // same step, so no new switch can be queued to a controller that is leaving.
-// An unsubscribe mid-switch means the wrapper is completing it on another
-// machine; a dropped stream leaves that outcome unknown.
-func (s *Server) release(c *controller, unsubscribed bool) {
+// An unsubscribe mid-switch reports the handoff outcome atomically; a dropped
+// stream leaves that outcome unknown.
+func (s *Server) release(c *controller, unsubscribed bool, failure string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.controller != c {
@@ -355,7 +361,7 @@ func (s *Server) release(c *controller, unsubscribed bool) {
 		how = "unsubscribed"
 	}
 	if c.busy {
-		s.switchError = ""
+		s.switchError = clean(failure, 512)
 		if !unsubscribed {
 			s.switchError = "attach controller disconnected during a switch"
 		}
@@ -462,7 +468,7 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 	var readErr error
 	defer func() {
 		if c.sub != nil {
-			s.release(c.sub, false)
+			s.release(c.sub, false, "")
 		}
 		c.workers.Wait()
 		_ = conn.Close()
@@ -522,7 +528,7 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 		c.write(rpcReply(id, r.Op, Response{}))
 	case r.Op == "unsubscribe":
 		if c.sub != nil {
-			c.s.release(c.sub, true)
+			c.s.release(c.sub, true, r.Failure)
 			c.sub = nil
 		}
 		c.write(rpcReply(id, r.Op, Response{}))
@@ -565,7 +571,7 @@ func (c *connState) subscribe(id json.RawMessage, machines []string) {
 func (s *Server) Serve(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
-	defer func() { cancel(); workers.Wait() }()
+	defer cancel()
 	if !s.cfg.Enabled {
 		return errors.New("remote daemon is disabled")
 	}
@@ -623,10 +629,13 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	s.logf("serving machine %s (herdr session %s) on %s; peers: %s", s.cfg.ID, s.cfg.HerdrSession, p, strings.Join(peers, ","))
 	defer s.logf("stopped")
+	// Close transports to release blocked writes before waiting; keep socket ownership until workers stop.
 	defer func() {
+		cancel()
 		for _, c := range s.peers {
 			_ = c.Close()
 		}
+		workers.Wait()
 	}()
 	workers.Add(3)
 	go func() { defer workers.Done(); <-ctx.Done(); _ = l.Close() }()

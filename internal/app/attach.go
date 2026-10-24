@@ -27,13 +27,13 @@ type attachEndpoint struct {
 type attachSubscription struct {
 	targets  <-chan remote.Target
 	err      func() error
-	close    func()
+	close    func(error)
 	complete func(context.Context, error) error
 }
 
-func (s attachSubscription) release() {
+func (s attachSubscription) release(failure error) {
 	if s.close != nil {
-		s.close()
+		s.close(failure)
 	}
 }
 
@@ -89,7 +89,7 @@ func (t *streamTransport) Subscribe(ctx context.Context, endpoint attachEndpoint
 	if err != nil {
 		return attachSubscription{}, err
 	}
-	return attachSubscription{targets: sub.Targets(), err: sub.Err, close: sub.Close, complete: sub.Complete}, nil
+	return attachSubscription{targets: sub.Targets(), err: sub.Err, close: sub.CloseWithFailure, complete: sub.Complete}, nil
 }
 
 func (t *streamTransport) Close() {
@@ -227,7 +227,7 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 				select {
 				case resubscribed <- sub:
 				case <-retryCtx.Done():
-					sub.release()
+					sub.release(nil)
 				}
 				return
 			}
@@ -237,7 +237,7 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 	if err != nil {
 		return fmt.Errorf("register attachment controller: %w", err)
 	}
-	defer func() { sub.release() }()
+	defer func() { sub.release(nil) }()
 	report := func(err error) { _, _ = fmt.Fprintf(errOut, "\r\nRemote switch failed: %v\r\n", err) }
 	for {
 		// Only this child is replaced. Herdr's session server and pane processes survive.
@@ -273,7 +273,7 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 				if err == nil {
 					_, err = request(ctx, next, remote.Request{Op: "focus", WorkspaceID: target.WorkspaceID})
 					if err != nil && next.id != current.id {
-						nextSub.release()
+						nextSub.release(nil)
 					}
 				}
 				if err != nil || next.id == current.id {
@@ -284,12 +284,14 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 					continue
 				}
 				if err := job.stop(stopGrace); err != nil {
-					nextSub.release()
+					nextSub.release(nil)
+					sub.release(err)
+					sub = attachSubscription{}
 					return err
 				}
 				// Unsubscribing ends the source's in-flight switch as completed; a
 				// separate complete would briefly admit switches nobody reads.
-				sub.release()
+				sub.release(nil)
 				sub, current = nextSub, next
 				switching = true
 			}

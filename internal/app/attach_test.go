@@ -69,7 +69,13 @@ func (f *fakeTransport) Subscribe(_ context.Context, endpoint attachEndpoint) (a
 	return attachSubscription{
 		targets: ch,
 		err:     func() error { return errors.New("stream lost") },
-		close:   func() { f.record(endpoint.id + ":release") },
+		close: func(failure error) {
+			if failure == nil {
+				f.record(endpoint.id + ":release")
+				return
+			}
+			f.record(fmt.Sprintf("%s:release:%v", endpoint.id, failure))
+		},
 		complete: func(_ context.Context, failure error) error {
 			f.record(fmt.Sprintf("%s:complete:%v", endpoint.id, failure))
 			return nil
@@ -293,5 +299,28 @@ func TestAttachRejectsWrongDaemonBeforeRegisteringOrStartingClient(t *testing.T)
 		err := runAttach(context.Background(), cfg, attachEndpoint{id: "local"}, transport, "missing-executable", nil, &output, &output)
 		require.ErrorContains(t, err, "does not match")
 		assert.Equal(t, []string{"local:export"}, transport.recorded())
+	}
+}
+
+func TestAttachRecordsStopFailureWhileReleasingController(t *testing.T) {
+	bin, logFile := fakeHerdr(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cfg := remote.Config{ID: "local", HerdrSession: "default", Peers: []remote.Peer{{ID: "peer", SSH: "host", Session: "default"}}}
+	transport := &fakeTransport{call: exportFor(cfg)}
+	transport.subscribe = func(ep attachEndpoint) (chan remote.Target, error) {
+		ch := make(chan remote.Target, 1)
+		if ep.id == "local" {
+			ch <- remote.Target{MachineID: "peer", WorkspaceID: "w1"}
+		}
+		return ch, nil
+	}
+	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, &attachTerminal{restore: func() error { return errors.New("restore failed") }}, logFile, io.Discard)
+	require.ErrorContains(t, err, "restore failed")
+	actions := transport.recorded()
+	assert.Contains(t, actions, "local:release:restore failed")
+	assert.Contains(t, actions, "peer:release")
+	for _, action := range actions {
+		assert.NotContains(t, action, ":complete:")
 	}
 }
