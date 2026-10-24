@@ -14,6 +14,7 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remoteservice"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/remotesetup"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/uitheme"
 )
 
 type remoteService interface {
@@ -45,7 +46,14 @@ func (a *App) remote(ctx context.Context, args []string) error {
 		if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 			return cfg, errors.New("initial remote setup requires an interactive terminal; create remote.toml first for unattended setup")
 		}
-		return remotesetup.Configure(ctx, cfg, os.Stdin, a.Out)
+		settings, err := a.loadConfig("")
+		palette := uitheme.Default()
+		if err != nil {
+			a.warnf("could not load UI theme settings: %v", err)
+		} else {
+			palette = uitheme.Resolve(settings.TUI.HerdrThemeInherit)
+		}
+		return remotesetup.Configure(ctx, cfg, palette, os.Stdin, a.Out)
 	}}
 	return commands.run(ctx, a, args[0])
 }
