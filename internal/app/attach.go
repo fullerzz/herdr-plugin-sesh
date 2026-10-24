@@ -125,7 +125,7 @@ func (a *App) attach(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	state, err := term.GetState(os.Stdin.Fd())
+	tty, err := newAttachTerminal(os.Stdin)
 	if err != nil {
 		return err
 	}
@@ -138,9 +138,7 @@ func (a *App) attach(ctx context.Context, args []string) error {
 	if bin == "" {
 		bin = "herdr"
 	}
-	return runAttach(ctx, cfg, endpoint, transport, bin, os.Stdin, os.Stdout, a.Err, func() error {
-		return term.Restore(os.Stdin.Fd(), state)
-	})
+	return runAttach(ctx, cfg, endpoint, transport, bin, tty, os.Stdout, a.Err)
 }
 
 func resolveAttachEndpoint(cfg remote.Config, id string) (attachEndpoint, error) {
@@ -187,7 +185,7 @@ func attachEnvironment(environ []string) []string {
 // resubscribeDelays paces controller recovery; the last delay repeats.
 var resubscribeDelays = []time.Duration{0, time.Second, 2 * time.Second, 5 * time.Second, 15 * time.Second, 30 * time.Second}
 
-func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, transport attachTransport, bin string, in io.Reader, out, errOut io.Writer, restore func() error) (result error) {
+func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, transport attachTransport, bin string, tty *attachTerminal, out, errOut io.Writer) error {
 	// SSH streams may still be completing their first handshake.
 	request := func(ctx context.Context, endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -240,29 +238,24 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 		return fmt.Errorf("register attachment controller: %w", err)
 	}
 	defer func() { sub.release() }()
-	defer func() { result = errors.Join(result, restore()) }()
 	report := func(err error) { _, _ = fmt.Fprintf(errOut, "\r\nRemote switch failed: %v\r\n", err) }
 	for {
 		// Only this child is replaced. Herdr's session server and pane processes survive.
 		//nolint:gosec // bin is a user-selected Herdr executable; arguments are never shell-expanded.
 		child := exec.Command(bin, attachArgs(cfg, current)...)
 		child.Env = attachEnvironment(os.Environ())
-		child.Stdin, child.Stdout, child.Stderr = in, out, errOut
-		if err := child.Start(); err != nil {
+		child.Stdout, child.Stderr = out, errOut
+		job, err := startAttachJob(child, tty)
+		if err != nil {
 			return err
-		}
-		done := make(chan error, 1)
-		go func() { done <- child.Wait() }()
-		stopChild := func() error {
-			return errors.Join(stopAttachment(child, done, 2*time.Second), restore())
 		}
 		switching := false
 		for !switching {
 			select {
-			case err := <-done:
-				return err
+			case <-job.exited:
+				return errors.Join(job.err, job.stop(stopGrace))
 			case <-ctx.Done():
-				return errors.Join(ctx.Err(), stopChild())
+				return errors.Join(ctx.Err(), job.stop(stopGrace))
 			case next := <-resubscribed:
 				sub = next
 			case target, ok := <-sub.targets:
@@ -290,7 +283,7 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 					sub.finish(ctx, err)
 					continue
 				}
-				if err := stopChild(); err != nil {
+				if err := job.stop(stopGrace); err != nil {
 					nextSub.release()
 					return err
 				}
