@@ -120,7 +120,6 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 		return err
 	}
 	cfg := edit.Config
-	wasEnabled := cfg.Enabled
 	needsSetup := !edit.Exists || cfg.ID == ""
 	if needsSetup {
 		cfg, err = c.configure(ctx, cfg)
@@ -175,7 +174,7 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 	}
 	opts := remoteservice.Options{Executable: bin, ConfigPath: path, HerdrBinary: herdrBin, Environment: os.Environ()}
 	if err := c.service.Enable(ctx, opts); err != nil {
-		restoreErr := rollbackRemoteConfig(path, writtenInfo, writtenData, edit.Exists, wasEnabled)
+		restoreErr := rollbackRemoteConfig(path, writtenInfo, writtenData, edit)
 		return errors.Join(fmt.Errorf("enable background service: %w", err), restoreErr)
 	}
 	response, err := c.waitReady(ctx, cfg)
@@ -188,7 +187,7 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 	return err
 }
 
-func rollbackRemoteConfig(path string, writtenInfo os.FileInfo, writtenData []byte, existed, wasEnabled bool) error {
+func rollbackRemoteConfig(path string, writtenInfo os.FileInfo, writtenData []byte, edit *remote.ConfigEdit) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("cannot restore remote configuration after service failure: %w", err)
@@ -203,10 +202,10 @@ func rollbackRemoteConfig(path string, writtenInfo os.FileInfo, writtenData []by
 	if !bytes.Equal(writtenData, data) {
 		return fmt.Errorf("configuration changed during service activation; retaining %s", path)
 	}
-	if !existed {
+	if !edit.Exists {
 		return os.Remove(path)
 	}
-	return remote.SetEnabled(path, wasEnabled)
+	return edit.Restore(writtenInfo, writtenData)
 }
 
 func (c remoteCommands) waitReady(ctx context.Context, cfg remote.Config) (remote.Response, error) {

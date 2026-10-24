@@ -398,3 +398,14 @@ func TestRemoteStatusValidatesLocalCatalog(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteEnableFailureRestoresExactSetupConfig(t *testing.T) {
+	path, a, _, service, commands := remoteCommandFixture(t)
+	original := []byte("# preserve setup draft\nenabled = false # opted out\nid = ''\nlabel = 'draft'\n")
+	require.NoError(t, os.WriteFile(path, original, 0o600))
+	service.enableErr = errors.New("bootstrap failed")
+	require.ErrorContains(t, commands.run(context.Background(), a, "enable"), "bootstrap failed")
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+	require.NoError(t, err)
+	assert.Equal(t, original, data)
+}

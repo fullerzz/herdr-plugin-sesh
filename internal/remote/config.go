@@ -124,6 +124,11 @@ func (e *ConfigEdit) Save(cfg Config) error {
 	return writeConfig(e.path, b, e.before)
 }
 
+// Restore replaces the saved file with the exact prepared text, rejecting later edits.
+func (e *ConfigEdit) Restore(writtenInfo os.FileInfo, writtenData []byte) error {
+	return writeConfig(e.path, e.before.data, configSnapshot{info: writtenInfo, data: writtenData})
+}
+
 // SaveConfig atomically replaces a regular config file with private permissions.
 func SaveConfig(path string, cfg Config) error {
 	if err := cfg.Validate(); err != nil {

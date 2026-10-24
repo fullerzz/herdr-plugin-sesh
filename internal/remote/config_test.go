@@ -358,3 +358,20 @@ func TestPreparedConfigEnableRejectsReplacementWithIdenticalBytes(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, before, got)
 }
+
+func TestConfigRestoreRejectsChangesAfterSavedSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote.toml")
+	original := []byte("# draft\nenabled = false\nid = ''\n")
+	require.NoError(t, os.WriteFile(path, original, 0o600))
+	edit, err := PrepareConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, edit.Save(Config{Enabled: true, ID: "configured"}))
+	written, err := readConfigSnapshot(path)
+	require.NoError(t, err)
+	newer := []byte("# concurrent editor\nenabled = false\nid = 'newer'\n")
+	require.NoError(t, os.WriteFile(path, newer, 0o600))
+	require.ErrorContains(t, edit.Restore(written.info, written.data), "changed while saving")
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+	require.NoError(t, err)
+	assert.Equal(t, newer, data)
+}

@@ -62,7 +62,7 @@ func environment(opts Options) ([]string, error) {
 			continue
 		}
 		switch key {
-		case "PATH", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "HERDR_CONFIG_PATH", "SSH_AUTH_SOCK":
+		case "PATH", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "HERDR_CONFIG_PATH":
 			if !utf8.ValidString(value) || strings.ContainsFunc(value, unicode.IsControl) {
 				return nil, fmt.Errorf("invalid control character in %s", key)
 			}
@@ -110,21 +110,17 @@ func (m *Manager) definition(opts Options) ([]byte, error) {
 	switch m.platform {
 	case "darwin":
 		fmt.Fprintf(&b, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- %s -->\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n", marker)
-		fmt.Fprintf(&b, "<key>Label</key><string>%s</string>\n<key>ProgramArguments</key><array><string>%s</string><string>daemon</string><string>serve</string></array>\n", label, xmlText(opts.Executable))
+		fmt.Fprintf(&b, "<key>Label</key><string>%s</string>\n<key>ProgramArguments</key><array><string>%s</string><string>daemon</string><string>serve</string><string>--service</string></array>\n", label, xmlText(opts.Executable))
 		b.WriteString("<key>EnvironmentVariables</key><dict>\n")
 		for _, entry := range env {
 			key, value, _ := strings.Cut(entry, "=")
-			if key == "SSH_AUTH_SOCK" {
-				// Inherit launchd's current login socket instead of persisting a stale one.
-				continue
-			}
 			fmt.Fprintf(&b, "<key>%s</key><string>%s</string>\n", key, xmlText(value))
 		}
 		b.WriteString("</dict>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ThrottleInterval</key><integer>5</integer>\n")
 		fmt.Fprintf(&b, "<key>StandardOutPath</key><string>%s</string>\n<key>StandardErrorPath</key><string>%s</string>\n</dict></plist>\n", xmlText(m.logPath), xmlText(m.logPath))
 	case "linux":
 		// The ':' prefix disables systemd's environment expansion in arguments.
-		fmt.Fprintf(&b, "# %s\n[Unit]\nDescription=Herdr Sesh remote workspace daemon\n\n[Service]\nType=exec\nExecStart=:%s daemon serve\nRestart=always\nRestartSec=5\n", marker, systemdQuote(opts.Executable))
+		fmt.Fprintf(&b, "# %s\n[Unit]\nDescription=Herdr Sesh remote workspace daemon\n\n[Service]\nType=exec\nExecStart=:%s daemon serve --service\nRestart=always\nRestartSec=5\n", marker, systemdQuote(opts.Executable))
 		for _, entry := range env {
 			fmt.Fprintf(&b, "Environment=%s\n", systemdQuote(entry))
 		}
