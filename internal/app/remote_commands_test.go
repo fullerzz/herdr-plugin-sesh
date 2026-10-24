@@ -233,7 +233,7 @@ func TestRemoteEnableFailurePreservesConcurrentConfigEdits(t *testing.T) {
 			}
 			err := commands.run(context.Background(), a, "enable")
 			require.ErrorContains(t, err, "bootstrap failed")
-			require.ErrorContains(t, err, "configuration changed during service activation")
+			require.ErrorContains(t, err, "remote config changed while saving")
 			data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
 			require.NoError(t, err)
 			assert.Equal(t, edited, data)
@@ -408,4 +408,18 @@ func TestRemoteEnableFailureRestoresExactSetupConfig(t *testing.T) {
 	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
 	require.NoError(t, err)
 	assert.Equal(t, original, data)
+}
+
+func TestRemoteEnableReportsRestoreLockFailure(t *testing.T) {
+	path, a, _, service, commands := remoteCommandFixture(t)
+	service.enableErr = errors.New("bootstrap failed")
+	service.onEnable = func() {
+		require.NoError(t, os.Remove(path+".lock"))
+		require.NoError(t, os.Mkdir(path+".lock", 0o700))
+	}
+	err := commands.run(t.Context(), a, "enable")
+	require.ErrorContains(t, err, "bootstrap failed")
+	require.ErrorContains(t, err, "restore remote configuration "+path)
+	assert.NotContains(t, err.Error(), "configuration changed")
+	assert.FileExists(t, path)
 }

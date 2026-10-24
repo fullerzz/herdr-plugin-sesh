@@ -167,7 +167,7 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 	if err := c.service.Enable(ctx, opts); err != nil {
 		restoreErr := edit.Restore()
 		if restoreErr != nil {
-			restoreErr = fmt.Errorf("configuration changed during service activation; retaining %s: %w", path, restoreErr)
+			restoreErr = fmt.Errorf("restore remote configuration %s: %w", path, restoreErr)
 		}
 		return errors.Join(fmt.Errorf("enable background service: %w", err), restoreErr)
 	}

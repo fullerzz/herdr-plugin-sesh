@@ -179,7 +179,7 @@ func TestConfigWritePreservesConcurrentEdits(t *testing.T) {
 		} else {
 			require.NoError(t, os.WriteFile(path, changed, 0600))
 		}
-		_, err = writeConfig(path, []byte("enabled=true\nid='local'\n"), before)
+		_, err = writeConfig(path, []byte("enabled=true\nid='local'\n"), before, false)
 		require.ErrorContains(t, err, "changed while saving")
 		got, err := os.ReadFile(path) // #nosec G304 -- test-owned temporary fixture.
 		require.NoError(t, err)
@@ -404,4 +404,27 @@ func TestConfigRestoreUsesPublicationReceipt(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestConfigRestorePreservesExistingEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote.toml")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+	edit, err := PrepareConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, edit.Save(Config{Enabled: true, ID: "local"}))
+	require.NoError(t, edit.Restore())
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+	require.NoError(t, err)
+	assert.Empty(t, data)
+}
+
+func TestConfigNilWritePreservesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote.toml")
+	require.NoError(t, SaveConfig(path, Config{ID: "local"}))
+	edit, err := PrepareConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, edit.write(nil))
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+	require.NoError(t, err)
+	assert.Empty(t, data)
 }

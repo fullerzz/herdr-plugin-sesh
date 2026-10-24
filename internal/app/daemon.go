@@ -26,7 +26,7 @@ func (a *App) daemon(ctx context.Context, args []string) error {
 		return errors.New("usage: herdr-sesh daemon serve|list|rpc --stream")
 	}
 	cfg, err := remote.LoadConfig()
-	if err != nil {
+	if err != nil && (!managed || !errors.Is(err, os.ErrNotExist)) {
 		return err
 	}
 	if !cfg.Enabled {

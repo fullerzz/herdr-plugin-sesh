@@ -130,12 +130,12 @@ func (e *ConfigEdit) Restore() error {
 	if e.written.info == nil {
 		return errors.New("remote config has not been saved")
 	}
-	_, err := writeConfig(e.path, e.before.data, e.written)
+	_, err := writeConfig(e.path, e.before.data, e.written, e.before.info == nil)
 	return err
 }
 
 func (e *ConfigEdit) write(data []byte) error {
-	written, err := writeConfig(e.path, data, e.before)
+	written, err := writeConfig(e.path, data, e.before, false)
 	if err == nil {
 		e.written = written
 	}
@@ -228,8 +228,7 @@ func configFileInfo(path string) (os.FileInfo, error) {
 	return info, nil
 }
 
-// A nil data slice removes a newly created configuration during rollback.
-func writeConfig(path string, data []byte, before configSnapshot) (configSnapshot, error) {
+func writeConfig(path string, data []byte, before configSnapshot, remove bool) (configSnapshot, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return configSnapshot{}, err
 	}
@@ -266,7 +265,7 @@ func writeConfig(path string, data []byte, before configSnapshot) (configSnapsho
 	if (before.info == nil) != (after.info == nil) || (before.info != nil && !os.SameFile(before.info, after.info)) || !bytes.Equal(before.data, after.data) {
 		return configSnapshot{}, errors.New("remote config changed while saving")
 	}
-	if data == nil {
+	if remove {
 		return configSnapshot{}, os.Remove(path)
 	}
 	written := configSnapshot{info: writtenInfo, data: bytes.Clone(data)}
