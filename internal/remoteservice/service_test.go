@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -171,7 +172,7 @@ func TestServiceDefinitionsEscapeAndFilterEnvironment(t *testing.T) {
 			data, err := manager.definition(opts)
 			require.NoError(t, err)
 			text := string(data)
-			for _, value := range []string{"/config home", "/cache home", "/herdr config.toml", "/tmp/ssh-agent.sock", "/custom path/bin:/usr/bin"} {
+			for _, value := range []string{"/config home", "/cache home", "/herdr config.toml", "/custom path/bin:/usr/bin"} {
 				assert.Contains(t, text, value)
 			}
 			assert.NotContains(t, text, "never-persist-this")
@@ -179,12 +180,15 @@ func TestServiceDefinitionsEscapeAndFilterEnvironment(t *testing.T) {
 			assert.Contains(t, text, "HERDR_SESH_REMOTE_CONFIG")
 			assert.Contains(t, text, "HERDR_BIN_PATH")
 			if platform == "linux" {
+				assert.Contains(t, text, "SSH_AUTH_SOCK=/tmp/ssh-agent.sock")
 				assert.Contains(t, text, `ExecStart=:"`)
 				assert.Contains(t, text, `\"quote\" %%n $BIN \\name`)
 				assert.Contains(t, text, "RestartSec=5")
 				assert.Contains(t, text, "WantedBy=default.target")
 				return
 			}
+			assert.NotContains(t, text, "SSH_AUTH_SOCK")
+			assert.NotContains(t, text, "/tmp/ssh-agent.sock")
 			decoder := xml.NewDecoder(strings.NewReader(text))
 			var values []string
 			for {
@@ -465,6 +469,119 @@ func TestRollbackPreservesDisabledAutostart(t *testing.T) {
 			require.Error(t, manager.Enable(t.Context(), opts))
 			assert.False(t, fake.enabled)
 			assert.True(t, fake.running)
+		})
+	}
+}
+
+func TestStatusReportsAutostart(t *testing.T) {
+	for _, platform := range []string{"linux", "darwin"} {
+		t.Run(platform, func(t *testing.T) {
+			manager, fake, opts := setup(t, platform)
+			fake.enabled = true
+			status, err := manager.Status(t.Context())
+			require.NoError(t, err)
+			assert.False(t, status.Autostart)
+			require.NoError(t, manager.Enable(t.Context(), opts))
+			status, err = manager.Status(t.Context())
+			require.NoError(t, err)
+			assert.True(t, status.Autostart)
+			fake.enabled = false
+			status, err = manager.Status(t.Context())
+			require.NoError(t, err)
+			assert.True(t, status.Running)
+			assert.False(t, status.Autostart)
+		})
+	}
+}
+
+func TestDarwinWaitsForUnloadBeforeActivationAndRollback(t *testing.T) {
+	for _, rollback := range []bool{false, true} {
+		t.Run(fmt.Sprintf("rollback=%t", rollback), func(t *testing.T) {
+			manager, fake, opts := setup(t, "darwin")
+			require.NoError(t, manager.Enable(t.Context(), opts))
+			original := manager.run
+			pending := 0
+			manager.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				if args[0] == "bootstrap" {
+					require.Zero(t, pending, "bootstrap must wait for job removal")
+				}
+				if args[0] == "print" && args[1] != manager.domain && pending > 0 {
+					pending--
+					if pending == 0 {
+						fake.loaded, fake.running = false, false
+					}
+				}
+				output, err := original(ctx, name, args...)
+				if args[0] == "bootout" && err == nil {
+					pending = 3
+					fake.loaded, fake.running = true, true
+				}
+				return output, err
+			}
+			if rollback {
+				data, err := os.ReadFile(manager.path)
+				require.NoError(t, err)
+				require.NoError(t, manager.rollback(t.Context(), data, nativeStatus{loaded: true, running: true, enabled: true}))
+			} else {
+				require.NoError(t, manager.Enable(t.Context(), opts))
+			}
+			assert.True(t, fake.running)
+		})
+	}
+}
+
+func TestDarwinUnloadPropagatesWaitFailures(t *testing.T) {
+	for _, mode := range []string{"canceled", "timeout", "inspection"} {
+		t.Run(mode, func(t *testing.T) {
+			manager, fake, opts := setup(t, "darwin")
+			require.NoError(t, manager.Enable(t.Context(), opts))
+			original := manager.run
+			ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
+			defer cancel()
+			manager.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				if args[0] == "bootout" {
+					if mode == "canceled" {
+						cancel()
+					}
+					return nil, nil // Simulate teardown that has not completed.
+				}
+				if mode == "inspection" && args[0] == "print" && args[1] != manager.domain {
+					return []byte("inspection unavailable"), errors.New("inspection failure")
+				}
+				return original(ctx, name, args...)
+			}
+			err := manager.unload(ctx)
+			switch mode {
+			case "canceled":
+				require.ErrorIs(t, err, context.Canceled)
+			case "timeout":
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+			case "inspection":
+				require.ErrorContains(t, err, "inspection unavailable")
+			}
+			assert.True(t, fake.loaded)
+		})
+	}
+}
+
+func TestDarwinRollbackPreservesStoppedJob(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			manager, fake, opts := setup(t, "darwin")
+			require.NoError(t, manager.Enable(t.Context(), opts))
+			previous, err := os.ReadFile(manager.path)
+			require.NoError(t, err)
+			fake.running, fake.enabled = false, enabled
+			fake.fail = "launchctl bootstrap gui/501 " + manager.path
+			fake.failure = errors.New("bootstrap failed")
+			opts.Environment = []string{"PATH=/new/bin"}
+			require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery completed")
+			assert.False(t, fake.running)
+			assert.False(t, fake.loaded)
+			assert.Equal(t, enabled, fake.enabled)
+			restored, err := os.ReadFile(manager.path)
+			require.NoError(t, err)
+			assert.Equal(t, previous, restored)
 		})
 	}
 }

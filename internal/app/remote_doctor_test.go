@@ -20,7 +20,7 @@ func doctorFixture(t *testing.T) (string, *App, *bytes.Buffer, *fakeRemoteServic
 	path, a, output, service, commands := remoteCommandFixture(t)
 	cfg := remote.Config{Enabled: true, ID: "laptop", HerdrSession: "default", Peers: []remote.Peer{{ID: "server", SSH: "user@host", Session: "work"}}}
 	require.NoError(t, remote.SaveConfig(path, cfg))
-	service.state = remoteservice.Status{Installed: true, Running: true}
+	service.state = remoteservice.Status{Installed: true, Running: true, Autostart: true}
 	service.lockErr = errors.New("doctor must not acquire a mutation lock")
 	commands.call = func(ctx context.Context, got remote.Config, request remote.Request) (remote.Response, error) {
 		assert.Equal(t, cfg, got)
@@ -127,6 +127,7 @@ func TestRemoteDoctorIndependentFailures(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"service unavailable", "FAIL service:"},
 		{"service construction", "FAIL service:"},
+		{"autostart disabled", "autostart=false"},
 		{"service stopped", "installed=true running=false"},
 		{"service missing", "installed=false running=false"},
 		{"daemon unreachable", "FAIL daemon:"},
@@ -173,6 +174,8 @@ func TestRemoteDoctorIndependentFailures(t *testing.T) {
 			case "service construction":
 				commands.service = nil
 				commands.serviceErr = errors.New("unsupported platform")
+			case "autostart disabled":
+				service.state.Autostart = false
 			case "service stopped":
 				service.state.Running = false
 			case "service missing":
@@ -192,7 +195,7 @@ func TestRemoteDoctorFlagsRunningServiceWhenDisabled(t *testing.T) {
 	path, a, output, _, commands := doctorFixture(t)
 	require.NoError(t, remote.SetEnabled(path, false))
 	require.Error(t, commands.run(context.Background(), a, "doctor"))
-	assert.Contains(t, output.String(), "running while remote support is opted out")
+	assert.Contains(t, output.String(), "while remote support is opted out")
 	assert.Contains(t, output.String(), "remote disable")
 }
 
@@ -216,4 +219,21 @@ func TestRemoteDoctorCLIReportsConfigEvenWhenManagerConstructionFails(t *testing
 	assert.NotContains(t, err.Error(), "usage:")
 	assert.Contains(t, output.String(), "FAIL config:")
 	assert.Contains(t, output.String(), "FAIL service:")
+}
+
+func TestRemoteDoctorSkipsServiceHealthWithInvalidConfig(t *testing.T) {
+	path, a, output, _, commands := doctorFixture(t)
+	require.NoError(t, os.WriteFile(path, []byte("enabled = ["), 0o600))
+	require.Error(t, commands.run(context.Background(), a, "doctor"))
+	assert.Contains(t, output.String(), "SKIP service: configuration invalid; installed=true running=true autostart=true")
+	assert.NotContains(t, output.String(), "OK service:")
+}
+
+func TestRemoteDoctorFlagsInstalledStoppedServiceWhenDisabled(t *testing.T) {
+	path, a, output, service, commands := doctorFixture(t)
+	require.NoError(t, remote.SetEnabled(path, false))
+	service.state.Running = false
+	require.Error(t, commands.run(context.Background(), a, "doctor"))
+	assert.Contains(t, output.String(), "FAIL service: installed=true running=false autostart=true while remote support is opted out")
+	assert.Contains(t, output.String(), "remote disable")
 }

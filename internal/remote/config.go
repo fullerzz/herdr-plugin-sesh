@@ -111,7 +111,8 @@ func PrepareConfig(path string) (*ConfigEdit, error) {
 	return edit, nil
 }
 
-// Save rejects changes made since preparation and writes private permissions.
+// Save rejects observed changes since preparation and writes private permissions.
+// Participating writers serialize publication; external editors do not take the lock.
 func (e *ConfigEdit) Save(cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -213,6 +214,11 @@ func writeConfig(path string, data []byte, before configSnapshot) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
+	lock, err := lockConfig(path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 	f, err := os.CreateTemp(filepath.Dir(path), ".remote-*.toml")
 	if err != nil {
 		return err

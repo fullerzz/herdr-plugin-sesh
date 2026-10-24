@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -183,8 +185,103 @@ func TestConfigWritePreservesConcurrentEdits(t *testing.T) {
 		assert.Equal(t, changed, got)
 		entries, err := os.ReadDir(filepath.Dir(path))
 		require.NoError(t, err)
-		require.Len(t, entries, 1)
+		require.Len(t, entries, 2)
 		assert.Equal(t, "remote.toml", entries[0].Name())
+		assert.Equal(t, "remote.toml.lock", entries[1].Name())
+	}
+}
+
+func TestConfigWritersRespectHeldLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote.toml")
+	require.NoError(t, SaveConfig(path, Config{ID: "local"}))
+	edit, err := PrepareConfig(path)
+	require.NoError(t, err)
+	lock, err := os.OpenFile(path+".lock", os.O_RDWR, 0600) // #nosec G304 -- test-owned temporary lock file.
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lock.Close() })
+	require.NoError(t, unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB))
+	for _, save := range []func() error{
+		func() error { return SaveConfig(path, Config{ID: "other"}) },
+		func() error { return SetEnabled(path, true) },
+		func() error { return edit.Save(Config{ID: "other"}) },
+		func() error { return edit.SetEnabled(true) },
+	} {
+		require.ErrorContains(t, save(), "busy")
+	}
+	require.NoError(t, unix.Flock(int(lock.Fd()), unix.LOCK_UN))
+	require.NoError(t, SaveConfig(path, Config{ID: "winner"}))
+	require.ErrorContains(t, edit.Save(Config{ID: "stale"}), "changed while saving")
+	info, err := os.Stat(path + ".lock")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	held, err := lock.Stat()
+	require.NoError(t, err)
+	assert.True(t, os.SameFile(held, info))
+}
+
+func TestConcurrentPreparedConfigWritersHaveOneWinner(t *testing.T) {
+	for _, exists := range []bool{false, true} {
+		path := filepath.Join(t.TempDir(), "remote.toml")
+		if exists {
+			require.NoError(t, SaveConfig(path, Config{ID: "original"}))
+		}
+		const writers = 16
+		edits := make([]*ConfigEdit, writers)
+		for i := range edits {
+			var err error
+			edits[i], err = PrepareConfig(path)
+			require.NoError(t, err)
+		}
+		start := make(chan struct{})
+		results := make(chan error, writers)
+		for _, edit := range edits {
+			go func() {
+				<-start
+				results <- edit.Save(Config{ID: "winner"})
+			}()
+		}
+		close(start)
+		wins := 0
+		for range writers {
+			err := <-results
+			if err == nil {
+				wins++
+			} else {
+				assert.True(t, strings.Contains(err.Error(), "busy") || strings.Contains(err.Error(), "changed while saving"), "%v", err)
+			}
+		}
+		assert.Equal(t, 1, wins)
+		edit, err := PrepareConfig(path)
+		require.NoError(t, err)
+		assert.Equal(t, "winner", edit.Config.ID)
+	}
+}
+
+func TestConfigRejectsUnsafeLocks(t *testing.T) {
+	for _, kind := range []string{"symlink", "public", "directory", "hardlink", "fifo"} {
+		t.Run(kind, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "remote.toml")
+			before := []byte("enabled=false\nid='local'\n")
+			require.NoError(t, os.WriteFile(path, before, 0600))
+			lock := path + ".lock"
+			switch kind {
+			case "symlink":
+				require.NoError(t, os.Symlink(path, lock))
+			case "public":
+				require.NoError(t, os.WriteFile(lock, nil, 0600))
+				require.NoError(t, os.Chmod(lock, 0644)) // #nosec G302 -- deliberately unsafe lock fixture.
+			case "directory":
+				require.NoError(t, os.Mkdir(lock, 0700))
+			case "hardlink":
+				require.NoError(t, os.Link(path, lock))
+			case "fifo":
+				require.NoError(t, unix.Mkfifo(lock, 0600))
+			}
+			require.Error(t, SaveConfig(path, Config{ID: "other"}))
+			got, err := os.ReadFile(path) // #nosec G304 -- test-owned temporary fixture.
+			require.NoError(t, err)
+			assert.Equal(t, before, got)
+		})
 	}
 }
 

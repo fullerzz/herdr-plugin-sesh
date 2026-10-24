@@ -17,6 +17,7 @@ import (
 type Status struct {
 	Installed bool
 	Running   bool
+	Autostart bool
 	Detail    string
 }
 
@@ -232,6 +233,7 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 		return status, errors.New("refusing loaded service without a managed definition")
 	}
 	status.Running, status.Detail = native.running, native.detail
+	status.Autostart = status.Installed && native.enabled
 	return status, nil
 }
 
@@ -313,11 +315,12 @@ func (m *Manager) rollback(ctx context.Context, previous []byte, before nativeSt
 		return err
 	}
 	if current.loaded {
-		if err = m.command(ctx, "bootout", m.domain+"/"+label); err != nil {
+		if err = m.unload(ctx); err != nil {
 			return err
 		}
 	}
-	if before.loaded {
+	// RunAtLoad and KeepAlive would restart a previously stopped job on bootstrap.
+	if before.loaded && before.running {
 		if err = m.command(ctx, "enable", m.domain+"/"+label); err != nil {
 			return err
 		}
@@ -351,11 +354,36 @@ func (m *Manager) activate(ctx context.Context, loaded bool) error {
 		return err
 	}
 	if loaded {
-		if err := m.command(ctx, "bootout", target); err != nil {
+		if err := m.unload(ctx); err != nil {
 			return err
 		}
 	}
 	return m.command(ctx, "bootstrap", m.domain, m.path)
+}
+
+func (m *Manager) unload(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := m.command(ctx, "bootout", m.domain+"/"+label); err != nil {
+		return err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("wait for LaunchAgent removal: %w", err)
+		}
+		native, err := m.inspect(ctx)
+		if err != nil {
+			return err
+		}
+		if !native.loaded {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for LaunchAgent removal: %w", ctx.Err())
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 func (m *Manager) Disable(ctx context.Context) error {
@@ -385,7 +413,7 @@ func (m *Manager) disable(ctx context.Context) error {
 	} else {
 		err = m.command(ctx, "disable", m.domain+"/"+label)
 		if err == nil && native.loaded {
-			err = m.command(ctx, "bootout", m.domain+"/"+label)
+			err = m.unload(ctx)
 		}
 	}
 	if err != nil {

@@ -55,12 +55,14 @@ func (c remoteCommands) doctor(ctx context.Context, a *App) error {
 		serviceErr = err
 		if err == nil {
 			switch {
-			case !cfg.Enabled && configErr == nil && state.Running:
-				report("FAIL", "service", "running while remote support is opted out; run 'herdr-sesh remote disable' and stop any manually started daemon; logs: "+logs)
-			case cfg.Enabled && (!state.Installed || !state.Running):
-				report("FAIL", "service", fmt.Sprintf("installed=%t running=%t; run 'herdr-sesh remote enable' to install/start the background service or inspect a manually started daemon; logs: %s", state.Installed, state.Running, logs))
+			case configErr != nil:
+				report("SKIP", "service", fmt.Sprintf("configuration invalid; installed=%t running=%t autostart=%t; logs: %s", state.Installed, state.Running, state.Autostart, logs))
+			case !cfg.Enabled && (state.Installed || state.Running):
+				report("FAIL", "service", fmt.Sprintf("installed=%t running=%t autostart=%t while remote support is opted out; run 'herdr-sesh remote disable' and stop any manually started daemon; logs: %s", state.Installed, state.Running, state.Autostart, logs))
+			case cfg.Enabled && (!state.Installed || !state.Running || !state.Autostart):
+				report("FAIL", "service", fmt.Sprintf("installed=%t running=%t autostart=%t; run 'herdr-sesh remote enable' to install/start the background service and restore login autostart or inspect a manually started daemon; logs: %s", state.Installed, state.Running, state.Autostart, logs))
 			default:
-				report("OK", "service", fmt.Sprintf("installed=%t running=%t; logs: %s", state.Installed, state.Running, logs))
+				report("OK", "service", fmt.Sprintf("installed=%t running=%t autostart=%t; logs: %s", state.Installed, state.Running, state.Autostart, logs))
 			}
 		}
 	} else if serviceErr == nil {
@@ -80,7 +82,7 @@ func (c remoteCommands) doctor(ctx context.Context, a *App) error {
 	case err != nil:
 		report("FAIL", "daemon", fmt.Sprintf("%v; run 'herdr-sesh remote enable' or verify the foreground daemon uses this configuration; logs: %s", err, logs))
 		report("SKIP", "catalog", "daemon is unavailable")
-	case len(response.Catalog) == 0 || response.Catalog[0].ID != cfg.ID || response.Catalog[0].Session != cfg.HerdrSession:
+	case validateRemoteIdentity(cfg, response) != nil:
 		report("FAIL", "daemon", "identity/session does not match the selected configuration; stop the daemon using the shared socket and restart it with this configuration; logs: "+logs)
 		report("SKIP", "catalog", "daemon identity/session does not match")
 	default:

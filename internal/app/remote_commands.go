@@ -72,14 +72,21 @@ func (c remoteCommands) runAction(ctx context.Context, a *App, action string) er
 	case "enable":
 		return c.enable(ctx, a, path)
 	case "disable":
+		info, statErr := os.Lstat(path)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return fmt.Errorf("disable remote support: %w", statErr)
+		}
+		if statErr == nil && !info.Mode().IsRegular() {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("disable remote support: %s must be a regular file; configuration is a symlink, so service state was retained; set HERDR_SESH_REMOTE_CONFIG to its real regular-file target and rerun 'herdr-sesh remote disable'", path)
+			}
+			return fmt.Errorf("disable remote support: %s must be a regular file; service state was retained", path)
+		}
 		stopErr := c.service.Disable(ctx)
 		cfg, loadErr := remote.LoadConfig()
-		_, statErr := os.Stat(path)
 		var configErr error
 		if statErr == nil {
 			configErr = remote.SetEnabled(path, false)
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			configErr = statErr
 		}
 		if loadErr == nil && statErr == nil {
 			// Config opt-out does not stop a daemon that already loaded its settings.
@@ -211,8 +218,8 @@ func (c remoteCommands) waitReady(ctx context.Context, cfg remote.Config) (remot
 		response, err := c.call(callCtx, cfg, remote.Request{Op: "list"})
 		cancelCall()
 		if err == nil {
-			if len(response.Catalog) == 0 || response.Catalog[0].ID != cfg.ID || response.Catalog[0].Session != cfg.HerdrSession {
-				return remote.Response{}, errors.New("daemon identity does not match the selected configuration")
+			if err := validateRemoteIdentity(cfg, response); err != nil {
+				return remote.Response{}, err
 			}
 			return response, nil
 		}
@@ -227,7 +234,7 @@ func (c remoteCommands) waitReady(ctx context.Context, cfg remote.Config) (remot
 
 func (c remoteCommands) status(ctx context.Context, a *App, path string) error {
 	state, serviceErr := c.service.Status(ctx)
-	_, _ = fmt.Fprintf(a.Out, "Config: %s\nService: %s\nInstalled: %t\nRunning: %t\n%s\nLogs: %s\n", path, c.service.Path(), state.Installed, state.Running, state.Detail, c.service.Logs())
+	_, _ = fmt.Fprintf(a.Out, "Config: %s\nService: %s\nInstalled: %t\nRunning: %t\nAutostart: %t\n%s\nLogs: %s\n", path, c.service.Path(), state.Installed, state.Running, state.Autostart, state.Detail, c.service.Logs())
 	cfg, err := remote.LoadConfig()
 	if err != nil {
 		return errors.Join(serviceErr, err)
@@ -242,6 +249,9 @@ func (c remoteCommands) status(ctx context.Context, a *App, path string) error {
 	if err != nil {
 		_, _ = fmt.Fprintf(a.Out, "Daemon unavailable: %v\n", err)
 		return serviceErr
+	}
+	if err := validateRemoteIdentity(cfg, response); err != nil {
+		return errors.Join(serviceErr, err)
 	}
 	printRemoteCatalog(a, cfg, response)
 	return serviceErr
@@ -263,4 +273,11 @@ func printRemoteCatalog(a *App, cfg remote.Config, response remote.Response) {
 			_, _ = fmt.Fprintf(a.Out, "%s %s (%s): ready, %d workspace(s)\n", kind, machine.ID, machine.Session, len(machine.Workspaces))
 		}
 	}
+}
+
+func validateRemoteIdentity(cfg remote.Config, response remote.Response) error {
+	if len(response.Catalog) == 0 || response.Catalog[0].ID != cfg.ID || response.Catalog[0].Session != cfg.HerdrSession {
+		return errors.New("daemon identity does not match the selected configuration")
+	}
+	return nil
 }

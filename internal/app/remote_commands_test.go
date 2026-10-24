@@ -50,7 +50,7 @@ func (s *fakeRemoteService) Enable(_ context.Context, options remoteservice.Opti
 		s.onEnable()
 	}
 	if s.enableErr == nil {
-		s.state = remoteservice.Status{Installed: true, Running: true}
+		s.state = remoteservice.Status{Installed: true, Running: true, Autostart: true}
 	}
 	return s.enableErr
 }
@@ -311,5 +311,90 @@ func TestRemoteCommandsRejectInvalidArguments(t *testing.T) {
 	a := &App{Out: new(bytes.Buffer), Err: new(bytes.Buffer)}
 	for _, args := range [][]string{{"remote"}, {"remote", "enable", "extra"}, {"remote", "unknown"}} {
 		require.ErrorContains(t, a.Run(context.Background(), args), "usage: herdr-sesh remote enable|status|disable|doctor")
+	}
+}
+
+func TestRemoteDisableRejectsUnsafeConfigBeforeStoppingService(t *testing.T) {
+	for _, kind := range []string{"symlink", "dangling symlink", "directory"} {
+		t.Run(kind, func(t *testing.T) {
+			path, a, _, service, commands := remoteCommandFixture(t)
+			target := path + ".target"
+			contents := []byte("enabled = true\nid = 'laptop'\n")
+			if kind == "directory" {
+				require.NoError(t, os.Mkdir(path, 0o700))
+			} else {
+				if kind == "symlink" {
+					require.NoError(t, os.WriteFile(target, contents, 0o600))
+				}
+				require.NoError(t, os.Symlink(target, path))
+			}
+			err := commands.run(context.Background(), a, "disable")
+			require.ErrorContains(t, err, "regular file")
+			if kind != "directory" {
+				require.ErrorContains(t, err, "configuration is a symlink")
+				require.ErrorContains(t, err, "set HERDR_SESH_REMOTE_CONFIG to its real regular-file target")
+				link, linkErr := os.Readlink(path)
+				require.NoError(t, linkErr)
+				assert.Equal(t, target, link)
+			}
+			assert.Zero(t, service.stops)
+			switch kind {
+			case "symlink":
+				data, err := os.ReadFile(target) //nolint:gosec // Test-owned configuration.
+				require.NoError(t, err)
+				assert.Equal(t, contents, data)
+			case "dangling symlink":
+				assert.NoFileExists(t, target)
+			}
+		})
+	}
+}
+
+func TestRemoteDisableStopsServiceWithMissingOrInvalidConfig(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid=%t", invalid), func(t *testing.T) {
+			path, a, _, service, commands := remoteCommandFixture(t)
+			if invalid {
+				require.NoError(t, os.WriteFile(path, []byte("enabled = ["), 0o600))
+			}
+			err := commands.run(context.Background(), a, "disable")
+			if invalid {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, 1, service.stops)
+		})
+	}
+}
+
+func TestRemoteStatusValidatesLocalCatalog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		catalog []remote.Machine
+		valid   bool
+	}{
+		{name: "empty"},
+		{name: "wrong ID", catalog: []remote.Machine{{ID: "other", Session: "default"}}},
+		{name: "wrong session", catalog: []remote.Machine{{ID: "laptop", Session: "other"}}},
+		{name: "matching", catalog: []remote.Machine{{ID: "laptop", Session: "default"}}, valid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, a, output, service, commands := remoteCommandFixture(t)
+			require.NoError(t, remote.SaveConfig(path, remote.Config{Enabled: true, ID: "laptop", HerdrSession: "default"}))
+			service.state.Autostart = true
+			commands.call = func(context.Context, remote.Config, remote.Request) (remote.Response, error) {
+				return remote.Response{Catalog: tc.catalog}, nil
+			}
+			err := commands.run(context.Background(), a, "status")
+			if tc.valid {
+				require.NoError(t, err)
+				assert.Contains(t, output.String(), "Local Herdr session laptop (default): ready")
+			} else {
+				require.ErrorContains(t, err, "daemon identity does not match")
+				assert.NotContains(t, output.String(), ": ready")
+			}
+			assert.Contains(t, output.String(), "Autostart: true")
+		})
 	}
 }

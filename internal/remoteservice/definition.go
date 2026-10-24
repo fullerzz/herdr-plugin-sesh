@@ -114,6 +114,10 @@ func (m *Manager) definition(opts Options) ([]byte, error) {
 		b.WriteString("<key>EnvironmentVariables</key><dict>\n")
 		for _, entry := range env {
 			key, value, _ := strings.Cut(entry, "=")
+			if key == "SSH_AUTH_SOCK" {
+				// Inherit launchd's current login socket instead of persisting a stale one.
+				continue
+			}
 			fmt.Fprintf(&b, "<key>%s</key><string>%s</string>\n", key, xmlText(value))
 		}
 		b.WriteString("</dict>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ThrottleInterval</key><integer>5</integer>\n")
