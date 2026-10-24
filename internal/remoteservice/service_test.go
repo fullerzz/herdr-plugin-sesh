@@ -179,8 +179,9 @@ func TestServiceDefinitionsEscapeAndFilterEnvironment(t *testing.T) {
 			assert.NotContains(t, text, "/wrong")
 			assert.Contains(t, text, "HERDR_SESH_REMOTE_CONFIG")
 			assert.Contains(t, text, "HERDR_BIN_PATH")
+			assert.Contains(t, text, "--service")
 			if platform == "linux" {
-				assert.Contains(t, text, "SSH_AUTH_SOCK=/tmp/ssh-agent.sock")
+				assert.NotContains(t, text, "SSH_AUTH_SOCK")
 				assert.Contains(t, text, `ExecStart=:"`)
 				assert.Contains(t, text, `\"quote\" %%n $BIN \\name`)
 				assert.Contains(t, text, "RestartSec=5")

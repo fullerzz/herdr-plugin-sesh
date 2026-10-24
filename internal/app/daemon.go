@@ -20,15 +20,24 @@ import (
 
 func (a *App) daemon(ctx context.Context, args []string) error {
 	// rpc is the fixed SSH entry point; workspace metadata never becomes shell code.
+	managed := slices.Equal(args, []string{"serve", "--service"})
 	stream := slices.Equal(args, []string{"rpc", "--stream"})
-	if !stream && (len(args) != 1 || args[0] == "rpc") {
+	if !managed && !stream && (len(args) != 1 || args[0] == "rpc") {
 		return errors.New("usage: herdr-sesh daemon serve|list|rpc --stream")
 	}
 	cfg, err := remote.LoadConfig()
-	if err != nil {
+	if err != nil && (!managed || !errors.Is(err, os.ErrNotExist)) {
 		return err
 	}
 	if !cfg.Enabled {
+		if managed {
+			// Stay idle so native service restart policies do not turn opt-out into a retry loop.
+			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+			defer stop()
+			_, _ = fmt.Fprintln(a.Err, "Remote support disabled; background service idle. Run 'herdr-sesh remote enable' to restart or 'herdr-sesh remote disable' to remove autostart.")
+			<-ctx.Done()
+			return nil
+		}
 		return errors.New("remote workspace support is disabled; configure remote.toml explicitly")
 	}
 	switch args[0] {

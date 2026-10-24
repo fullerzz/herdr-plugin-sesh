@@ -239,7 +239,7 @@ protocol mismatch:
 
 | Symptom | Check or action |
 | --- | --- |
-| Doctor SSH passes but daemon peer authentication fails | On Linux, check whether the service saved an old `SSH_AUTH_SOCK`; rerun `remote enable` with the current agent. On macOS, check the login session's agent and loaded keys. Doctor probes use the current terminal environment. |
+| Doctor SSH passes but daemon peer authentication fails | On Linux, check the systemd user manager environment and restart the service after refreshing its agent socket. On macOS, check the login session's agent and loaded keys. Doctor probes use the current terminal environment. |
 | `Permission denied` | Confirm the destination username and SSH authentication from the initiating machine. A working laptop → server login does not establish server → laptop access. |
 | `command not found: herdr-sesh` | Install or link the binary into the remote noninteractive `PATH`; rerun the SSH checks above. |
 | `stream closed before the protocol handshake` | Inspect the appended stderr: SSH auth, missing/old binary, wrong config environment, or a stopped daemon can prevent a reply. |
@@ -277,11 +277,14 @@ Run `remote enable` when you want to start it again.
 
 The definition uses absolute binary/config paths and explicit environment
 settings, including the selected Herdr binary, `PATH`, config/cache locations,
-and, on Linux, `SSH_AUTH_SOCK` when present. macOS LaunchAgents inherit the
-login session's agent socket instead of saving the enabling terminal's socket.
+while SSH agent sockets are inherited from the service manager at process start.
 The service does not load shell startup files or copy the whole shell environment.
-On Linux, rerun `remote enable` from a terminal with a working agent whenever
-`SSH_AUTH_SOCK` changes, including after a reboot or a new login. Incoming SSH
+On Linux, arrange for the login session or agent to update the systemd user manager
+with `systemctl --user import-environment SSH_AUTH_SOCK` when its socket changes,
+then run `systemctl --user restart herdr-sesh-daemon.service`. Prefer an agent with
+a stable socket for unattended or lingering sessions. Rerun `remote enable` once
+after upgrading to remove any socket saved by an older definition. macOS uses the
+login session's launchd agent socket. Incoming SSH
 commands still need their own working noninteractive environment, as described above.
 
 `remote status` prints the service path, autostart state, and how to read its logs, plus
@@ -343,3 +346,10 @@ For manual startup, stop the daemon (Ctrl+C, SIGTERM, or SIGHUP), then set
 `enabled = false` or remove the default config file. If using
 `HERDR_SESH_REMOTE_CONFIG`, unset it when removing that file. Herdr sessions and
 running panes are left intact.
+
+Generated services use `daemon serve --service`. If configuration disables remote
+support before a service starts, it remains idle without opening a daemon socket
+or contacting Herdr or SSH. Service status can show running while remote support
+is disabled. Run `remote enable` to restart with enabled settings, or `remote disable`
+to stop it and remove autostart. Manual `daemon serve` still reports disabled support
+as an error. Existing running daemons retain their loaded settings until stopped.

@@ -179,7 +179,8 @@ func TestConfigWritePreservesConcurrentEdits(t *testing.T) {
 		} else {
 			require.NoError(t, os.WriteFile(path, changed, 0600))
 		}
-		require.ErrorContains(t, writeConfig(path, []byte("enabled=true\nid='local'\n"), before), "changed while saving")
+		_, err = writeConfig(path, []byte("enabled=true\nid='local'\n"), before, false)
+		require.ErrorContains(t, err, "changed while saving")
 		got, err := os.ReadFile(path) // #nosec G304 -- test-owned temporary fixture.
 		require.NoError(t, err)
 		assert.Equal(t, changed, got)
@@ -357,4 +358,73 @@ func TestPreparedConfigEnableRejectsReplacementWithIdenticalBytes(t *testing.T) 
 	got, err := os.ReadFile(path) // #nosec G304 -- test-owned temporary fixture.
 	require.NoError(t, err)
 	assert.Equal(t, before, got)
+}
+
+func TestConfigRestoreUsesPublicationReceipt(t *testing.T) {
+	for _, original := range []string{"", "# draft\nenabled = false\nid = ''\n", "# retained\nenabled = false\nid = 'local'\n"} {
+		for _, change := range []string{"none", "edit", "replace"} {
+			t.Run(original+change, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "remote.toml")
+				if original != "" {
+					require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
+				}
+				edit, err := PrepareConfig(path)
+				require.NoError(t, err)
+				if edit.Config.ID != "" {
+					require.NoError(t, edit.SetEnabled(true))
+				} else {
+					require.NoError(t, edit.Save(Config{Enabled: true, ID: "configured"}))
+				}
+				// Edit immediately after publication, before any caller can inspect the path.
+				newer := []byte("# concurrent editor\nenabled = false\nid = 'newer'\n")
+				switch change {
+				case "edit":
+					require.NoError(t, os.WriteFile(path, newer, 0o600))
+				case "replace":
+					// Identical bytes still belong to another writer's replacement.
+					newer = edit.written.data
+					require.NoError(t, os.WriteFile(path+".new", newer, 0o600))
+					require.NoError(t, os.Rename(path+".new", path))
+				}
+				if change != "none" {
+					require.ErrorContains(t, edit.Restore(), "changed while saving")
+					data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+					require.NoError(t, err)
+					assert.Equal(t, newer, data)
+					return
+				}
+				require.NoError(t, edit.Restore())
+				if original == "" {
+					assert.NoFileExists(t, path)
+				} else {
+					data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+					require.NoError(t, err)
+					assert.Equal(t, original, string(data))
+				}
+			})
+		}
+	}
+}
+
+func TestConfigRestorePreservesExistingEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote.toml")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+	edit, err := PrepareConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, edit.Save(Config{Enabled: true, ID: "local"}))
+	require.NoError(t, edit.Restore())
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+	require.NoError(t, err)
+	assert.Empty(t, data)
+}
+
+func TestConfigNilWritePreservesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote.toml")
+	require.NoError(t, SaveConfig(path, Config{ID: "local"}))
+	edit, err := PrepareConfig(path)
+	require.NoError(t, err)
+	require.NoError(t, edit.write(nil))
+	data, err := os.ReadFile(path) //nolint:gosec // Test-owned temporary configuration.
+	require.NoError(t, err)
+	assert.Empty(t, data)
 }

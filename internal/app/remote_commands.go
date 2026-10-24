@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -120,7 +119,6 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 		return err
 	}
 	cfg := edit.Config
-	wasEnabled := cfg.Enabled
 	needsSetup := !edit.Exists || cfg.ID == ""
 	if needsSetup {
 		cfg, err = c.configure(ctx, cfg)
@@ -165,17 +163,12 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 	if err != nil {
 		return err
 	}
-	writtenInfo, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	writtenData, err := os.ReadFile(path) //nolint:gosec // Resolved user configuration path.
-	if err != nil {
-		return err
-	}
 	opts := remoteservice.Options{Executable: bin, ConfigPath: path, HerdrBinary: herdrBin, Environment: os.Environ()}
 	if err := c.service.Enable(ctx, opts); err != nil {
-		restoreErr := rollbackRemoteConfig(path, writtenInfo, writtenData, edit.Exists, wasEnabled)
+		restoreErr := edit.Restore()
+		if restoreErr != nil {
+			restoreErr = fmt.Errorf("restore remote configuration %s: %w", path, restoreErr)
+		}
 		return errors.Join(fmt.Errorf("enable background service: %w", err), restoreErr)
 	}
 	response, err := c.waitReady(ctx, cfg)
@@ -186,27 +179,6 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 	printRemoteCatalog(a, cfg, response)
 	_, err = fmt.Fprintln(a.Out, "Run 'herdr-sesh attach' from an outer terminal to switch workspaces. Configure each peer separately with reciprocal machine IDs and noninteractive SSH access.")
 	return err
-}
-
-func rollbackRemoteConfig(path string, writtenInfo os.FileInfo, writtenData []byte, existed, wasEnabled bool) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("cannot restore remote configuration after service failure: %w", err)
-	}
-	if !info.Mode().IsRegular() || !os.SameFile(writtenInfo, info) {
-		return fmt.Errorf("configuration changed during service activation; retaining %s", path)
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // Resolved user configuration path.
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(writtenData, data) {
-		return fmt.Errorf("configuration changed during service activation; retaining %s", path)
-	}
-	if !existed {
-		return os.Remove(path)
-	}
-	return remote.SetEnabled(path, wasEnabled)
 }
 
 func (c remoteCommands) waitReady(ctx context.Context, cfg remote.Config) (remote.Response, error) {
