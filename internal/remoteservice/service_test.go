@@ -432,12 +432,14 @@ func TestActivationFailureRestoresConfigBeforeRecovery(t *testing.T) {
 					require.ErrorContains(t, err, "service recovery incomplete")
 					assert.Zero(t, recoveries)
 					assert.False(t, fake.running, "uncertain configuration must not leave a newly active daemon running")
+					assert.False(t, fake.enabled, "uncertain configuration must not restart the daemon at the next login")
 					assert.Equal(t, "concurrent", cfg.ID)
 					assert.True(t, cfg.Enabled)
 				} else {
 					require.ErrorContains(t, err, "service recovery completed")
 					assert.Equal(t, 1, recoveries)
 					assert.True(t, fake.running)
+					assert.True(t, fake.enabled, "successful config restoration must preserve autostart")
 					assert.False(t, cfg.Enabled)
 				}
 			})

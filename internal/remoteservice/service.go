@@ -277,8 +277,9 @@ func (m *Manager) enable(ctx context.Context, opts Options, restoreConfig func()
 			restoreErr = restoreConfig()
 		}
 		if restoreErr != nil {
-			// Stop any newly active daemon rather than restart against uncertain settings.
+			// Keep uncertain settings from starting a daemon now or at the next login.
 			native.running = false
+			native.enabled = false
 		}
 		recoveryErr := errors.Join(restoreErr, m.rollback(recoveryCtx, previous, native))
 		if recoveryErr != nil {
