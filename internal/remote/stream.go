@@ -192,9 +192,9 @@ func (c *StreamClient) handshake(ctx context.Context) (*stream, error) {
 
 // stream multiplexes JSON-RPC 2.0 requests by id over one transport.
 type stream struct {
-	rwc  io.ReadWriteCloser
-	wmu  sync.Mutex
-	done chan struct{}
+	rwc   io.ReadWriteCloser
+	write chan struct{}
+	done  chan struct{}
 
 	mu      sync.Mutex
 	next    uint64
@@ -205,7 +205,7 @@ type stream struct {
 }
 
 func newStream(rwc io.ReadWriteCloser) *stream {
-	s := &stream{rwc: rwc, done: make(chan struct{}), pending: map[uint64]chan rpcMessage{}}
+	s := &stream{rwc: rwc, write: make(chan struct{}, 1), done: make(chan struct{}), pending: map[uint64]chan rpcMessage{}}
 	go s.readLoop()
 	return s
 }
@@ -308,6 +308,30 @@ func (s *stream) push(t Target) {
 	}
 }
 
+func (s *stream) writeRequest(ctx context.Context, b []byte) error {
+	select {
+	case s.write <- struct{}{}:
+		defer func() { <-s.write }()
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.done:
+		return s.failure()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !s.alive() {
+		return s.failure()
+	}
+	// A timed-out write may leave a partial frame; retire it before another writer proceeds.
+	stop := context.AfterFunc(ctx, func() { s.fail(fmt.Errorf("write daemon stream: %w", ctx.Err())) })
+	_, err := s.rwc.Write(b)
+	if !stop() {
+		<-s.done
+	}
+	return err
+}
+
 func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response, error) {
 	ch := make(chan rpcMessage, 1)
 	s.mu.Lock()
@@ -349,9 +373,13 @@ func (s *stream) send(ctx context.Context, r Request, sub chan Target) (Response
 		abandon()
 		return Response{}, err
 	}
-	s.wmu.Lock()
-	_, err = s.rwc.Write(append(b, '\n'))
-	s.wmu.Unlock()
+	err = s.writeRequest(ctx, append(b, '\n'))
+	if err != nil && ctx.Err() != nil {
+		if m, ok := abandon(); ok {
+			return rpcResponseOf(m)
+		}
+		return Response{}, ctx.Err()
+	}
 	if err != nil {
 		// The reader usually knows why the daemon went away; give it a moment.
 		select {

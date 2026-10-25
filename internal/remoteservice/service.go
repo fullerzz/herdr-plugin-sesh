@@ -237,11 +237,12 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 	return status, nil
 }
 
-func (m *Manager) Enable(ctx context.Context, opts Options) error {
-	return m.WithLock(ctx, func(ctx context.Context) error { return m.enable(ctx, opts) })
+// Enable restores configuration before recovering a previous service after activation fails.
+func (m *Manager) Enable(ctx context.Context, opts Options, restoreConfig func() error) error {
+	return m.WithLock(ctx, func(ctx context.Context) error { return m.enable(ctx, opts, restoreConfig) })
 }
 
-func (m *Manager) enable(ctx context.Context, opts Options) error {
+func (m *Manager) enable(ctx context.Context, opts Options, restoreConfig func() error) error {
 	definition, err := m.definition(opts)
 	if err != nil {
 		return err
@@ -271,7 +272,16 @@ func (m *Manager) enable(ctx context.Context, opts Options) error {
 	if err = m.activate(ctx, native.loaded); err != nil {
 		recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		recoveryErr := m.rollback(recoveryCtx, previous, native)
+		var restoreErr error
+		if restoreConfig != nil {
+			restoreErr = restoreConfig()
+		}
+		if restoreErr != nil {
+			// Keep uncertain settings from starting a daemon now or at the next login.
+			native.running = false
+			native.enabled = false
+		}
+		recoveryErr := errors.Join(restoreErr, m.rollback(recoveryCtx, previous, native))
 		if recoveryErr != nil {
 			return errors.Join(fmt.Errorf("service activation failed: %w", err), fmt.Errorf("service recovery incomplete; inspect %s and service status: %w", m.path, recoveryErr))
 		}

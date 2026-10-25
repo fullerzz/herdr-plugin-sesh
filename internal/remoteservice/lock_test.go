@@ -60,11 +60,11 @@ func TestServiceTransactionExcludesOtherManagers(t *testing.T) {
 	require.NoError(t, manager.WithLock(t.Context(), func(ctx context.Context) error {
 		expired = ctx
 		competitorCtx := context.WithValue(ctx, transactionKey{}, false)
-		require.ErrorContains(t, other.Enable(competitorCtx, opts), "another remote service operation")
+		require.ErrorContains(t, other.Enable(competitorCtx, opts, nil), "another remote service operation")
 		require.ErrorContains(t, other.Disable(competitorCtx), "another remote service operation")
 		assert.Empty(t, fake.calls)
 		assert.NoFileExists(t, other.path)
-		require.NoError(t, manager.Enable(ctx, opts))
+		require.NoError(t, manager.Enable(ctx, opts, nil))
 		return nil
 	}))
 	require.NoError(t, other.WithLock(t.Context(), func(context.Context) error {
@@ -120,20 +120,20 @@ func TestActivationRecoveryKeepsTransactionLocked(t *testing.T) {
 	manager.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		if len(args) > 1 && (args[1] == "enable" || args[1] == "disable") {
 			competitorCtx := context.WithValue(ctx, transactionKey{}, false)
-			competingErrors = append(competingErrors, other.Enable(competitorCtx, opts), other.Disable(competitorCtx))
+			competingErrors = append(competingErrors, other.Enable(competitorCtx, opts, nil), other.Disable(competitorCtx))
 			if args[1] == "enable" {
 				return nil, errors.New("activation failed")
 			}
 		}
 		return original(ctx, name, args...)
 	}
-	require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery completed")
+	require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "service recovery completed")
 	require.Len(t, competingErrors, 4)
 	for _, err := range competingErrors {
 		require.ErrorContains(t, err, "another remote service operation")
 	}
 	assert.NoFileExists(t, manager.path)
 	manager.run = original
-	require.NoError(t, manager.Enable(t.Context(), opts))
+	require.NoError(t, manager.Enable(t.Context(), opts, nil))
 	assert.True(t, fake.running)
 }

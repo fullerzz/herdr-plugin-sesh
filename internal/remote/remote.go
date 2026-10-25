@@ -118,26 +118,37 @@ func (s *Server) refreshLocal(ctx context.Context) {
 	s.record(0, fromHerdr(local), err)
 }
 
-func (s *Server) refreshPeers(ctx context.Context) {
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 4)
+func (s *Server) refreshPeer(ctx context.Context, i int) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ws, err := s.exportPeer(ctx, s.cfg.Peers[i])
+	s.record(i+1, ws, err)
+}
+
+func (s *Server) refreshCatalog(ctx context.Context) {
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	refreshes := make([]func(context.Context), 1, 1+len(s.cfg.Peers))
+	refreshes[0] = s.refreshLocal
 	for i := range s.cfg.Peers {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-			defer func() { <-sem }()
-			c, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			ws, err := s.exportPeer(c, s.cfg.Peers[i])
-			s.record(i+1, ws, err)
-		}(i)
+		refreshes = append(refreshes, func(ctx context.Context) { s.refreshPeer(ctx, i) })
 	}
-	wg.Wait()
+	// One loop per machine keeps slow peers from delaying healthy catalogs.
+	for _, refresh := range refreshes {
+		workers.Go(func() {
+			refresh(ctx)
+			t := time.NewTicker(3 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					refresh(ctx)
+				}
+			}
+		})
+	}
 }
 
 func (s *Server) exportPeer(ctx context.Context, p Peer) ([]Workspace, error) {
@@ -637,25 +648,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 		workers.Wait()
 	}()
-	workers.Add(3)
+	workers.Add(2)
 	go func() { defer workers.Done(); <-ctx.Done(); _ = l.Close() }()
-	// Local inventory must stay fresh even when peer batches exceed its expiry.
-	for _, refresh := range []func(context.Context){s.refreshLocal, s.refreshPeers} {
-		go func() {
-			defer workers.Done()
-			refresh(ctx)
-			t := time.NewTicker(3 * time.Second)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					refresh(ctx)
-				}
-			}
-		}()
-	}
+	go func() { defer workers.Done(); s.refreshCatalog(ctx) }()
 	sem := make(chan struct{}, 32)
 	for {
 		conn, e := l.Accept()

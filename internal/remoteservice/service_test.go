@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -220,7 +221,7 @@ func TestEnableDisableOrderingAndIdempotency(t *testing.T) {
 		t.Run(platform, func(t *testing.T) {
 			manager, fake, opts := setup(t, platform)
 			require.NoError(t, os.WriteFile(opts.ConfigPath, []byte("preserved remote config"), 0o600))
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			assert.True(t, fake.running)
 			assert.True(t, fake.enabled)
 			require.FileExists(t, manager.path)
@@ -229,7 +230,7 @@ func TestEnableDisableOrderingAndIdempotency(t *testing.T) {
 			} else {
 				assert.Equal(t, []string{"launchctl enable gui/501/" + label, "launchctl bootstrap gui/501 " + manager.path}, fake.calls[len(fake.calls)-2:])
 			}
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			status, err := manager.Status(t.Context())
 			require.NoError(t, err)
 			assert.True(t, status.Installed)
@@ -262,7 +263,7 @@ func TestMissingManagerIsAnErrorBeforeInstallation(t *testing.T) {
 			manager.run = func(context.Context, string, ...string) ([]byte, error) { return nil, exec.ErrNotFound }
 			_, err := manager.Status(t.Context())
 			require.Error(t, err)
-			require.Error(t, manager.Enable(t.Context(), opts))
+			require.Error(t, manager.Enable(t.Context(), opts, nil))
 			require.Error(t, manager.Disable(t.Context()))
 			assert.NoFileExists(t, manager.path)
 		})
@@ -276,11 +277,11 @@ func TestLinuxServiceOutsideManagerSearchPath(t *testing.T) {
 	manager.path = custom.path
 	fake.external = true
 
-	require.NoError(t, manager.Enable(t.Context(), opts))
+	require.NoError(t, manager.Enable(t.Context(), opts, nil))
 	assert.Contains(t, fake.calls, "systemctl --user enable --now "+manager.path)
 	assert.True(t, fake.linked)
 	fake.fail, fake.failure = "systemctl --user restart "+unit, errors.New("restart failed")
-	require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery completed")
+	require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "service recovery completed")
 	assert.Contains(t, fake.calls, "systemctl --user enable "+manager.path)
 	assert.True(t, fake.running)
 	assert.True(t, fake.enabled)
@@ -288,7 +289,7 @@ func TestLinuxServiceOutsideManagerSearchPath(t *testing.T) {
 	// A linked unit can be running without being enabled for the next login.
 	fake.enabled = false
 	fake.fail, fake.failure = "systemctl --user restart "+unit, errors.New("restart failed")
-	require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery completed")
+	require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "service recovery completed")
 	assert.True(t, fake.running)
 	assert.True(t, fake.linked)
 	assert.False(t, fake.enabled)
@@ -305,7 +306,7 @@ func TestLinuxServiceOutsideManagerSearchPath(t *testing.T) {
 		}
 		return output, runErr
 	}
-	require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery completed")
+	require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "service recovery completed")
 	assert.False(t, fake.linked)
 	assert.False(t, fake.running)
 	assert.NoFileExists(t, manager.path)
@@ -317,18 +318,18 @@ func TestRefuseUnmanagedDefinitionsAndLoadedJobs(t *testing.T) {
 			manager, fake, opts := setup(t, platform)
 			require.NoError(t, os.MkdirAll(filepath.Dir(manager.path), 0o700))
 			require.NoError(t, os.WriteFile(manager.path, []byte("unrelated"), 0o600))
-			require.ErrorContains(t, manager.Enable(t.Context(), opts), "unmanaged")
+			require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "unmanaged")
 			require.ErrorContains(t, manager.Disable(t.Context()), "unmanaged")
 			assert.Empty(t, fake.calls)
 			require.NoError(t, os.Remove(manager.path))
 			fake.loaded = true
-			require.ErrorContains(t, manager.Enable(t.Context(), opts), "without a managed definition")
+			require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "without a managed definition")
 			require.ErrorContains(t, manager.Disable(t.Context()), "without a managed definition")
 			_, err := manager.Status(t.Context())
 			require.ErrorContains(t, err, "without a managed definition")
 			assert.True(t, fake.loaded)
 			require.NoError(t, os.Symlink(opts.Executable, manager.path))
-			require.ErrorContains(t, manager.Enable(t.Context(), opts), "not a regular file")
+			require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "not a regular file")
 		})
 	}
 }
@@ -344,7 +345,7 @@ func TestInvalidOptionsCannotInstall(t *testing.T) {
 	} {
 		opts := original
 		change(&opts)
-		require.Error(t, manager.Enable(t.Context(), opts))
+		require.Error(t, manager.Enable(t.Context(), opts, nil))
 	}
 	assert.Empty(t, fake.calls)
 	assert.NoFileExists(t, manager.path)
@@ -357,7 +358,7 @@ func TestActivationFailureRollsBack(t *testing.T) {
 				manager, fake, opts := setup(t, platform)
 				var original []byte
 				if installed {
-					require.NoError(t, manager.Enable(t.Context(), opts))
+					require.NoError(t, manager.Enable(t.Context(), opts, nil))
 					var err error
 					original, err = os.ReadFile(manager.path)
 					require.NoError(t, err)
@@ -371,7 +372,7 @@ func TestActivationFailureRollsBack(t *testing.T) {
 					fake.fail = "systemctl --user enable --now " + manager.path
 				}
 				opts.Environment = []string{"PATH=/new/bin"}
-				err := manager.Enable(t.Context(), opts)
+				err := manager.Enable(t.Context(), opts, nil)
 				require.ErrorContains(t, err, "previous definition restored and service recovery completed")
 				assert.Equal(t, installed, fake.running)
 				assert.Equal(t, installed, fake.enabled)
@@ -387,11 +388,70 @@ func TestActivationFailureRollsBack(t *testing.T) {
 	}
 }
 
+func TestActivationFailureRestoresConfigBeforeRecovery(t *testing.T) {
+	for _, platform := range []string{"linux", "darwin"} {
+		for _, conflict := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/conflict=%t", platform, conflict), func(t *testing.T) {
+				manager, fake, opts := setup(t, platform)
+				t.Setenv("HERDR_SESH_REMOTE_CONFIG", opts.ConfigPath)
+				require.NoError(t, remote.SaveConfig(opts.ConfigPath, remote.Config{ID: "local"}))
+				require.NoError(t, manager.Enable(t.Context(), opts, nil))
+				original, err := os.ReadFile(manager.path)
+				require.NoError(t, err)
+				edit, err := remote.PrepareConfig(opts.ConfigPath)
+				require.NoError(t, err)
+				require.NoError(t, edit.SetEnabled(true))
+				if conflict {
+					require.NoError(t, remote.SaveConfig(opts.ConfigPath, remote.Config{Enabled: true, ID: "concurrent"}))
+				}
+				activation := "systemctl --user restart " + unit
+				if platform == "darwin" {
+					activation = "launchctl bootstrap gui/501 " + manager.path
+				}
+				fake.fail, fake.failure = activation, errors.New("transient activation failure")
+				recoveries := 0
+				manager.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+					call := name + " " + strings.Join(args, " ")
+					if call == activation && fake.fail == "" {
+						recoveries++
+						cfg, loadErr := remote.LoadConfig()
+						require.NoError(t, loadErr)
+						assert.False(t, cfg.Enabled, "recovery must read the restored opt-out before starting")
+					}
+					return fake.run(ctx, name, args...)
+				}
+				err = manager.Enable(t.Context(), opts, edit.Restore)
+				require.ErrorContains(t, err, "transient activation failure")
+				restored, readErr := os.ReadFile(manager.path)
+				require.NoError(t, readErr)
+				assert.Equal(t, original, restored)
+				cfg, loadErr := remote.LoadConfig()
+				require.NoError(t, loadErr)
+				if conflict {
+					require.ErrorContains(t, err, "remote config changed while saving")
+					require.ErrorContains(t, err, "service recovery incomplete")
+					assert.Zero(t, recoveries)
+					assert.False(t, fake.running, "uncertain configuration must not leave a newly active daemon running")
+					assert.False(t, fake.enabled, "uncertain configuration must not restart the daemon at the next login")
+					assert.Equal(t, "concurrent", cfg.ID)
+					assert.True(t, cfg.Enabled)
+				} else {
+					require.ErrorContains(t, err, "service recovery completed")
+					assert.Equal(t, 1, recoveries)
+					assert.True(t, fake.running)
+					assert.True(t, fake.enabled, "successful config restoration must preserve autostart")
+					assert.False(t, cfg.Enabled)
+				}
+			})
+		}
+	}
+}
+
 func TestDisableFailurePreservesManagedDefinition(t *testing.T) {
 	for _, platform := range []string{"linux", "darwin"} {
 		t.Run(platform, func(t *testing.T) {
 			manager, fake, opts := setup(t, platform)
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			fake.failure = errors.New("stop failed")
 			if platform == "darwin" {
 				fake.fail = "launchctl bootout gui/501/" + label
@@ -423,7 +483,7 @@ func TestStatusDoesNotHideInspectionErrors(t *testing.T) {
 	for _, platform := range []string{"linux", "darwin"} {
 		t.Run(platform, func(t *testing.T) {
 			manager, fake, opts := setup(t, platform)
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			original := manager.run
 			manager.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 				if (name == "systemctl" && len(args) > 2 && args[2] == unit) || (name == "launchctl" && len(args) > 1 && args[0] == "print" && args[1] == manager.domain+"/"+label) {
@@ -449,7 +509,7 @@ func TestFailedRollbackKeepsRecoverableDefinition(t *testing.T) {
 		}
 		return original(ctx, name, args...)
 	}
-	require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery incomplete")
+	require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "service recovery incomplete")
 	assert.FileExists(t, manager.path)
 	manager.run = original
 	require.NoError(t, manager.Disable(t.Context()))
@@ -459,7 +519,7 @@ func TestRollbackPreservesDisabledAutostart(t *testing.T) {
 	for _, platform := range []string{"linux", "darwin"} {
 		t.Run(platform, func(t *testing.T) {
 			manager, fake, opts := setup(t, platform)
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			fake.enabled = false
 			fake.failure = errors.New("restart failed")
 			if platform == "darwin" {
@@ -467,7 +527,7 @@ func TestRollbackPreservesDisabledAutostart(t *testing.T) {
 			} else {
 				fake.fail = "systemctl --user restart " + unit
 			}
-			require.Error(t, manager.Enable(t.Context(), opts))
+			require.Error(t, manager.Enable(t.Context(), opts, nil))
 			assert.False(t, fake.enabled)
 			assert.True(t, fake.running)
 		})
@@ -482,7 +542,7 @@ func TestStatusReportsAutostart(t *testing.T) {
 			status, err := manager.Status(t.Context())
 			require.NoError(t, err)
 			assert.False(t, status.Autostart)
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			status, err = manager.Status(t.Context())
 			require.NoError(t, err)
 			assert.True(t, status.Autostart)
@@ -499,7 +559,7 @@ func TestDarwinWaitsForUnloadBeforeActivationAndRollback(t *testing.T) {
 	for _, rollback := range []bool{false, true} {
 		t.Run(fmt.Sprintf("rollback=%t", rollback), func(t *testing.T) {
 			manager, fake, opts := setup(t, "darwin")
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			original := manager.run
 			pending := 0
 			manager.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -524,7 +584,7 @@ func TestDarwinWaitsForUnloadBeforeActivationAndRollback(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, manager.rollback(t.Context(), data, nativeStatus{loaded: true, running: true, enabled: true}))
 			} else {
-				require.NoError(t, manager.Enable(t.Context(), opts))
+				require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			}
 			assert.True(t, fake.running)
 		})
@@ -535,7 +595,7 @@ func TestDarwinUnloadPropagatesWaitFailures(t *testing.T) {
 	for _, mode := range []string{"canceled", "timeout", "inspection"} {
 		t.Run(mode, func(t *testing.T) {
 			manager, fake, opts := setup(t, "darwin")
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			original := manager.run
 			ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
 			defer cancel()
@@ -569,14 +629,14 @@ func TestDarwinRollbackPreservesStoppedJob(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
 			manager, fake, opts := setup(t, "darwin")
-			require.NoError(t, manager.Enable(t.Context(), opts))
+			require.NoError(t, manager.Enable(t.Context(), opts, nil))
 			previous, err := os.ReadFile(manager.path)
 			require.NoError(t, err)
 			fake.running, fake.enabled = false, enabled
 			fake.fail = "launchctl bootstrap gui/501 " + manager.path
 			fake.failure = errors.New("bootstrap failed")
 			opts.Environment = []string{"PATH=/new/bin"}
-			require.ErrorContains(t, manager.Enable(t.Context(), opts), "service recovery completed")
+			require.ErrorContains(t, manager.Enable(t.Context(), opts, nil), "service recovery completed")
 			assert.False(t, fake.running)
 			assert.False(t, fake.loaded)
 			assert.Equal(t, enabled, fake.enabled)

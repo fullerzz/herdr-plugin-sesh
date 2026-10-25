@@ -45,13 +45,13 @@ func TestCatalogKeepsFailedPeersStaleAndExportLocal(t *testing.T) {
 		return Response{Catalog: []Machine{{ID: "other", Workspaces: []Workspace{{ID: "remote1"}}}}}, nil
 	}
 	s.refreshLocal(context.Background())
-	s.refreshPeers(context.Background())
+	s.refreshPeer(context.Background(), 0)
 	r := s.Handle(context.Background(), Request{Op: "list"})
 	require.Len(t, r.Catalog, 2)
 	assert.False(t, r.Catalog[1].Stale)
 	fail = true
 	s.refreshLocal(context.Background())
-	s.refreshPeers(context.Background())
+	s.refreshPeer(context.Background(), 0)
 	r = s.Handle(context.Background(), Request{Op: "list"})
 	assert.True(t, r.Catalog[1].Stale)
 	require.Len(t, r.Catalog[1].Workspaces, 1)
@@ -134,7 +134,6 @@ func TestExpiredCatalogCannotBeSwitched(t *testing.T) {
 	c.Peers = nil
 	s := NewServer(c, &fakeClient{})
 	s.refreshLocal(context.Background())
-	s.refreshPeers(context.Background())
 	s.catalog[0].UpdatedAt = time.Now().Add(-time.Minute)
 	r := s.Handle(context.Background(), Request{Op: "export"})
 	require.Len(t, r.Catalog, 1)
@@ -145,7 +144,7 @@ func TestPeerCannotReturnTransitiveOrWrongSession(t *testing.T) {
 		s := NewServer(testConfig(), &fakeClient{})
 		s.PeerCall = func(context.Context, Peer, Request) (Response, error) { return Response{Catalog: catalog}, nil }
 		s.refreshLocal(context.Background())
-		s.refreshPeers(context.Background())
+		s.refreshPeer(context.Background(), 0)
 		r := s.Handle(context.Background(), Request{Op: "list"})
 		require.Len(t, r.Catalog, 2)
 		assert.True(t, r.Catalog[1].Stale)
@@ -246,7 +245,7 @@ func TestCatalogSharesOnlySanitizedWireWorkspaces(t *testing.T) {
 	}
 	ctx := context.Background()
 	s.refreshLocal(ctx)
-	s.refreshPeers(ctx)
+	s.refreshPeer(ctx, 0)
 	export := s.Handle(ctx, Request{Op: "export"})
 	b, err := json.Marshal(export)
 	require.NoError(t, err)
@@ -272,16 +271,16 @@ func TestRefreshRecordsAndLogsPeerAvailability(t *testing.T) {
 	ctx := context.Background()
 	peerErr = errors.New("peer other: Connection refused")
 	s.refreshLocal(ctx)
-	s.refreshPeers(ctx)
+	s.refreshPeer(ctx, 0)
 	s.refreshLocal(ctx)
-	s.refreshPeers(ctx)
+	s.refreshPeer(ctx, 0)
 	listed := s.Handle(ctx, Request{Op: "list"})
 	require.Len(t, listed.Catalog, 2)
 	assert.True(t, listed.Catalog[1].Stale)
 	assert.Equal(t, "peer other: Connection refused", listed.Catalog[1].LastError)
 	peerErr = nil
 	s.refreshLocal(ctx)
-	s.refreshPeers(ctx)
+	s.refreshPeer(ctx, 0)
 	listed = s.Handle(ctx, Request{Op: "list"})
 	assert.Empty(t, listed.Catalog[1].LastError)
 	assert.Equal(t, []string{"machine other unavailable: peer other: Connection refused", "machine other available"}, logs)

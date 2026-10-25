@@ -272,6 +272,7 @@ type replyingConn struct {
 	w        *io.PipeWriter
 	s        *stream
 	closeNow bool
+	cancel   context.CancelFunc
 }
 
 func (c *replyingConn) Write(p []byte) (int, error) {
@@ -296,6 +297,9 @@ func (c *replyingConn) Write(p []byte) (int, error) {
 		_ = c.w.Close()
 		<-c.s.done
 	}
+	if c.cancel != nil {
+		c.cancel()
+	}
 	return len(p), nil
 }
 
@@ -305,28 +309,26 @@ func (c *replyingConn) Close() error {
 }
 
 func TestStreamKeepsRepliesRoutedBeforeTheCallEnds(t *testing.T) {
-	newReplyingStream := func(closeNow bool) *stream {
+	newReplyingStream := func(closeNow bool, cancel context.CancelFunc) *stream {
 		r, w := io.Pipe()
-		conn := &replyingConn{PipeReader: r, w: w, closeNow: closeNow}
-		s := &stream{rwc: conn, done: make(chan struct{}), pending: map[uint64]chan rpcMessage{}}
+		conn := &replyingConn{PipeReader: r, w: w, closeNow: closeNow, cancel: cancel}
+		s := newStream(conn)
 		conn.s = s
-		go s.readLoop()
 		t.Cleanup(func() { s.fail(errClientClosed) })
 		return s
 	}
 	t.Run("stream closed", func(t *testing.T) {
-		r, err := newReplyingStream(true).call(context.Background(), Request{Op: "ping"})
+		r, err := newReplyingStream(true, nil).call(context.Background(), Request{Op: "ping"})
 		require.NoError(t, err)
 		assert.Equal(t, 7, r.Version)
 	})
 	t.Run("caller canceled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		s := newReplyingStream(false)
-		sub, err := s.subscribe(ctx, local)
+		defer cancel()
+		s := newReplyingStream(false, cancel)
+		r, err := s.call(ctx, Request{Op: "ping"})
 		require.NoError(t, err)
-		assert.NotNil(t, sub)
-		assert.True(t, s.alive())
+		assert.Equal(t, 7, r.Version)
 	})
 }
 
