@@ -19,17 +19,18 @@ import (
 )
 
 type fakeRemoteService struct {
-	state     remoteservice.Status
-	options   remoteservice.Options
-	enableErr error
-	statusErr error
-	stopErr   error
-	enables   int
-	stops     int
-	onEnable  func()
-	locked    bool
-	lockErr   error
-	onUnlock  func()
+	state      remoteservice.Status
+	options    remoteservice.Options
+	enableErr  error
+	statusErr  error
+	stopErr    error
+	enables    int
+	stops      int
+	onEnable   func()
+	onRecovery func()
+	locked     bool
+	lockErr    error
+	onUnlock   func()
 }
 
 func (s *fakeRemoteService) WithLock(ctx context.Context, fn func(context.Context) error) error {
@@ -46,7 +47,7 @@ func (s *fakeRemoteService) WithLock(ctx context.Context, fn func(context.Contex
 	return fn(ctx)
 }
 
-func (s *fakeRemoteService) Enable(_ context.Context, options remoteservice.Options) error {
+func (s *fakeRemoteService) Enable(_ context.Context, options remoteservice.Options, restoreConfig func() error) error {
 	s.options = options
 	s.enables++
 	if s.onEnable != nil {
@@ -54,6 +55,11 @@ func (s *fakeRemoteService) Enable(_ context.Context, options remoteservice.Opti
 	}
 	if s.enableErr == nil {
 		s.state = remoteservice.Status{Installed: true, Running: true, Autostart: true}
+	} else if s.onRecovery != nil {
+		if err := restoreConfig(); err != nil {
+			return errors.Join(s.enableErr, err)
+		}
+		s.onRecovery()
 	}
 	return s.enableErr
 }
@@ -242,7 +248,16 @@ func TestRemoteEnableFailureRestoresOptOut(t *testing.T) {
 	path, a, _, service, commands := remoteCommandFixture(t)
 	require.NoError(t, remote.SaveConfig(path, remote.Config{ID: "laptop", HerdrSession: "default"}))
 	service.enableErr = errors.New("bootstrap failed")
+	service.state = remoteservice.Status{Installed: true, Running: true, Autostart: true}
+	recovered := false
+	service.onRecovery = func() {
+		cfg, err := remote.LoadConfig()
+		require.NoError(t, err)
+		assert.False(t, cfg.Enabled, "the old service must recover with the original opt-out")
+		recovered = true
+	}
 	require.ErrorContains(t, commands.run(context.Background(), a, "enable"), "bootstrap failed")
+	assert.True(t, recovered)
 	cfg, err := remote.LoadConfig()
 	require.NoError(t, err)
 	assert.False(t, cfg.Enabled)

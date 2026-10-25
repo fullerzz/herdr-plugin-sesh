@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -21,7 +22,7 @@ import (
 
 type remoteService interface {
 	WithLock(context.Context, func(context.Context) error) error
-	Enable(context.Context, remoteservice.Options) error
+	Enable(context.Context, remoteservice.Options, func() error) error
 	Disable(context.Context) error
 	Status(context.Context) (remoteservice.Status, error)
 	Path() string
@@ -176,12 +177,18 @@ func (c remoteCommands) enable(ctx context.Context, a *App, path string) error {
 		return err
 	}
 	opts := remoteservice.Options{Executable: bin, ConfigPath: path, HerdrBinary: herdrBin, Environment: os.Environ()}
-	if err := c.service.Enable(ctx, opts); err != nil {
-		restoreErr := edit.Restore()
-		if restoreErr != nil {
-			restoreErr = fmt.Errorf("restore remote configuration %s: %w", path, restoreErr)
+	restoreConfig := sync.OnceValue(func() error {
+		if err := edit.Restore(); err != nil {
+			return fmt.Errorf("restore remote configuration %s: %w", path, err)
 		}
-		return errors.Join(fmt.Errorf("enable background service: %w", err), restoreErr)
+		return nil
+	})
+	if err := c.service.Enable(ctx, opts, restoreConfig); err != nil {
+		// Failures before activation still need to undo the published configuration.
+		if restoreErr := restoreConfig(); restoreErr != nil && !errors.Is(err, restoreErr) {
+			err = errors.Join(err, restoreErr)
+		}
+		return fmt.Errorf("enable background service: %w", err)
 	}
 	response, err := c.waitReady(ctx, cfg)
 	if err != nil {
