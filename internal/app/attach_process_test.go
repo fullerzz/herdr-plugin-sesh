@@ -174,7 +174,7 @@ func attachTerminalRoundTrip(dir string, tostop bool) error {
 	cfg := remote.Config{ID: "local", HerdrSession: "default", Peers: []remote.Peer{{ID: "remote", SSH: "host", Session: "work"}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	transport := &fakeTransport{call: exportFor(cfg)}
+	transport := &fakeTransport{}
 	subscriptions := 0
 	transport.subscribe = func(endpoint attachEndpoint) (chan remote.Target, error) {
 		ch := make(chan remote.Target, 2)
@@ -417,7 +417,7 @@ func TestAttachEndsClientLeftByExitedLauncher(t *testing.T) {
 	//nolint:gosec // Executable fixture lives in the test-owned temporary directory.
 	require.NoError(t, os.WriteFile(bin, []byte(launcher), 0o700))
 	cfg := remote.Config{ID: "local", HerdrSession: "default"}
-	transport := &fakeTransport{call: exportFor(cfg), subscribe: func(attachEndpoint) (chan remote.Target, error) {
+	transport := &fakeTransport{subscribe: func(attachEndpoint) (chan remote.Target, error) {
 		return make(chan remote.Target), nil
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)

@@ -309,7 +309,11 @@ Linux service managers other than systemd are not supported by this setup comman
 Each daemon and attach wrapper maintains its own persistent SSH streams to peers
 it contacts, using `herdr-sesh daemon rpc --stream`. Requests share a
 newline-delimited JSON-RPC 2.0 stream with an application-protocol handshake;
-batches are unsupported. SSH uses normal host-key checks, `BatchMode=yes`, and
+batches are unsupported. Protocol v3 requires each controller registration to
+include the expected machine ID and Herdr session; the daemon validates both
+before accepting the controller, including after reconnects. Attach registration
+does not fetch the workspace catalog. Upgrade both machines and restart their
+daemons together when moving from an older protocol. SSH uses normal host-key checks, `BatchMode=yes`, and
 `ForwardAgent=no`. Failed connections retry with backoff up to 30 seconds.
 The interactive Herdr attachment uses a separate connection.
 

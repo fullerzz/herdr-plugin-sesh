@@ -85,7 +85,11 @@ func (t *streamTransport) Subscribe(ctx context.Context, endpoint attachEndpoint
 	for _, peer := range t.cfg.Peers {
 		machines = append(machines, peer.ID)
 	}
-	sub, err := t.client(endpoint).Subscribe(ctx, machines)
+	session := t.cfg.HerdrSession
+	if endpoint.peer != nil {
+		session = endpoint.peer.Session
+	}
+	sub, err := t.client(endpoint).Subscribe(ctx, endpoint.id, session, machines)
 	if err != nil {
 		return attachSubscription{}, err
 	}
@@ -193,17 +197,6 @@ func runAttach(ctx context.Context, cfg remote.Config, current attachEndpoint, t
 		return transport.Call(ctx, endpoint, req)
 	}
 	register := func(endpoint attachEndpoint) (attachSubscription, error) {
-		exported, err := request(ctx, endpoint, remote.Request{Op: "export"})
-		if err != nil {
-			return attachSubscription{}, err
-		}
-		session := cfg.HerdrSession
-		if endpoint.peer != nil {
-			session = endpoint.peer.Session
-		}
-		if len(exported.Catalog) != 1 || exported.Catalog[0].ID != endpoint.id || exported.Catalog[0].Session != session {
-			return attachSubscription{}, errors.New("daemon machine or session does not match this client's configuration")
-		}
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		return transport.Subscribe(ctx, endpoint)

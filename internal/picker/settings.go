@@ -73,10 +73,6 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 			m, cmd := m.resumePicker()
 			return m, cmd, true
 		}
-		key := ""
-		if current, ok := m.list.Current(); ok {
-			key = sessionmodel.Key(current)
-		}
 		msg.options.LastWorkspaceID = msg.result.LastWorkspaceID
 		msg.options.LastWorkspaceUnknown = msg.result.LastWorkspaceUnknown
 		msg.options.RecentWorkspaceIDs = m.recentWorkspaceIDs
@@ -91,21 +87,17 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 				msg.options.HerdrWorkspaces = append(msg.options.HerdrWorkspaces, workspace)
 			}
 		}
+		msg.options.Context = m.previewParentContext
 		configureHerdrTheme(msg.options.HerdrThemeInherit)
 		next := newTeaModel(msg.result.Sessions, Options{DisplayOptions: msg.options, Backend: m.backend}).cancelActivePreview()
 		next.width, next.height = m.width, m.height
 		next.previewRequestID = m.previewRequestID + 1
 		next.refreshGeneration = m.refreshGeneration
+		next.remoteGeneration = m.remoteGeneration + 1
 		next.input.SetValue(m.input.Value())
 		next.list.RemoteOnly = m.list.RemoteOnly
 		next.list.Filter(m.list.Query)
-		next.list.Selected = min(m.list.Selected, max(0, len(next.list.Filtered)-1))
-		for i, item := range next.list.Filtered {
-			if sessionmodel.Key(item) == key {
-				next.list.Selected = i
-				break
-			}
-		}
+		next = next.restoreSettingsSelection(m)
 		next.listFocused = m.listFocused
 		if next.listFocused {
 			next.input.Blur()
@@ -150,6 +142,7 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 	m.previewRequestID++
 	m.previewKey = ""
 	m.refreshGeneration++
+	m.remoteGeneration++
 	m.agentSpinner = spinner.New(spinner.WithSpinner(agentStatusSpinner))
 	m.smearActive = false
 	m.focusSmearActive = false
@@ -159,10 +152,31 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 	return m, func() tea.Msg { editor, err := open(); return settingsOpenedMsg{model: editor, err: err} }, true
 }
 
+func (m teaModel) restoreSettingsSelection(previous teaModel) teaModel {
+	// Remote rows arrive after a local-only reload; retain the user's choice.
+	m.pendingRemoteKey = previous.pendingRemoteKey
+	key := m.pendingRemoteKey
+	if current, ok := previous.list.Current(); ok && key == "" {
+		key = sessionmodel.Key(current)
+		if current.Remote != nil {
+			m.pendingRemoteKey = key
+		}
+	}
+	m.list.Selected = min(previous.list.Selected, max(0, len(m.list.Filtered)-1))
+	for i, item := range m.list.Filtered {
+		if sessionmodel.Key(item) == key {
+			m.list.Selected = i
+			m.pendingRemoteKey = ""
+			break
+		}
+	}
+	return m
+}
+
 func (m teaModel) resumePicker() (teaModel, tea.Cmd) {
 	m.previewKey = ""
 	next, preview := m.refreshPreview()
-	cmds := []tea.Cmd{preview}
+	cmds := []tea.Cmd{preview, next.remoteRowsCommand()}
 	if !next.listFocused {
 		cmds = append(cmds, next.input.Focus())
 	}

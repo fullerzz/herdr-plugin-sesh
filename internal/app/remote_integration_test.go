@@ -305,3 +305,33 @@ func TestPickerWarningsDeduplicateUntilFlush(t *testing.T) {
 	b.flushWarnings()
 	assert.Equal(t, 3, strings.Count(out.String(), "remote catalog unavailable"))
 }
+
+func TestNativePickerInitializesBeforeRemoteCatalog(t *testing.T) {
+	configureFakeSources(t, "")
+	configureHerdrScript(t, `#!/bin/sh
+case "$1 $2" in
+"workspace list") printf '[{"id":"local","label":"local","cwd":"/local"}]\n' ;;
+"pane list") printf '[]\n' ;;
+*) exit 1 ;;
+esac
+`)
+	requests, done := fakeDaemon(t, 1, []remote.Machine{{ID: "peer", Workspaces: []remote.Workspace{{ID: "w1", Label: "remote", CWD: "/remote"}}}})
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+	b := &pickerBackend{app: &App{}, ctx: context.Background(), client: herdr.NewCLIClient(), cfg: config.Default()}
+	sessions, opts, err := b.initialize(context.Background())
+	require.NoError(t, err)
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "local", sessions[0].WorkspaceID)
+	select {
+	case <-requests:
+		t.Fatal("native initialization must not join the remote catalog")
+	default:
+	}
+	require.NotNil(t, opts.LoadRemoteRows)
+	peers, err := opts.LoadRemoteRows(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+	require.Len(t, peers, 1)
+	assert.Equal(t, "peer", peers[0].Remote.Machine)
+	assert.Equal(t, "list", (<-requests).Op)
+}

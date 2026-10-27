@@ -147,6 +147,8 @@ type Options struct {
 }
 
 type DisplayOptions struct {
+	LoadRemoteRows  func(context.Context) ([]sessionmodel.Session, error)
+	RemoteRowsError func(error)
 	// nil uses the default binding; an empty string disables cycling.
 	CyclePreviewModeKey            *string
 	Context                        context.Context
@@ -184,6 +186,13 @@ type ReloadResult struct {
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
 	configureHerdrTheme(opts.HerdrThemeInherit)
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	opts.Context = ctx
 	var popts []tea.ProgramOption
 	if opts.Output != nil {
 		popts = append(popts, tea.WithOutput(opts.Output))
@@ -200,6 +209,10 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 }
 
 type teaModel struct {
+	loadRemoteRows    func(context.Context) ([]sessionmodel.Session, error)
+	remoteRowsError   func(error)
+	remoteGeneration  uint64
+	pendingRemoteKey  string
 	backend           Backend
 	settings          *settings.Model
 	settingsBusy      bool
@@ -338,6 +351,8 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
 		backend:               opts.Backend,
+		loadRemoteRows:        opts.LoadRemoteRows,
+		remoteRowsError:       opts.RemoteRowsError,
 		list:                  list,
 		input:                 input,
 		agentSpinner:          spinner.New(spinner.WithSpinner(agentStatusSpinner)),
@@ -369,7 +384,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 }
 
 func (m teaModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus()}
+	cmds := []tea.Cmd{m.input.Focus(), m.remoteRowsCommand()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
 		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview), previewLoadingCommand(m.previewContext, m.previewRequestID))
 	}
@@ -445,6 +460,35 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 
 //nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if rows, ok := msg.(remoteRowsMsg); ok {
+		if rows.generation != m.remoteGeneration || m.settings != nil || m.settingsBusy || m.closingWorkspaceID != "" {
+			return m, nil
+		}
+		if rows.err != nil && m.remoteRowsError != nil {
+			m.remoteRowsError(rows.err)
+		}
+		selectedKey := m.pendingRemoteKey
+		m.pendingRemoteKey = ""
+		if current, ok := m.list.Current(); ok && selectedKey == "" {
+			selectedKey = sessionmodel.Key(current)
+		}
+		local := make([]sessionmodel.Session, 0, len(m.list.All)+len(rows.sessions))
+		for _, item := range m.list.All {
+			if item.Remote == nil {
+				local = append(local, item)
+			}
+		}
+		m.list.All = append(local, rows.sessions...)
+		m.list.Filter(m.list.Query)
+		for i, item := range m.list.Filtered {
+			if sessionmodel.Key(item) == selectedKey {
+				m.list.Selected = i
+				break
+			}
+		}
+		m.smearActive, m.focusSmearActive = false, false
+		return m.refreshPreview()
+	}
 	if next, cmd, handled := m.updateSettings(msg); handled {
 		return next, cmd
 	}
@@ -546,7 +590,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if closed.closeErr != nil {
 			m.closeError = fmt.Sprintf("Failed to close workspace: %v", closed.closeErr)
-			return m.refreshPreview()
+			next, cmd := m.refreshPreview()
+			return next, tea.Batch(cmd, next.remoteRowsCommand())
 		}
 		if closed.reloadRan {
 			m.lastWorkspaceID = closed.result.LastWorkspaceID
@@ -590,7 +635,8 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if closed.reloadErr != nil {
 			m.closeError = fmt.Sprintf("Workspace closed, but sessions could not be refreshed: %v", closed.reloadErr)
 		}
-		return m.refreshPreview()
+		next, cmd := m.refreshPreview()
+		return next, tea.Batch(cmd, next.remoteRowsCommand())
 	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
@@ -618,6 +664,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.list.RemoteOnly = !m.list.RemoteOnly
+		m.pendingRemoteKey = ""
 		m.list.Selected = 0
 		m.list.Filter(m.list.Query)
 		m.smearActive = false
@@ -642,7 +689,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.cancelActivePreview()
 		return m, tea.Quit
 	case "enter":
-		if m.closingWorkspaceID != "" {
+		if m.closingWorkspaceID != "" || m.pendingRemoteKey != "" {
 			return m, nil
 		}
 		if choice, ok := m.list.Current(); ok {
@@ -697,6 +744,8 @@ func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	if !ok || current.Source != "herdr" || current.WorkspaceID == "" || m.backend == nil || m.closingWorkspaceID != "" {
 		return m, nil
 	}
+	m.remoteGeneration++
+	m.pendingRemoteKey = ""
 	m.closingWorkspaceID = current.WorkspaceID
 	m.closeError = ""
 	m = m.cancelActivePreview()
@@ -735,6 +784,7 @@ func (m teaModel) resortWorkspaces() {
 }
 
 func (m teaModel) toggleWorkspaceSort() (teaModel, tea.Cmd) {
+	m.pendingRemoteKey = ""
 	switch m.workspaceSort {
 	case workspaceSortWorkspace:
 		m.workspaceSort = workspaceSortRecent
@@ -1312,6 +1362,7 @@ func (m teaModel) focusList() (teaModel, tea.Cmd) {
 	if _, ok := m.list.Current(); !ok {
 		return m, nil
 	}
+	m.pendingRemoteKey = ""
 	m.listFocused = true
 	m.focusSmearStart = m.inputCursorColumn()
 	m.input.Blur()
@@ -1417,6 +1468,7 @@ func (m teaModel) renderFocusSmear(lines []string, width int) {
 }
 
 func (m teaModel) moveSelection(delta int) (teaModel, tea.Cmd) {
+	m.pendingRemoteKey = ""
 	previous := m.list.Selected
 	m.list.Move(delta)
 	var tick tea.Cmd
@@ -1434,6 +1486,9 @@ func (m teaModel) moveSelection(delta int) (teaModel, tea.Cmd) {
 
 func (m teaModel) filter(query string) teaModel {
 	queryChanged := query != m.list.Query
+	if queryChanged {
+		m.pendingRemoteKey = ""
+	}
 	m.list.Filter(query)
 	if queryChanged && m.smearActive {
 		m.smearTail = m.list.Selected
@@ -1896,4 +1951,21 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Each load belongs to a picker state; settings and close invalidate earlier work.
+type remoteRowsMsg struct {
+	generation uint64
+	sessions   []sessionmodel.Session
+	err        error
+}
+
+func (m teaModel) remoteRowsCommand() tea.Cmd {
+	if m.loadRemoteRows == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		sessions, err := m.loadRemoteRows(m.previewParentContext)
+		return remoteRowsMsg{generation: m.remoteGeneration, sessions: sessions, err: err}
+	}
 }

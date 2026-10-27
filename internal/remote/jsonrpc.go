@@ -67,6 +67,7 @@ type rpcNotification struct {
 type rpcParams struct {
 	Version     int      `json:"version,omitempty"`
 	MachineID   string   `json:"machine_id,omitempty"`
+	Session     string   `json:"session,omitempty"`
 	WorkspaceID string   `json:"workspace_id,omitempty"`
 	Machines    []string `json:"machines,omitempty"`
 	Failure     string   `json:"failure,omitempty"`
@@ -80,8 +81,8 @@ type rpcResult struct {
 
 func newRPCRequest(id uint64, r Request) rpcRequest {
 	m := rpcRequest{JSONRPC: jsonrpcVersion, ID: id, Method: r.Op}
-	p := rpcParams{Version: r.Version, MachineID: r.MachineID, WorkspaceID: r.WorkspaceID, Machines: r.Machines, Failure: r.Failure}
-	if p.Version != 0 || p.MachineID != "" || p.WorkspaceID != "" || len(p.Machines) > 0 || p.Failure != "" {
+	p := rpcParams{Version: r.Version, MachineID: r.MachineID, Session: r.Session, WorkspaceID: r.WorkspaceID, Machines: r.Machines, Failure: r.Failure}
+	if p.Version != 0 || p.MachineID != "" || p.Session != "" || p.WorkspaceID != "" || len(p.Machines) > 0 || p.Failure != "" {
 		m.Params = &p
 	}
 	return m
@@ -123,7 +124,7 @@ func decodeRPC(line []byte) (Request, json.RawMessage, *rpcError) {
 			return Request{}, m.ID, &rpcError{Code: codeInvalidParams, Message: "invalid params"}
 		}
 	}
-	return Request{Op: m.Method, Version: p.Version, MachineID: p.MachineID, WorkspaceID: p.WorkspaceID, Machines: p.Machines, Failure: p.Failure}, m.ID, nil
+	return Request{Op: m.Method, Version: p.Version, MachineID: p.MachineID, Session: p.Session, WorkspaceID: p.WorkspaceID, Machines: p.Machines, Failure: p.Failure}, m.ID, nil
 }
 
 // validID accepts the JSON-RPC id forms: string, number, or null.

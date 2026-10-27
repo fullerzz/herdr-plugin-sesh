@@ -3,9 +3,11 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -83,19 +85,6 @@ func (f *fakeTransport) Subscribe(_ context.Context, endpoint attachEndpoint) (a
 	}, nil
 }
 
-func exportFor(cfg remote.Config) func(attachEndpoint, remote.Request) (remote.Response, error) {
-	return func(endpoint attachEndpoint, req remote.Request) (remote.Response, error) {
-		if req.Op != "export" {
-			return remote.Response{}, nil
-		}
-		session := cfg.HerdrSession
-		if endpoint.peer != nil {
-			session = endpoint.peer.Session
-		}
-		return remote.Response{Catalog: []remote.Machine{{ID: endpoint.id, Session: session}}}, nil
-	}
-}
-
 // fakeHerdr records each attachment's arguments, then stays attached.
 func fakeHerdr(t *testing.T) (string, *os.File) {
 	t.Helper()
@@ -130,7 +119,7 @@ func TestAttachReplacesOnlyOwnedClientAndReleasesControllers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	cfg := remote.Config{ID: "local", HerdrSession: "default", Peers: []remote.Peer{{ID: "remote", SSH: "host", Session: "work"}}}
-	transport := &fakeTransport{call: exportFor(cfg)}
+	transport := &fakeTransport{}
 	transport.subscribe = func(endpoint attachEndpoint) (chan remote.Target, error) {
 		ch := make(chan remote.Target, 1)
 		if endpoint.id == "local" {
@@ -147,7 +136,7 @@ func TestAttachReplacesOnlyOwnedClientAndReleasesControllers(t *testing.T) {
 	assert.GreaterOrEqual(t, restored, 2)
 	assert.Empty(t, errOut.String())
 	// The source's switch ends with its release; completing first would reopen it.
-	assert.Equal(t, []string{"local:export", "local:subscribe", "remote:export", "remote:subscribe", "remote:focus", "local:release", "remote:release"}, transport.recorded())
+	assert.Equal(t, []string{"local:subscribe", "remote:subscribe", "remote:focus", "local:release", "remote:release"}, transport.recorded())
 	data, err := os.ReadFile(logFile.Name())
 	require.NoError(t, err)
 	assert.Equal(t, "--session default\n--remote host --session work\n", string(data))
@@ -162,7 +151,7 @@ func TestAttachKeepsClientWhenControllerIsLost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	var subscriptions atomic.Int32
-	transport := &fakeTransport{call: exportFor(cfg)}
+	transport := &fakeTransport{}
 	transport.subscribe = func(attachEndpoint) (chan remote.Target, error) {
 		switch n := subscriptions.Add(1); {
 		case n == 1:
@@ -182,7 +171,7 @@ func TestAttachKeepsClientWhenControllerIsLost(t *testing.T) {
 		if req.Op == "focus" {
 			cancel()
 		}
-		return exportFor(cfg)(endpoint, req)
+		return remote.Response{}, nil
 	}
 	var errOut bytes.Buffer
 	var mu sync.Mutex
@@ -198,6 +187,9 @@ func TestAttachKeepsClientWhenControllerIsLost(t *testing.T) {
 	// The original client stayed attached; switching resumed on the new controller.
 	assert.Equal(t, "--session default\n", string(data))
 	assert.Contains(t, transport.recorded(), "local:focus")
+	for _, action := range transport.recorded() {
+		assert.NotContains(t, action, ":export")
+	}
 }
 
 func TestAttachCompletesEachSwitch(t *testing.T) {
@@ -213,7 +205,7 @@ func TestAttachCompletesEachSwitch(t *testing.T) {
 		if req.Op == "focus" && req.WorkspaceID == "gone" {
 			return remote.Response{}, errors.New("workspace no longer exists")
 		}
-		return exportFor(cfg)(endpoint, req)
+		return remote.Response{}, nil
 	}
 	go func() {
 		for ctx.Err() == nil {
@@ -229,7 +221,7 @@ func TestAttachCompletesEachSwitch(t *testing.T) {
 	err := runAttach(ctx, cfg, attachEndpoint{id: "local"}, transport, bin, nil, logFile, &lockedWriter{mu: &mu, w: &errOut})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{
-		"local:export", "local:subscribe",
+		"local:subscribe",
 		"local:focus", "local:complete:workspace no longer exists",
 		"local:focus", "local:complete:<nil>",
 		"local:release",
@@ -289,17 +281,15 @@ func TestDaemonRPCRequiresStream(t *testing.T) {
 	}
 }
 
-func TestAttachRejectsWrongDaemonBeforeRegisteringOrStartingClient(t *testing.T) {
-	for _, machine := range []remote.Machine{{ID: "wrong", Session: "default"}, {ID: "local", Session: "wrong"}} {
-		cfg := remote.Config{ID: "local", HerdrSession: "default"}
-		transport := &fakeTransport{call: func(attachEndpoint, remote.Request) (remote.Response, error) {
-			return remote.Response{Catalog: []remote.Machine{machine}}, nil
-		}}
-		var output bytes.Buffer
-		err := runAttach(context.Background(), cfg, attachEndpoint{id: "local"}, transport, "missing-executable", nil, &output, &output)
-		require.ErrorContains(t, err, "does not match")
-		assert.Equal(t, []string{"local:export"}, transport.recorded())
-	}
+func TestAttachRejectsFailedRegistrationBeforeStartingClient(t *testing.T) {
+	cfg := remote.Config{ID: "local", HerdrSession: "default"}
+	transport := &fakeTransport{subscribe: func(attachEndpoint) (chan remote.Target, error) {
+		return nil, errors.New("daemon machine or session does not match this client's configuration")
+	}}
+	var output bytes.Buffer
+	err := runAttach(context.Background(), cfg, attachEndpoint{id: "local"}, transport, "missing-executable", nil, &output, &output)
+	require.ErrorContains(t, err, "does not match")
+	assert.Equal(t, []string{"local:subscribe"}, transport.recorded())
 }
 
 func TestAttachRecordsStopFailureWhileReleasingController(t *testing.T) {
@@ -307,7 +297,7 @@ func TestAttachRecordsStopFailureWhileReleasingController(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cfg := remote.Config{ID: "local", HerdrSession: "default", Peers: []remote.Peer{{ID: "peer", SSH: "host", Session: "default"}}}
-	transport := &fakeTransport{call: exportFor(cfg)}
+	transport := &fakeTransport{}
 	transport.subscribe = func(ep attachEndpoint) (chan remote.Target, error) {
 		ch := make(chan remote.Target, 1)
 		if ep.id == "local" {
@@ -322,5 +312,61 @@ func TestAttachRecordsStopFailureWhileReleasingController(t *testing.T) {
 	assert.Contains(t, actions, "peer:release")
 	for _, action := range actions {
 		assert.NotContains(t, action, ":complete:")
+	}
+}
+
+func TestStreamTransportSubscribesWithExpectedIdentityAndAllowlist(t *testing.T) {
+	cfg := remote.Config{ID: "local", HerdrSession: "default", Peers: []remote.Peer{{ID: "peer", Session: "work"}}}
+	for _, id := range []string{"local", "peer"} {
+		t.Run(id, func(t *testing.T) {
+			endpoint, err := resolveAttachEndpoint(cfg, id)
+			require.NoError(t, err)
+			received := make(chan remote.Request, 1)
+			client := remote.NewStreamClient(id, func(context.Context) (io.ReadWriteCloser, error) {
+				conn, daemon := net.Pipe()
+				go func() {
+					defer func() { _ = daemon.Close() }()
+					decoder := json.NewDecoder(daemon)
+					for {
+						var request struct {
+							ID     uint64         `json:"id"`
+							Method string         `json:"method"`
+							Params remote.Request `json:"params"`
+						}
+						if decoder.Decode(&request) != nil {
+							return
+						}
+						if request.Method == "subscribe" {
+							received <- request.Params
+						}
+						reply := struct {
+							JSONRPC string          `json:"jsonrpc"`
+							ID      uint64          `json:"id"`
+							Result  remote.Response `json:"result"`
+						}{JSONRPC: "2.0", ID: request.ID, Result: remote.Response{Version: remote.ProtocolVersion}}
+						if json.NewEncoder(daemon).Encode(reply) != nil {
+							return
+						}
+					}
+				}()
+				return conn, nil
+			})
+			client.PingInterval = 0
+			transport := &streamTransport{cfg: cfg, clients: map[string]*remote.StreamClient{id: client}}
+			defer transport.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			sub, err := transport.Subscribe(ctx, endpoint)
+			require.NoError(t, err)
+			defer sub.release(nil)
+			request := <-received
+			assert.Equal(t, id, request.MachineID)
+			session := cfg.HerdrSession
+			if endpoint.peer != nil {
+				session = endpoint.peer.Session
+			}
+			assert.Equal(t, session, request.Session)
+			assert.Equal(t, []string{"local", "peer"}, request.Machines)
+		})
 	}
 }

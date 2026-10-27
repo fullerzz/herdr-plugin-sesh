@@ -11,6 +11,7 @@ import (
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
 	pickerpkg "github.com/fullerzz/herdr-plugin-sesh/internal/picker"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/settings"
+	"github.com/fullerzz/herdr-plugin-sesh/internal/sources"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 )
 
@@ -47,7 +48,7 @@ func (b *pickerBackend) initialize(ctx context.Context) ([]model.Session, picker
 	if err != nil {
 		return nil, pickerpkg.DisplayOptions{}, fmt.Errorf("resolve workspace history: %w", err)
 	}
-	col, err := b.app.collectPickerWithClient(ctx, b.cfg, nil, b.client, b.warnf)
+	col, err := b.app.collectPickerRows(ctx, b.cfg, nil, b.client, b.warnf, false)
 	if col.HerdrErr != nil {
 		b.warnf("herdr workspaces unavailable: %v", col.HerdrErr)
 	}
@@ -62,6 +63,11 @@ func (b *pickerBackend) initialize(ctx context.Context) ([]model.Session, picker
 
 func (b *pickerBackend) displayOptions(cfg config.Config, result pickerpkg.ReloadResult) pickerpkg.DisplayOptions {
 	opts := pickerOptionsFromConfig(b.ctx, b.app.Out, cfg)
+	opts.LoadRemoteRows = func(ctx context.Context) ([]model.Session, error) {
+		sessions, err := remoteSessions(ctx)
+		return sources.FilterBlacklist(sessions, cfg.Blacklist, false), err
+	}
+	opts.RemoteRowsError = func(err error) { b.warnf("%v", err) }
 	opts.RecentWorkspaceIDs = result.RecentWorkspaceIDs
 	opts.LastWorkspaceID = result.LastWorkspaceID
 	opts.LastWorkspaceUnknown = result.LastWorkspaceUnknown
@@ -104,7 +110,7 @@ func (b *pickerBackend) CloseWorkspace(ctx context.Context, id string) error {
 }
 
 func (b *pickerBackend) ReloadPicker(ctx context.Context) (pickerpkg.ReloadResult, error) {
-	col, err := b.app.collectPickerWithClient(ctx, b.cfg, nil, b.client, b.warnf)
+	col, err := b.app.collectPickerRows(ctx, b.cfg, nil, b.client, b.warnf, false)
 	if err == nil {
 		err = col.HerdrErr
 	}
@@ -173,7 +179,7 @@ func (b *pickerBackend) ReloadSettings(ctx context.Context, saved settings.Resul
 	if err != nil {
 		return pickerpkg.DisplayOptions{}, pickerpkg.ReloadResult{}, err
 	}
-	col, err := b.app.collectPickerWithClient(ctx, cfg, b.herdrWorkspaces, b.client, b.warnf)
+	col, err := b.app.collectPickerRows(ctx, cfg, b.herdrWorkspaces, b.client, b.warnf, false)
 	result, workspaceID, err := b.reloadMetadata(ctx, cfg, col, err)
 	if err != nil {
 		return pickerpkg.DisplayOptions{}, result, err

@@ -128,8 +128,12 @@ func (a *App) collectPicker(ctx context.Context, cfg config.Config, herdrFallbac
 // warnf receives remote catalog warnings; the picker buffers them while its
 // alt-screen is active.
 func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, herdrFallback []model.Session, client *herdr.CLIClient, warnf func(string, ...any)) (pickerCollection, error) {
+	return a.collectPickerRows(ctx, cfg, herdrFallback, client, warnf, true)
+}
+
+func (a *App) collectPickerRows(ctx context.Context, cfg config.Config, herdrFallback []model.Session, client *herdr.CLIClient, warnf func(string, ...any), includeRemote bool) (pickerCollection, error) {
 	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: client}, fallback: herdrFallback}
-	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource, warnf)
+	sessions, err := a.collectFromWithRemote(ctx, cfg, "", herdrSource, warnf, includeRemote)
 	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err}
 	if herdrSource.err == nil {
 		col.HerdrWorkspaces = herdrSource.sessions.Ordered()
@@ -140,6 +144,10 @@ func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, he
 }
 
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source, warnf func(string, ...any)) ([]model.Session, error) {
+	return a.collectFromWithRemote(ctx, cfg, target, herdrSource, warnf, true)
+}
+
+func (a *App) collectFromWithRemote(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source, warnf func(string, ...any), includeRemote bool) ([]model.Session, error) {
 	if model.IsRemoteTarget(target) {
 		sessions, err := remoteSessions(ctx)
 		sessions = sources.FilterBlacklist(sessions, cfg.Blacklist, false)
@@ -149,7 +157,7 @@ func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string,
 		return sessions, nil
 	}
 	var remoteRows func(func(string, ...any)) []model.Session
-	if target == "" {
+	if target == "" && includeRemote {
 		remoteRows = startRemoteRows(ctx, cfg.Blacklist, false)
 	}
 	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}

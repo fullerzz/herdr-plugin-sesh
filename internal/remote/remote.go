@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,7 +22,7 @@ import (
 )
 
 // ProtocolVersion changes whenever stream peers can no longer interoperate.
-const ProtocolVersion = 2
+const ProtocolVersion = 3
 const maxMessage = 4 << 20
 const maxRequest = 16 << 10
 
@@ -29,6 +30,7 @@ type Request struct {
 	Op          string `json:"op"`
 	Version     int    `json:"version,omitempty"`
 	MachineID   string `json:"machine_id,omitempty"`
+	Session     string `json:"session,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	// Machines lists the machine IDs a subscribing controller can attach to.
 	Machines []string `json:"machines,omitempty"`
@@ -274,9 +276,10 @@ func (s *Server) Handle(ctx context.Context, r Request) Response {
 		if r.Op == "export" {
 			n = 1
 		}
-		b, _ := json.Marshal(s.catalog[:n])
-		var c []Machine
-		_ = json.Unmarshal(b, &c)
+		c := slices.Clone(s.catalog[:n])
+		for i := range c {
+			c[i].Workspaces = slices.Clone(c[i].Workspaces)
+		}
 		if r.Op == "export" {
 			return Response{Catalog: c}
 		}
@@ -319,7 +322,11 @@ func (s *Server) queueSwitch(r Request) Response {
 	return fail("workspace unavailable")
 }
 
-func (s *Server) subscribe(conn uint64, machines []string) (*controller, error) {
+func (s *Server) subscribe(conn uint64, r Request) (*controller, error) {
+	if r.MachineID == "" || r.Session == "" || r.MachineID != s.cfg.ID || r.Session != s.cfg.HerdrSession {
+		return nil, errors.New("daemon machine or session does not match this client's configuration")
+	}
+	machines := r.Machines
 	if len(machines) == 0 || len(machines) > 256 {
 		return nil, errors.New("subscribe requires the controller's reachable machines")
 	}
@@ -528,7 +535,7 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 		c.s.logf("conn %d unknown method %s", c.id, clean(r.Op, 64))
 		c.write(rpcFailure(id, codeMethodNotFound, "method not found"))
 	case r.Op == "subscribe":
-		c.subscribe(id, r.Machines)
+		c.subscribe(id, r)
 	case r.Op == "complete":
 		if c.sub == nil {
 			c.s.logf("conn %d complete rejected: stream is not subscribed", c.id)
@@ -549,13 +556,13 @@ func (c *connState) serveRPC(ctx context.Context, line []byte) {
 }
 
 // subscribe answers before any switch is pushed on this stream.
-func (c *connState) subscribe(id json.RawMessage, machines []string) {
+func (c *connState) subscribe(id json.RawMessage, r Request) {
 	if c.sub != nil {
 		c.s.logf("conn %d subscribe rejected: stream is already subscribed", c.id)
 		c.write(rpcFailure(id, codeDaemonError, "stream is already subscribed"))
 		return
 	}
-	sub, err := c.s.subscribe(c.id, machines)
+	sub, err := c.s.subscribe(c.id, r)
 	if err != nil {
 		c.s.logf("conn %d subscribe rejected: %v", c.id, err)
 		c.write(rpcFailure(id, codeDaemonError, err.Error()))

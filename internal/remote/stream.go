@@ -73,13 +73,14 @@ func (c *StreamClient) Call(ctx context.Context, r Request) (Response, error) {
 }
 
 // Subscribe registers this stream as the machine's attach controller for
-// switches to machines. The daemon releases the controller when the stream closes.
-func (c *StreamClient) Subscribe(ctx context.Context, machines []string) (*Subscription, error) {
+// switches to machines after validating the expected machine ID and session.
+// The daemon releases the controller when the stream closes.
+func (c *StreamClient) Subscribe(ctx context.Context, machineID, session string, machines []string) (*Subscription, error) {
 	s, err := c.stream(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.subscribe(ctx, machines)
+	return s.subscribe(ctx, machineID, session, machines)
 }
 
 func (c *StreamClient) Close() error {
@@ -421,9 +422,9 @@ func (s *stream) call(ctx context.Context, r Request) (Response, error) {
 	return s.send(ctx, r, nil)
 }
 
-func (s *stream) subscribe(ctx context.Context, machines []string) (*Subscription, error) {
+func (s *stream) subscribe(ctx context.Context, machineID, session string, machines []string) (*Subscription, error) {
 	ch := make(chan Target, 4)
-	if _, err := s.send(ctx, Request{Op: "subscribe", Machines: machines}, ch); err != nil {
+	if _, err := s.send(ctx, Request{Op: "subscribe", MachineID: machineID, Session: session, Machines: machines}, ch); err != nil {
 		return nil, err
 	}
 	return &Subscription{stream: s, targets: ch}, nil

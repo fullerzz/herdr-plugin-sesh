@@ -183,7 +183,7 @@ func TestStreamHandshakeRejectsOtherProtocolVersions(t *testing.T) {
 	newer := handshakeError(t, func(id json.RawMessage) string {
 		return encodeLine(t, rpcReply(id, "hello", Response{Version: ProtocolVersion + 1}))
 	})
-	require.ErrorContains(t, newer, "peer peer: protocol v2 handshake failed; "+hint)
+	require.ErrorContains(t, newer, "peer peer: protocol v3 handshake failed; "+hint)
 	rejected := handshakeError(t, func(id json.RawMessage) string {
 		return encodeLine(t, rpcFailure(id, codeVersionMismatch, "protocol version mismatch"))
 	})
@@ -254,11 +254,11 @@ func TestStreamFailsWhenSubscribeOutlivesItsCaller(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	_, err = c.Subscribe(ctx, local)
+	_, err = c.Subscribe(ctx, "local", "default", local)
 	close(returned)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
-	sub, err := c.Subscribe(context.Background(), local)
+	sub, err := c.Subscribe(context.Background(), "local", "default", local)
 	require.NoError(t, err)
 	assert.NotNil(t, sub)
 	assert.Equal(t, int32(2), dials.Load())
@@ -345,7 +345,7 @@ func serveDaemon(t *testing.T, idle time.Duration, configure func(*Server)) Conf
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	require.NoError(t, os.Chmod(dir, 0700)) // #nosec G302 -- private socket directory requires traversal.
-	c := Config{Enabled: true, ID: "local", Socket: filepath.Join(dir, "daemon.sock")}
+	c := Config{Enabled: true, ID: "local", HerdrSession: "default", Socket: filepath.Join(dir, "daemon.sock")}
 	s := NewServer(c, &fakeClient{})
 	if idle > 0 {
 		s.IdleTimeout = idle
@@ -372,11 +372,11 @@ func TestClosingSubscribeStreamReleasesController(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	first := NewUnixClient(c)
-	sub, err := first.Subscribe(ctx, local)
+	sub, err := first.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	second := NewUnixClient(c)
 	t.Cleanup(func() { _ = second.Close() })
-	_, err = second.Subscribe(ctx, local)
+	_, err = second.Subscribe(ctx, "local", "default", local)
 	require.ErrorContains(t, err, "another controller is active")
 
 	_, err = Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "missing"})
@@ -395,7 +395,7 @@ func TestClosingSubscribeStreamReleasesController(t *testing.T) {
 	assert.False(t, open)
 	var next *Subscription
 	require.Eventually(t, func() bool {
-		next, err = second.Subscribe(ctx, local)
+		next, err = second.Subscribe(ctx, "local", "default", local)
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
 
@@ -405,7 +405,7 @@ func TestClosingSubscribeStreamReleasesController(t *testing.T) {
 	require.NoError(t, err)
 	third := NewUnixClient(c)
 	t.Cleanup(func() { _ = third.Close() })
-	_, err = third.Subscribe(ctx, local)
+	_, err = third.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	_, err = Call(ctx, c, Request{Op: "subscribe"})
 	require.ErrorContains(t, err, "requires a daemon stream")
@@ -418,7 +418,7 @@ func TestIdleStreamReleasesController(t *testing.T) {
 	quiet := NewUnixClient(c)
 	quiet.PingInterval = 0
 	t.Cleanup(func() { _ = quiet.Close() })
-	sub, err := quiet.Subscribe(ctx, local)
+	sub, err := quiet.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	select {
 	case _, open := <-sub.Targets():
@@ -454,7 +454,7 @@ func TestRelayStreamsAndReleasesOnStdinClose(t *testing.T) {
 		return resp
 	}
 	assert.Equal(t, ProtocolVersion, send(Request{Op: "hello", Version: ProtocolVersion}).Version)
-	send(Request{Op: "subscribe", Machines: local})
+	send(Request{Op: "subscribe", MachineID: "local", Session: "default", Machines: local})
 	_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
 	require.NoError(t, err)
 	require.True(t, responses.Scan())
@@ -465,7 +465,7 @@ func TestRelayStreamsAndReleasesOnStdinClose(t *testing.T) {
 	require.NoError(t, <-done)
 	other := NewUnixClient(c)
 	t.Cleanup(func() { _ = other.Close() })
-	require.Eventually(t, func() bool { _, err := other.Subscribe(ctx, local); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { _, err := other.Subscribe(ctx, "local", "default", local); return err == nil }, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestRelayRejectsOversizedRequests(t *testing.T) {
@@ -488,13 +488,13 @@ func TestDaemonStreamFollowsJSONRPC(t *testing.T) {
 		require.True(t, replies.Scan())
 		return replies.Text()
 	}
-	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"a","result":{"version":2}}`, exchange(`{"jsonrpc":"2.0","id":"a","method":"hello","params":{"version":2}}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"a","result":{"version":3}}`, exchange(`{"jsonrpc":"2.0","id":"a","method":"hello","params":{"version":3}}`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`, exchange(`{"jsonrpc":`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"batch requests are not supported"}}`, exchange(`[]`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":3,"error":{"code":-32600,"message":"invalid request"}}`, exchange(`{"jsonrpc":"1.0","id":3,"method":"ping"}`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"method not found"}}`, exchange(`{"jsonrpc":"2.0","id":4,"method":"poll"}`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"invalid params"}}`, exchange(`{"jsonrpc":"2.0","id":5,"method":"focus","params":["ws1"]}`))
-	assert.JSONEq(t, `{"jsonrpc":"2.0","id":6,"error":{"code":-32001,"message":"protocol version mismatch: client speaks v1, daemon speaks v2; install the same herdr-sesh version on both machines"}}`, exchange(`{"jsonrpc":"2.0","id":6,"method":"hello","params":{"version":1}}`))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":6,"error":{"code":-32001,"message":"protocol version mismatch: client speaks v1, daemon speaks v3; install the same herdr-sesh version on both machines"}}`, exchange(`{"jsonrpc":"2.0","id":6,"method":"hello","params":{"version":1}}`))
 	// A notification gets no reply, so the next line answers the request after it.
 	_, err = io.WriteString(conn, `{"jsonrpc":"2.0","method":"ping"}`+"\n")
 	require.NoError(t, err)
@@ -507,7 +507,7 @@ func TestSwitchWaitsForControllerToComplete(t *testing.T) {
 	defer cancel()
 	client := NewUnixClient(c)
 	t.Cleanup(func() { _ = client.Close() })
-	sub, err := client.Subscribe(ctx, local)
+	sub, err := client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	queue := func() error {
 		_, err := Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
@@ -533,7 +533,7 @@ func TestSwitchWaitsForControllerToComplete(t *testing.T) {
 	require.NoError(t, client.Close())
 	next := NewUnixClient(c)
 	t.Cleanup(func() { _ = next.Close() })
-	require.Eventually(t, func() bool { _, err := next.Subscribe(ctx, local); return err == nil }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { _, err := next.Subscribe(ctx, "local", "default", local); return err == nil }, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, queue())
 }
 
@@ -555,7 +555,7 @@ func TestDaemonLogsSwitchLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client := NewUnixClient(c)
-	sub, err := client.Subscribe(ctx, local)
+	sub, err := client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	_, err = Call(ctx, c, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
 	require.NoError(t, err)
@@ -565,7 +565,7 @@ func TestDaemonLogsSwitchLifecycle(t *testing.T) {
 
 	for _, want := range []string{
 		"stream opened",
-		"hello version=2 -> ok",
+		"hello version=3 -> ok",
 		"controller registered on conn",
 		"switch to local/ws1 queued for controller",
 		"switch machine=local workspace=ws1 -> ok",
@@ -594,7 +594,7 @@ func TestReleasingMidSwitchEndsItWithoutAdmittingAnother(t *testing.T) {
 	}
 	client := NewUnixClient(c)
 	t.Cleanup(func() { _ = client.Close() })
-	sub, err := client.Subscribe(ctx, local)
+	sub, err := client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	require.NoError(t, queue())
 	<-sub.Targets()
@@ -610,7 +610,7 @@ func TestReleasingMidSwitchEndsItWithoutAdmittingAnother(t *testing.T) {
 	assert.Empty(t, switchError())
 
 	// A stream lost mid-switch cannot report the outcome.
-	sub, err = client.Subscribe(ctx, local)
+	sub, err = client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	require.NoError(t, queue())
 	<-sub.Targets()
@@ -624,11 +624,11 @@ func TestSwitchRejectsMachinesTheControllerCannotReach(t *testing.T) {
 	defer cancel()
 	client := NewUnixClient(c)
 	t.Cleanup(func() { _ = client.Close() })
-	_, err := client.Subscribe(ctx, nil)
+	_, err := client.Subscribe(ctx, "local", "default", nil)
 	require.ErrorContains(t, err, "reachable machines")
-	_, err = client.Subscribe(ctx, []string{"--bad"})
+	_, err = client.Subscribe(ctx, "local", "default", []string{"--bad"})
 	require.ErrorContains(t, err, "invalid machine id")
-	_, err = client.Subscribe(ctx, local)
+	_, err = client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	_, err = Call(ctx, c, Request{Op: "switch", MachineID: "elsewhere", WorkspaceID: "ws1"})
 	require.ErrorContains(t, err, `machine "elsewhere" is not in the attached wrapper's remote.toml allowlist`)
@@ -682,7 +682,7 @@ func TestUnsubscribeRecordsFailureAndRejectsFurtherSwitches(t *testing.T) {
 	defer cancel()
 	client := NewUnixClient(cfg)
 	defer func() { _ = client.Close() }()
-	sub, err := client.Subscribe(ctx, local)
+	sub, err := client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	_, err = client.Call(ctx, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
 	require.NoError(t, err)
@@ -699,10 +699,58 @@ func TestUnsubscribeRecordsFailureAndRejectsFurtherSwitches(t *testing.T) {
 	require.ErrorContains(t, err, "no active attach controller")
 	// A second close must not erase the failure or affect another subscription.
 	sub.Close()
-	next, err := client.Subscribe(ctx, local)
+	next, err := client.Subscribe(ctx, "local", "default", local)
 	require.NoError(t, err)
 	next.Close()
 	response, err = client.Call(ctx, Request{Op: "list"})
 	require.NoError(t, err)
 	assert.Equal(t, "restorefailed", response.SwitchError)
+}
+
+func TestSubscribeValidatesIdentityBeforeInstallingController(t *testing.T) {
+	cfg := startDaemon(t, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := NewUnixClient(cfg)
+	t.Cleanup(func() { _ = client.Close() })
+	for _, identity := range []struct{ machine, session string }{
+		{"wrong", "default"}, {"local", "wrong"}, {"", "default"}, {"local", ""},
+	} {
+		sub, err := client.Subscribe(ctx, identity.machine, identity.session, local)
+		require.ErrorContains(t, err, "does not match")
+		assert.Nil(t, sub)
+		_, err = Call(ctx, cfg, Request{Op: "switch", MachineID: "local", WorkspaceID: "ws1"})
+		require.ErrorContains(t, err, "no active attach controller")
+	}
+	sub, err := client.Subscribe(ctx, cfg.ID, cfg.HerdrSession, local)
+	require.NoError(t, err)
+	sub.Close()
+}
+
+func TestSubscribeRevalidatesIdentityAfterReconnect(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var dials atomic.Int32
+	client := NewStreamClient("local", func(context.Context) (io.ReadWriteCloser, error) {
+		cfg := Config{ID: "local", HerdrSession: "default"}
+		if dials.Add(1) > 1 {
+			cfg.HerdrSession = "replacement"
+		}
+		server := NewServer(cfg, &fakeClient{})
+		conn, peer := net.Pipe()
+		go server.serveConn(ctx, peer)
+		return conn, nil
+	})
+	client.PingInterval = 0
+	t.Cleanup(func() { _ = client.Close() })
+	sub, err := client.Subscribe(ctx, "local", "default", local)
+	require.NoError(t, err)
+	sub.stream.fail(errors.New("connection lost"))
+	_, err = client.Subscribe(ctx, "local", "default", local)
+	require.ErrorContains(t, err, "does not match")
+	require.Equal(t, int32(2), dials.Load())
+	// The restarted daemon must not retain a controller for the old identity.
+	replacement, err := client.Subscribe(ctx, "local", "replacement", local)
+	require.NoError(t, err)
+	replacement.Close()
 }
