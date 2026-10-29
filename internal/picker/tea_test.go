@@ -1033,12 +1033,18 @@ func TestTeaModelUnnamedLastWorkspaceDoesNotRepeatCompactedPath(t *testing.T) {
 }
 
 func TestTeaModelShowIconsControlsSourceIcons(t *testing.T) {
-	items := []model.Session{{Source: "herdr", Name: "api"}}
+	items := []model.Session{
+		{Source: "herdr", Name: "api"},
+		{Source: model.SourceRemote, Name: "remote-api", Remote: &model.RemoteRef{Machine: "peer", WorkspaceID: "w1"}},
+	}
 	withoutIcons := ansi.Strip(newTeaModel(items, Options{}).View().Content)
 	require.NotContains(t, withoutIcons, herdrSourceIcon)
+	assert.Contains(t, withoutIcons, "[herdr]")
+	assert.Contains(t, withoutIcons, "[remote]")
 
 	withIcons := ansi.Strip(newTeaModel(items, Options{DisplayOptions: DisplayOptions{ShowIcons: true}}).View().Content)
 	assert.Contains(t, withIcons, herdrSourceIcon+" herdr")
+	assert.Contains(t, withIcons, herdrSourceIcon+" remote")
 }
 
 func TestRowUsesSourceCategoryColors(t *testing.T) {
@@ -1047,6 +1053,7 @@ func TestRowUsesSourceCategoryColors(t *testing.T) {
 		color  string
 	}{
 		{source: "herdr", color: "38;2;125;207;255"},
+		{source: model.SourceRemote, color: "38;2;86;95;137"},
 		{source: "config", color: "38;2;224;175;104"},
 		{source: "zoxide", color: "38;2;158;206;106"},
 		{source: "dir", color: "38;2;187;154;247"},

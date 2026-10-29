@@ -1764,8 +1764,8 @@ func sourceBadge(source string, showIcons bool) string {
 		return "[" + source + "]"
 	}
 	switch source {
-	case "herdr":
-		return herdrSourceIcon + " herdr"
+	case "herdr", sessionmodel.SourceRemote:
+		return herdrSourceIcon + " " + source
 	case "zoxide":
 		return zoxideSourceIcon + " zoxide"
 	case "config":
