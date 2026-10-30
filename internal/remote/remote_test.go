@@ -334,9 +334,9 @@ func TestExportPeerPreservesStaleErrorAfterIdentityValidation(t *testing.T) {
 	_, err := s.exportPeer(context.Background(), s.cfg.Peers[0])
 	require.Error(t, err)
 	assert.Equal(t, clean(machine.LastError, 512), err.Error())
-	machine.ID = "untrusted"
+	machine.ID = "Other\x1b"
 	_, err = s.exportPeer(context.Background(), s.cfg.Peers[0])
-	assert.EqualError(t, err, "invalid peer catalog")
+	assert.EqualError(t, err, `invalid peer catalog: peer reports machine "Other" session "", configured as machine "other" session ""`)
 }
 
 type shutdownClient struct{ entered, cancelled, release chan struct{} }

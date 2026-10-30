@@ -159,7 +159,9 @@ func resolveAttachEndpoint(cfg remote.Config, id string) (attachEndpoint, error)
 
 func attachArgs(cfg remote.Config, endpoint attachEndpoint) []string {
 	if endpoint.peer != nil {
-		return []string{"--remote", endpoint.peer.SSH, "--session", endpoint.peer.Session}
+		// Herdr's default local remote keybindings drop [[keys.command]] bindings,
+		// including the plugin actions that open the Sesh picker on the peer.
+		return []string{"--remote", endpoint.peer.SSH, "--session", endpoint.peer.Session, "--remote-keybindings", "server"}
 	}
 	return []string{"--session", cfg.HerdrSession}
 }

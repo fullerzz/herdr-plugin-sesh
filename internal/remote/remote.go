@@ -158,8 +158,13 @@ func (s *Server) exportPeer(ctx context.Context, p Peer) ([]Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(r.Catalog) != 1 || r.Catalog[0].ID != p.ID || r.Catalog[0].Session != p.Session {
-		return nil, errors.New("invalid peer catalog")
+	if len(r.Catalog) != 1 {
+		return nil, fmt.Errorf("invalid peer catalog: want 1 machine, got %d", len(r.Catalog))
+	}
+	// Machine IDs are compared exactly, so a casing typo in either config rejects the peer.
+	if got := r.Catalog[0]; got.ID != p.ID || got.Session != p.Session {
+		return nil, fmt.Errorf("invalid peer catalog: peer reports machine %q session %q, configured as machine %q session %q",
+			clean(got.ID, 128), clean(got.Session, 128), p.ID, p.Session)
 	}
 	if r.Catalog[0].Stale {
 		if message := clean(r.Catalog[0].LastError, 512); message != "" {

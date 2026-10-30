@@ -29,7 +29,7 @@ func TestAttachRoutesOnlyConfiguredMachines(t *testing.T) {
 	assert.Equal(t, []string{"--session", "default"}, attachArgs(cfg, local))
 	peer, err := resolveAttachEndpoint(cfg, "server")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--remote", "user@server", "--session", "work"}, attachArgs(cfg, peer))
+	assert.Equal(t, []string{"--remote", "user@server", "--session", "work", "--remote-keybindings", "server"}, attachArgs(cfg, peer))
 	_, err = resolveAttachEndpoint(cfg, "untrusted")
 	require.Error(t, err)
 }
@@ -139,7 +139,7 @@ func TestAttachReplacesOnlyOwnedClientAndReleasesControllers(t *testing.T) {
 	assert.Equal(t, []string{"local:subscribe", "remote:subscribe", "remote:focus", "local:release", "remote:release"}, transport.recorded())
 	data, err := os.ReadFile(logFile.Name())
 	require.NoError(t, err)
-	assert.Equal(t, "--session default\n--remote host --session work\n", string(data))
+	assert.Equal(t, "--session default\n--remote host --session work --remote-keybindings server\n", string(data))
 }
 
 func TestAttachKeepsClientWhenControllerIsLost(t *testing.T) {
