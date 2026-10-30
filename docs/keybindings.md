@@ -27,6 +27,10 @@ Left-click a workspace row to select it and switch immediately, just like
 ++enter++. Clicking a configured session or directory creates or focuses its
 workspace. Mouse selection also works with stacked or hidden previews.
 
+Mouse capture is enabled in every native picker layout, and the wheel follows
+the up/down controls. To select text for copying, use your terminal's mouse
+override (often Shift-drag).
+
 !!! warning "Closing a workspace"
 
     ++ctrl+x++ requests a workspace close immediately, without a picker

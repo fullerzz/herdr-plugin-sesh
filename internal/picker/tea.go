@@ -609,6 +609,16 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		switch wheel.Button {
+		case tea.MouseWheelUp:
+			msg = tea.KeyPressMsg{Code: tea.KeyUp}
+		case tea.MouseWheelDown:
+			msg = tea.KeyPressMsg{Code: tea.KeyDown}
+		default:
+			return m, nil
+		}
+	}
 	if mouse, ok := msg.(tea.MouseMsg); ok {
 		return m.resizePreview(mouse), nil
 	}
@@ -791,6 +801,12 @@ func refreshAgentStatusesCommand(refresh func() (map[string]string, error), gene
 	}
 }
 
+func (m teaModel) headerLines(width int) []string {
+	input := m.input
+	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
+	return []string{"", m.header(width), horizontalRule(width), fitLine(input.View(), width), horizontalRule(width)}
+}
+
 func (m teaModel) View() tea.View {
 	if m.settings != nil {
 		if m.settingsBusy {
@@ -806,10 +822,7 @@ func (m teaModel) View() tea.View {
 	}
 	width := m.contentWidth()
 	listWidth, previewWidth := m.previewLayout()
-	lines := []string{"", m.header(width), horizontalRule(width)}
-	input := m.input
-	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
-	lines = append(lines, fitLine(input.View(), width), horizontalRule(width))
+	lines := m.headerLines(width)
 	listTop := lipgloss.Height(strings.Join(lines, "\n")) + previewTitleRows
 	visibleRows := m.previewBodyLines()
 	var workspaces workspaceListView
@@ -1522,10 +1535,11 @@ func (m teaModel) resizePreview(msg tea.MouseMsg) teaModel {
 	switch mouse := msg.(type) {
 	case tea.MouseClickMsg:
 		// joinPanels places the divider after the list and one space.
+		listTop := lipgloss.Height(strings.Join(m.headerLines(m.contentWidth()), "\n")) + previewTitleRows
 		m.draggingPreview = mouse.Button == tea.MouseLeft &&
 			mouse.X == horizontalPadding+listWidth+1 &&
-			mouse.Y >= listFirstRowIndex-previewTitleRows &&
-			mouse.Y < listFirstRowIndex+m.previewBodyLines()
+			mouse.Y >= listTop-previewTitleRows &&
+			mouse.Y < listTop+m.previewBodyLines()
 	case tea.MouseMotionMsg:
 		if mouse.Button != tea.MouseLeft {
 			m.draggingPreview = false

@@ -238,3 +238,52 @@ func TestTeaModelClickAfterMultilineSessionName(t *testing.T) {
 		})
 	}
 }
+
+func TestTeaModelMouseWheelNavigates(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		hidden bool
+	}{
+		{name: "hidden", width: 120, hidden: true},
+		{name: "split", width: 120},
+		{name: "stacked", width: 80},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{DisplayOptions: DisplayOptions{HidePreview: tc.hidden}})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height, m.reduceMotion = tc.width, 28, true
+			for i, button := range []tea.MouseButton{tea.MouseWheelDown, tea.MouseWheelDown, tea.MouseWheelUp, tea.MouseWheelUp} {
+				updated, _ := m.Update(tea.MouseWheelMsg{X: 20, Y: 7, Button: button})
+				m = updated.(teaModel)
+				assert.Equal(t, []int{0, 1, 0, 0}[i], m.list.Selected)
+				assert.Equal(t, i < 3, m.listFocused)
+				assert.False(t, m.chosen)
+			}
+		})
+	}
+}
+
+func TestTeaModelDividerFollowsMultilinePrompt(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}}, Options{DisplayOptions: DisplayOptions{Prompt: "Choose a workspace\nSesh> "}})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height = 120, 28
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	top, bottom := -1, -1
+	for y, line := range lines {
+		if ansi.Cut(line, 64, 65) == "│" {
+			if top == -1 {
+				top = y
+			}
+			bottom = y
+		}
+	}
+	require.NotEqual(t, -1, top)
+	for _, tc := range []struct {
+		y    int
+		drag bool
+	}{{top - 1, false}, {top, true}, {bottom, true}} {
+		updated, _ := m.Update(tea.MouseClickMsg{X: 64, Y: tc.y, Button: tea.MouseLeft})
+		assert.Equal(t, tc.drag, updated.(teaModel).draggingPreview, "screen row %d", tc.y)
+	}
+}
