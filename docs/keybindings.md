@@ -23,6 +23,10 @@ icon: lucide/keyboard
 Typing updates the filter even when the list is focused. These controls describe
 the native picker; the experimental fzf picker uses its own controls.
 
+Left-click a workspace row to select it and switch immediately, just like
+++enter++. Clicking a configured session or directory creates or focuses its
+workspace. Mouse selection also works with stacked or hidden previews.
+
 !!! warning "Closing a workspace"
 
     ++ctrl+x++ requests a workspace close immediately, without a picker

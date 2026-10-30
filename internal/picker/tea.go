@@ -275,6 +275,8 @@ type agentStatusesMsg struct {
 	err        error
 }
 
+type workspaceClickedMsg struct{ key string }
+
 type workspaceCloseMsg struct {
 	workspaceID string
 	result      ReloadResult
@@ -595,6 +597,18 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.draggingPreview = false
 		return m, nil
 	}
+	if clicked, ok := msg.(workspaceClickedMsg); ok {
+		if m.closingWorkspaceID != "" {
+			return m, nil
+		}
+		for i, item := range m.list.Filtered {
+			if sessionmodel.Key(item) == clicked.key {
+				m.list.Selected = i
+				return m.chooseCurrent()
+			}
+		}
+		return m, nil
+	}
 	if mouse, ok := msg.(tea.MouseMsg); ok {
 		return m.resizePreview(mouse), nil
 	}
@@ -628,15 +642,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.cancelActivePreview()
 		return m, tea.Quit
 	case "enter":
-		if m.closingWorkspaceID != "" {
-			return m, nil
-		}
-		if choice, ok := m.list.Current(); ok {
-			m.choice = choice
-			m.chosen = true
-		}
-		m = m.cancelActivePreview()
-		return m, tea.Quit
+		return m.chooseCurrent()
 	case "up", "ctrl+p", "ctrl+k":
 		if !m.listFocused {
 			if key.String() == "ctrl+k" {
@@ -676,6 +682,18 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m.updateInput(msg)
 	}
+}
+
+func (m teaModel) chooseCurrent() (teaModel, tea.Cmd) {
+	if m.closingWorkspaceID != "" {
+		return m, nil
+	}
+	if choice, ok := m.list.Current(); ok {
+		m.choice = choice
+		m.chosen = true
+	}
+	m = m.cancelActivePreview()
+	return m, tea.Quit
 }
 
 func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
@@ -792,19 +810,26 @@ func (m teaModel) View() tea.View {
 	input := m.input
 	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
 	lines = append(lines, fitLine(input.View(), width), horizontalRule(width))
+	listTop := lipgloss.Height(strings.Join(lines, "\n")) + previewTitleRows
+	visibleRows := m.previewBodyLines()
+	var workspaces workspaceListView
 
 	if m.hidePreview {
+		visibleRows = m.listOnlyBodyLines()
+		workspaces = m.listView(width, visibleRows)
 		lines = append(lines, sectionStyle.Render("WORKSPACES"))
-		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(width, m.listOnlyBodyLines()), "\n"), "\n")...)
+		lines = append(lines, strings.Split(strings.TrimSuffix(workspaces.content, "\n"), "\n")...)
 	} else if previewWidth > 0 {
-		previewLines := m.previewBodyLines()
-		list := sectionStyle.Render("WORKSPACES") + "\n" + m.listView(listWidth, previewLines)
-		preview := m.previewView(previewWidth, previewLines)
+		workspaces = m.listView(listWidth, visibleRows)
+		list := sectionStyle.Render("WORKSPACES") + "\n" + workspaces.content
+		preview := m.previewView(previewWidth, visibleRows)
 		lines = append(lines, strings.Split(joinPanels(list, preview, listWidth, previewWidth), "\n")...)
 	} else {
-		listRows, previewLines := m.stackedBodyLines()
+		var previewLines int
+		visibleRows, previewLines = m.stackedBodyLines()
+		workspaces = m.listView(listWidth, visibleRows)
 		lines = append(lines, sectionStyle.Render("WORKSPACES"))
-		lines = append(lines, strings.Split(strings.TrimSuffix(m.listView(listWidth, listRows), "\n"), "\n")...)
+		lines = append(lines, strings.Split(strings.TrimSuffix(workspaces.content, "\n"), "\n")...)
 		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
 	}
 	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
@@ -844,8 +869,9 @@ func (m teaModel) View() tea.View {
 	}
 	view := tea.NewView(strings.Join(framed, "\n"))
 	view.AltScreen = true
-	if previewWidth > 0 {
-		view.MouseMode = tea.MouseModeCellMotion
+	view.MouseMode = tea.MouseModeCellMotion
+	if m.closingWorkspaceID == "" && !m.settingsBusy {
+		view.OnMouse = m.workspaceMouseHandler(listWidth, listTop, workspaces.keys)
 	}
 	return view
 }
@@ -985,11 +1011,17 @@ func workspaceSessionsByID(items []sessionmodel.Session) map[string]sessionmodel
 	return workspaces
 }
 
-func (m teaModel) listView(width, visibleRows int) string {
+type workspaceListView struct {
+	content string
+	keys    []string
+}
+
+func (m teaModel) listView(width, visibleRows int) workspaceListView {
 	if visibleRows < 1 {
-		return ""
+		return workspaceListView{}
 	}
 	lines := make([]string, 0, visibleRows)
+	keys := make([]string, visibleRows)
 	if len(m.list.Filtered) == 0 {
 		lines = append(lines, emptyStyle.Render("No matching workspaces"))
 	} else {
@@ -1005,6 +1037,7 @@ func (m teaModel) listView(width, visibleRows int) string {
 			if rail, age := m.smearRail(i); rail != "" {
 				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
 			}
+			keys[len(lines)] = sessionmodel.Key(m.list.Filtered[i])
 			lines = append(lines, line)
 		}
 		if moreBelow {
@@ -1017,10 +1050,14 @@ func (m teaModel) listView(width, visibleRows int) string {
 	if len(lines) > visibleRows {
 		lines = lines[:visibleRows]
 	}
+	var physicalKeys []string
 	for i := range lines {
 		lines[i] = fitLine(lines[i], width)
+		for range lipgloss.Height(lines[i]) {
+			physicalKeys = append(physicalKeys, keys[i])
+		}
 	}
-	return strings.Join(lines, "\n") + "\n"
+	return workspaceListView{content: strings.Join(lines, "\n") + "\n", keys: physicalKeys}
 }
 
 func (m teaModel) previewBodyLines() int {
@@ -1501,6 +1538,26 @@ func (m teaModel) resizePreview(msg tea.MouseMsg) teaModel {
 		m.draggingPreview = false
 	}
 	return m
+}
+
+func (m teaModel) workspaceMouseHandler(width, top int, keys []string) func(tea.MouseMsg) tea.Cmd {
+	// OnMouse belongs to the last flushed frame; keys describe its physical rows.
+	height := m.height
+	return func(msg tea.MouseMsg) tea.Cmd {
+		click, ok := msg.(tea.MouseClickMsg)
+		if !ok || click.Button != tea.MouseLeft {
+			return nil
+		}
+		row := click.Y - top
+		if click.X < horizontalPadding || click.X >= horizontalPadding+width || row < 0 || row >= len(keys) || height > 0 && click.Y >= height {
+			return nil
+		}
+		key := keys[row]
+		if key == "" {
+			return nil
+		}
+		return func() tea.Msg { return workspaceClickedMsg{key: key} }
+	}
 }
 
 func fixedVisualLines(text string, width, count int) string {
