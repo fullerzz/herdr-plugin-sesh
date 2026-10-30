@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,8 +164,8 @@ func (s *Server) exportPeer(ctx context.Context, p Peer) ([]Workspace, error) {
 	}
 	// Machine IDs are compared exactly, so a casing typo in either config rejects the peer.
 	if got := r.Catalog[0]; got.ID != p.ID || got.Session != p.Session {
-		return nil, fmt.Errorf("invalid peer catalog: peer reports machine %q session %q, configured as machine %q session %q",
-			clean(got.ID, 128), clean(got.Session, 128), p.ID, p.Session)
+		return nil, fmt.Errorf("invalid peer catalog: peer reports machine %s session %s, configured as machine %q session %q",
+			peerValue(got.ID), peerValue(got.Session), p.ID, p.Session)
 	}
 	if r.Catalog[0].Stale {
 		if message := clean(r.Catalog[0].LastError, 512); message != "" {
@@ -175,6 +176,22 @@ func (s *Server) exportPeer(ctx context.Context, p Peer) ([]Workspace, error) {
 	return sanitizeWorkspaces(r.Catalog[0].Workspaces), nil
 }
 
+// peerValue quotes peer-reported identity text so every differing byte stays
+// visible. Valid identifiers print whole; other text is escaped to ASCII from
+// at most 32 input bytes, so each value stays under 140 bytes.
+func peerValue(text string) string {
+	if identifier.MatchString(text) {
+		return strconv.Quote(text)
+	}
+	if len(text) > 32 {
+		return strconv.QuoteToASCII(text[:32]) + "..."
+	}
+	return strconv.QuoteToASCII(text)
+}
+
+// maxLastError fits an identity mismatch naming four 128-byte identifiers.
+const maxLastError = 1024
+
 // record stores one refresh result and logs availability changes.
 func (s *Server) record(i int, ws []Workspace, err error) {
 	s.mu.Lock()
@@ -183,7 +200,7 @@ func (s *Server) record(i int, ws []Workspace, err error) {
 	previous := m.LastError
 	m.Stale = err != nil
 	if err != nil {
-		m.LastError = clean(err.Error(), 512)
+		m.LastError = clean(err.Error(), maxLastError)
 		if m.LastError != previous {
 			s.logf("machine %s unavailable: %s", m.ID, m.LastError)
 		}

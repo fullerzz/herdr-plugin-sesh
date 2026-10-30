@@ -336,7 +336,33 @@ func TestExportPeerPreservesStaleErrorAfterIdentityValidation(t *testing.T) {
 	assert.Equal(t, clean(machine.LastError, 512), err.Error())
 	machine.ID = "Other\x1b"
 	_, err = s.exportPeer(context.Background(), s.cfg.Peers[0])
-	assert.EqualError(t, err, `invalid peer catalog: peer reports machine "Other" session "", configured as machine "other" session ""`)
+	assert.EqualError(t, err, `invalid peer catalog: peer reports machine "Other\x1b" session "", configured as machine "other" session ""`)
+}
+
+func TestPeerIdentityMismatchKeepsEveryValueVisible(t *testing.T) {
+	long := func(last string) string { return strings.Repeat("a", 127) + last }
+	for _, tc := range []struct{ name, id, session string }{
+		{"control only", "other\x00", "default\x1b"},
+		{"max length identifiers", long("b"), long("c")},
+		{"escape expansion", strings.Repeat("\u00ad", 64), strings.Repeat("\x00", 128)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Enabled: true, ID: "local", Peers: []Peer{{ID: long("x"), SSH: "other", Session: long("y")}}}
+			require.NoError(t, cfg.Validate())
+			s := NewServer(cfg, &fakeClient{})
+			s.PeerCall = func(context.Context, Peer, Request) (Response, error) {
+				return Response{Catalog: []Machine{{ID: tc.id, Session: tc.session}}}, nil
+			}
+			s.refreshPeer(context.Background(), 0)
+			peer := s.Handle(context.Background(), Request{Op: "list"}).Catalog[1]
+			assert.True(t, peer.Stale)
+			assert.Contains(t, peer.LastError, "peer reports machine "+peerValue(tc.id)+" session "+peerValue(tc.session))
+			assert.True(t, strings.HasSuffix(peer.LastError, `configured as machine "`+long("x")+`" session "`+long("y")+`"`), peer.LastError)
+			assert.NotContains(t, peer.LastError, "\x00")
+			assert.NotContains(t, peer.LastError, "\x1b")
+		})
+	}
+	assert.Equal(t, `"other\x00"`, peerValue("other\x00"))
 }
 
 type shutdownClient struct{ entered, cancelled, release chan struct{} }
