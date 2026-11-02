@@ -17,7 +17,7 @@ import (
 type pickerBackend struct {
 	app               *App
 	ctx               context.Context
-	client            *herdr.CLIClient
+	client            herdr.Backend
 	cfg               config.Config
 	activeConfigPath  string
 	historyDir        string
