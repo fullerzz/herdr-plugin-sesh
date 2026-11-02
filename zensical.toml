@@ -15,6 +15,7 @@ nav = [
     { "Picker" = "config/picker.md" },
     { "Layouts" = "config/layouts.md" },
   ] },
+  { "Herdr app" = "herdr-app.md" },
   { "Commands" = "commands.md" },
   { "Keybindings" = "keybindings.md" },
   { "Troubleshooting" = "troubleshooting.md" },
