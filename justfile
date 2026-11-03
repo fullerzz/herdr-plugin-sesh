@@ -48,6 +48,13 @@ install-plugin: build
     @echo "{{ BOLD + BLUE + BG_BLACK }} Relinking Herdr plugin...{{ NORMAL }}"
     herdr plugin link "$PWD"
 
+# Build the binary and link the sesh mod into the Herdr app's home
+install-app-mod: build
+    @echo "{{ BOLD + BLUE + BG_BLACK }} Linking Herdr app mod...{{ NORMAL }}"
+    mkdir -p "${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods"
+    ln -sfn "$PWD/herdr-app/mods/sesh" "${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/sesh"
+    herdr-app check "${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/sesh"
+
 # Run linters on the codebase
 lint:
     @echo "{{ BOLD + GREEN + BG_BLACK }} Running linters...{{ NORMAL }}"

@@ -95,6 +95,12 @@ This repository is also discoverable through the
 GitHub topic. Marketplace listings are automatic and are not endorsements or
 security reviews.
 
+### Herdr app
+
+The [Herdr app](https://herdr.dev) uses mods instead of plugins. Install the
+`sesh` mod from this repository with `just install-app-mod`, then bind
+`mod.open:sesh` to a key. See [Herdr app](docs/herdr-app.md).
+
 ## Quick start
 
 Open the picker through the installed plugin action:
