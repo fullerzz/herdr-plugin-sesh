@@ -16,6 +16,7 @@ import (
 func (a *App) refreshOverlayGeometry(ctx context.Context, entry string) {
 	if os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") == entry {
 		if paneID := os.Getenv("HERDR_PANE_ID"); paneID != "" {
+			// HERDR_PANE_ID exists only in Herdr TUI plugin panes.
 			client := herdr.NewCLIClient()
 			layout, refreshErr := client.PaneLayout(ctx, paneID)
 			if refreshErr == nil && layout.Zoomed {
@@ -30,11 +31,11 @@ func (a *App) refreshOverlayGeometry(ctx context.Context, entry string) {
 	}
 }
 func (a *App) settingsSaved(_ string) error {
-	dir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
+	dir := sessionStateDir()
 	if dir == "" {
 		return nil
 	}
-	//nolint:gosec // Plugin-owned cache directory supplied by Herdr.
+	//nolint:gosec // herdr-sesh-owned cache directory: Herdr's plugin state or herdr-app's state.
 	if err := os.Remove(state.SessionCachePath(dir)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove stale session cache: %w", err)
 	}

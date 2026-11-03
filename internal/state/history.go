@@ -184,8 +184,11 @@ func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string, observedRevision u
 	})
 }
 
-func RemoveWorkspace(dir, workspaceID string) error {
-	if dir == "" || workspaceID == "" {
+// RecordUnwatchedSwitch records a switch for a Herdr with no history watcher,
+// such as herdr-app. Nothing else records switches made outside herdr-sesh, so
+// the origin is recorded even when toWorkspaceID already heads the history.
+func RecordUnwatchedSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
+	if dir == "" || toWorkspaceID == "" {
 		return nil
 	}
 	return withHistoryLock(dir, func() error {
@@ -193,15 +196,46 @@ func RemoveWorkspace(dir, workspaceID string) error {
 		if err != nil {
 			return err
 		}
+		h.Workspaces = dedupeWorkspaces([]string{toWorkspaceID, fromWorkspaceID}, h.Workspaces)
+		return writeHistory(dir, h)
+	})
+}
+
+func RemoveWorkspace(dir, workspaceID string) error {
+	if dir == "" || workspaceID == "" {
+		return nil
+	}
+	_, err := filterWorkspaces(dir, func(id string) bool { return id != workspaceID })
+	return err
+}
+
+// RetainWorkspaces drops every history entry not in live and returns the result.
+func RetainWorkspaces(dir string, live []string) (History, error) {
+	keep := make(map[string]bool, len(live))
+	for _, id := range live {
+		keep[id] = true
+	}
+	return filterWorkspaces(dir, func(id string) bool { return keep[id] })
+}
+
+func filterWorkspaces(dir string, keep func(string) bool) (History, error) {
+	var h History
+	err := withHistoryLock(dir, func() error {
+		var err error
+		h, err = loadHistoryForWrite(dir)
+		if err != nil {
+			return err
+		}
 		workspaces := h.Workspaces[:0]
 		for _, id := range h.Workspaces {
-			if id != workspaceID {
+			if keep(id) {
 				workspaces = append(workspaces, id)
 			}
 		}
 		h.Workspaces = workspaces
 		return writeHistory(dir, h)
 	})
+	return h, err
 }
 
 func withHistoryLock(dir string, fn func() error) (err error) {

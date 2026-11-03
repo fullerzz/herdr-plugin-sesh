@@ -94,12 +94,12 @@ func (a *App) loadConfig(path string) (config.Config, error) {
 	return cfg, err
 }
 func (a *App) collect(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
-	hs := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}
+	hs := sources.HerdrWorkspaces{Client: herdr.NewBackend()}
 	return a.collectFrom(ctx, cfg, target, hs)
 }
 
 func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
-	hs := sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}
+	hs := sources.HerdrWorkspaces{Client: herdr.NewBackend()}
 	return a.collectFrom(ctx, cfg, target, ignoreSource{hs})
 }
 
@@ -116,10 +116,10 @@ type pickerCollection struct {
 // non-nil herdrFallback stands in for it so a reload keeps the last known
 // workspaces instead of dropping them.
 func (a *App) collectPicker(ctx context.Context, cfg config.Config, herdrFallback []model.Session) (pickerCollection, error) {
-	return a.collectPickerWithClient(ctx, cfg, herdrFallback, herdr.NewCLIClient())
+	return a.collectPickerWithClient(ctx, cfg, herdrFallback, herdr.NewBackend())
 }
 
-func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, herdrFallback []model.Session, client *herdr.CLIClient) (pickerCollection, error) {
+func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, herdrFallback []model.Session, client herdr.Backend) (pickerCollection, error) {
 	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: client}, fallback: herdrFallback}
 	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource)
 	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err}
@@ -193,20 +193,20 @@ func (a *App) list(ctx context.Context, args []string) error {
 	}
 	cacheable := cfg.Cache && !*blacklisted && *hideDup
 	if cacheable {
-		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
+		if cached, ok, err := state.LoadSessionCache(sessionStateDir(), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
 			a.warnf("ignoring session cache: %v", err)
 		} else if ok {
 			return a.printSessions(cached, *jsonOut)
 		}
 	}
-	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewCLIClient()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
+	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewBackend()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
 	if err != nil {
 		return err
 	}
 	sources.ApplyConfig(&ss, cfg, "")
 	sessions := ss.Ordered()
 	if cacheable {
-		if err := state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, sessions, time.Now()); err != nil {
+		if err := state.SaveSessionCache(sessionStateDir(), resolvedConfigPath, sessions, time.Now()); err != nil {
 			a.warnf("could not save session cache: %v", err)
 		}
 	}
@@ -270,8 +270,9 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return err
 	}
 	useFZF := *fzfPicker || strings.EqualFold(os.Getenv("HERDR_SESH_PICKER"), "fzf")
-	backend := &pickerBackend{app: a, ctx: ctx, client: herdr.NewCLIClient(), cfg: cfg,
-		activeConfigPath: activeConfigPath, pickerWorkspaceID: os.Getenv("HERDR_WORKSPACE_ID")}
+	client := herdr.NewBackend()
+	backend := &pickerBackend{app: a, ctx: ctx, client: client, cfg: cfg,
+		activeConfigPath: activeConfigPath, pickerWorkspaceID: client.CurrentWorkspaceID(ctx)}
 	var sessions []model.Session
 	var selected model.Session
 	var ok bool
@@ -339,9 +340,10 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
+	client := herdr.NewBackend()
+	currentWorkspaceID := client.CurrentWorkspaceID(ctx)
 	revision := a.historyRevision()
-	res, err := connectpkg.Connect(ctx, herdr.NewCLIClient(), sessions, target, connectpkg.Options{NoFocus: *noFocus, Warnf: a.warnf, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
+	res, err := connectpkg.Connect(ctx, client, sessions, target, connectpkg.Options{NoFocus: *noFocus, Warnf: a.warnf, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
 	if err != nil {
 		return err
 	}
@@ -429,8 +431,9 @@ func (a *App) last(ctx context.Context, _ []string) error {
 	if err != nil {
 		return err
 	}
-	currentWorkspaceID := os.Getenv("HERDR_WORKSPACE_ID")
-	history, err := state.LoadHistory(historyDir)
+	client := herdr.NewBackend()
+	currentWorkspaceID := client.CurrentWorkspaceID(ctx)
+	history, err := loadLastHistory(ctx, client, historyDir)
 	if err != nil {
 		return err
 	}
@@ -438,13 +441,31 @@ func (a *App) last(ctx context.Context, _ []string) error {
 	if !ok {
 		return errors.New("no previous workspace recorded")
 	}
-	if err := herdr.NewCLIClient().WorkspaceFocus(ctx, id); err != nil {
+	if err := client.WorkspaceFocus(ctx, id); err != nil {
 		return err
 	}
-	if err := state.RecordSwitch(historyDir, currentWorkspaceID, id, history.Revision); err != nil {
+	if err := recordSwitch(historyDir, currentWorkspaceID, id, history.Revision); err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
 	return nil
+}
+
+// loadLastHistory loads the history `last` picks from. herdr-app has no history
+// watcher to drop spaces closed in its UI, so the app backend prunes history
+// against the live spaces first.
+func loadLastHistory(ctx context.Context, client herdr.Backend, dir string) (state.History, error) {
+	if !herdr.UsesApp() {
+		return state.LoadHistory(dir)
+	}
+	workspaces, err := client.WorkspaceList(ctx)
+	if err != nil {
+		return state.History{}, err
+	}
+	live := make([]string, 0, len(workspaces))
+	for _, w := range workspaces {
+		live = append(live, w.ID)
+	}
+	return state.RetainWorkspaces(dir, live)
 }
 
 // historyRevision captures history before a focus request for RecordSwitch.
@@ -463,21 +484,64 @@ func (a *App) historyRevision() uint64 {
 func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string, revision uint64) {
 	historyDir, err := historyStateDir()
 	if err == nil {
-		err = state.RecordSwitch(historyDir, fromWorkspaceID, toWorkspaceID, revision)
+		err = recordSwitch(historyDir, fromWorkspaceID, toWorkspaceID, revision)
 	}
 	if err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
 }
 
+// historyStateDir and sessionStateDir keep each backend's state apart, so
+// herdr-app space IDs never reach the Herdr plugin's history or cache, even
+// when HERDR_SESH_BACKEND=app runs inside a Herdr pane.
+// recordSwitch defers to the Herdr TUI's history watcher where one runs;
+// herdr-app has none, so every herdr-sesh switch records its origin.
+func recordSwitch(dir, from, to string, revision uint64) error {
+	if herdr.UsesApp() {
+		return state.RecordUnwatchedSwitch(dir, from, to)
+	}
+	return state.RecordSwitch(dir, from, to, revision)
+}
+
 func historyStateDir() (string, error) {
+	if herdr.UsesApp() {
+		return appStateDir()
+	}
 	return state.SessionHistoryDir(os.Getenv("HERDR_PLUGIN_STATE_DIR"), os.Getenv("HERDR_SOCKET_PATH"))
 }
 
+// sessionStateDir is "" when there is nowhere to cache, which disables caching.
+func sessionStateDir() string {
+	if !herdr.UsesApp() {
+		return os.Getenv("HERDR_PLUGIN_STATE_DIR")
+	}
+	dir, err := appStateDir()
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+func appStateDir() (string, error) {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(base, "herdr-sesh", "herdr-app"), nil
+}
+
 func (a *App) window(ctx context.Context, args []string) error {
-	c := herdr.NewCLIClient()
+	c := herdr.NewBackend()
+	workspaceID := c.CurrentWorkspaceID(ctx)
+	if workspaceID == "" {
+		return errors.New("window: could not determine the current workspace")
+	}
 	if len(args) == 0 {
-		tabs, err := c.TabList(ctx, os.Getenv("HERDR_WORKSPACE_ID"))
+		tabs, err := c.TabList(ctx, workspaceID)
 		if err != nil {
 			return err
 		}
@@ -488,7 +552,7 @@ func (a *App) window(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	_, err := c.TabCreate(ctx, herdr.TabCreateRequest{WorkspaceID: os.Getenv("HERDR_WORKSPACE_ID"), CWD: args[0], Label: filepath.Base(args[0]), Focus: true})
+	_, err := c.TabCreate(ctx, herdr.TabCreateRequest{WorkspaceID: workspaceID, CWD: args[0], Label: filepath.Base(args[0]), Focus: true})
 	return err
 }
 func (a *App) plugin(ctx context.Context, args []string) error {
@@ -496,6 +560,7 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 		return errors.New("unknown plugin command")
 	}
 	switch args[0] {
+	// Plugin panes, hooks and the history watcher exist only in the Herdr TUI.
 	case "open-settings":
 		return herdr.NewCLIClient().PluginPaneOpen(ctx, "fullerzz.sesh", "settings", "overlay")
 	case "open-picker":

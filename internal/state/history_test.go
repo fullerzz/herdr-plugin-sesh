@@ -455,3 +455,27 @@ func TestRecordSwitchDeduplicatesAndCapsHistory(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// Without a watcher, a switch made in the app UI is never recorded; the next
+// herdr-sesh switch must still record its real origin.
+func TestRecordUnwatchedSwitchRecordsOriginWhenTargetHeadsHistory(t *testing.T) {
+	d := t.TempDir()
+	require.NoError(t, SaveHistory(d, History{Workspaces: []string{"B", "A"}}))
+	require.NoError(t, RecordUnwatchedSwitch(d, "C", "B"))
+	h, err := LoadHistory(d)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"B", "C", "A"}, h.Workspaces)
+}
+
+func TestRetainWorkspacesDropsClosedWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, SaveHistory(dir, History{Workspaces: []string{"C", "B", "A"}}))
+
+	h, err := RetainWorkspaces(dir, []string{"A", "C"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C", "A"}, h.Workspaces)
+
+	saved, err := LoadHistory(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C", "A"}, saved.Workspaces)
+}

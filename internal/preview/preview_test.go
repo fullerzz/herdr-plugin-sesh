@@ -208,3 +208,28 @@ func TestRenderBatUsesBatForReadmePreview(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "hello from readme")
 }
+
+func TestRenderPaneReadsHerdrAppSpaces(t *testing.T) {
+	bin := t.TempDir()
+	scripts := map[string]string{
+		"herdr-app": `#!/bin/sh
+case "$1" in
+  ls) printf '%s' '{"spaces":[{"id":"sp2","tabs":[{"id":"tb1","active":false,"terminals":[{"terminal":"t1","pane":"p1"}]},{"id":"tb2","active":true,"terminals":[{"terminal":"t2","pane":"p2"}]}]}]}' ;;
+  status) printf '%s' '{"space":"sp9","tab":"tb9","focused_pane":"p9"}' ;;
+  *) exit 1 ;;
+esac
+`,
+		"hc": `#!/bin/sh
+[ "$*" = "read t2" ] && printf 'space output\n' || exit 1
+`,
+	}
+	for name, script := range scripts {
+		//nolint:gosec // fake herdr-app and hc binaries must be executable.
+		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(script), 0700))
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HERDR_SESH_BACKEND", "app")
+	text, err := RenderPane(context.Background(), model.Session{Source: "herdr", WorkspaceID: "sp2"})
+	require.NoError(t, err)
+	assert.Equal(t, "space output\n", text)
+}
