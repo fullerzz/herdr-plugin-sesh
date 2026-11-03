@@ -1,6 +1,6 @@
 // Sesh: opens the herdr-sesh picker, a terminal program, over the window. `mod.open`
-// shows this mod as a 1px popup; it starts the picker in a herdr-core terminal, shows
-// that terminal in a dialog (which closes when the picker exits) and closes itself.
+// shows this mod as a 1px popup; it starts the picker in a herdr-core terminal, closes
+// itself and shows that terminal in a dialog (which closes when the picker exits).
 
 import { View, div } from "gpui-kit";
 import { exec, hc, home, notify, openOverlay, closeOverlay, props } from "herdr";
@@ -33,19 +33,22 @@ export default class Sesh extends View {
   init(_props, cx) {
     const self = props()?.overlay;
     cx.spawn(async () => {
+      let address;
       try {
         const { path, loginPath } = await findPicker();
         await endEarlierPickers();
         const r = await hc(["run", "--json", "--bg", "--rm", "--no-parent", "--label", LABEL, "--cwd", home(),
           "--", "/bin/sh", "-c", PICKER, "sh", path, loginPath]);
         if (r.code !== 0) throw new Error(r.stderr.trim() || `hc run exited ${r.code}`);
-        const { address } = JSON.parse(r.stdout);
-        openOverlay({ kind: "dialog", modal: true, width: 0.7, height: 0.75,
-          layout: { type: "block", content: { terminal: address } } });
+        ({ address } = JSON.parse(r.stdout));
       } catch (e) {
         notify({ title: "Sesh picker didn't start", body: String(e?.message ?? e), level: "error" });
       }
+      // Closing a popup hands the keyboard back to whatever had it before the popup, so
+      // this popup closes before the dialog opens; the other order leaves the picker deaf.
       if (self) closeOverlay(self);
+      if (address) openOverlay({ kind: "dialog", modal: true, width: 0.7, height: 0.75,
+        layout: { type: "block", content: { terminal: address } } });
     });
   }
 
