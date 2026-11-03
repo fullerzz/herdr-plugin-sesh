@@ -31,7 +31,11 @@ async function endEarlierPickers() {
 
 export default class Sesh extends View {
   init(_props, cx) {
-    const self = props()?.overlay;
+    let self = props()?.overlay;
+    const closeSelf = () => {
+      if (self) closeOverlay(self);
+      self = null;
+    };
     cx.spawn(async () => {
       let address;
       try {
@@ -41,14 +45,18 @@ export default class Sesh extends View {
           "--", "/bin/sh", "-c", PICKER, "sh", path, loginPath]);
         if (r.code !== 0) throw new Error(r.stderr.trim() || `hc run exited ${r.code}`);
         ({ address } = JSON.parse(r.stdout));
+        if (!address) throw new Error("hc run returned no terminal address");
+        // Closing a popup hands the keyboard back to whatever had it before the popup, so
+        // this popup closes before the dialog opens; the other order leaves the picker deaf.
+        closeSelf();
+        openOverlay({ kind: "dialog", modal: true, width: 0.7, height: 0.75,
+          layout: { type: "block", content: { terminal: address } } });
       } catch (e) {
         notify({ title: "Sesh picker didn't start", body: String(e?.message ?? e), level: "error" });
+        // Not awaited: hc starts at the call, and closing this popup may cancel this task.
+        if (address) hc(["kill", address]);
+        closeSelf();
       }
-      // Closing a popup hands the keyboard back to whatever had it before the popup, so
-      // this popup closes before the dialog opens; the other order leaves the picker deaf.
-      if (self) closeOverlay(self);
-      if (address) openOverlay({ kind: "dialog", modal: true, width: 0.7, height: 0.75,
-        layout: { type: "block", content: { terminal: address } } });
     });
   }
 
