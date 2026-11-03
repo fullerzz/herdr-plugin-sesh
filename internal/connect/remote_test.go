@@ -70,3 +70,16 @@ func TestConnectLocalDirectoryIgnoresRemoteWithSamePath(t *testing.T) {
 	require.Len(t, client.CreatedWorkspaces, 1)
 	assert.Equal(t, dir, client.CreatedWorkspaces[0].CWD)
 }
+
+func TestConnectRemoteNameSuggestsQualifiedID(t *testing.T) {
+	remote := model.Session{Machine: "buntu26", Name: "api", Path: "/remote/api", WorkspaceID: "buntu26/sp1"}
+	client := &herdr.FakeClient{}
+	for _, target := range []string{remote.Name, remote.Path} {
+		_, err := Connect(t.Context(), client, []model.Session{
+			remote, {Name: "other", Path: "/other"},
+		}, target, Options{})
+		require.ErrorContains(t, err, `connect with its workspace ID "buntu26/sp1"`)
+	}
+	assert.Empty(t, client.CreatedWorkspaces)
+	assert.Empty(t, client.FocusedWorkspaces)
+}

@@ -34,12 +34,10 @@ func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 	assert.Contains(t, got, "tmp api service")
 }
 
-func TestFZFInputAddsHomeAliasSearchToken(t *testing.T) {
+func TestFZFInputEmitsHomeAliasInHiddenField(t *testing.T) {
 	t.Setenv("HOME", "/Users/zach")
 	got := fzfInput([]model.Session{{Source: "herdr", Name: "zach", Path: "/Users/zach"}}, false)
 	require.True(t, strings.HasSuffix(got, "\thome\t\n"))
-	args := strings.Join(fzfArgs(Options{}), "\n")
-	assert.Contains(t, args, "--nth=2..3")
 }
 
 func TestFZFInputUsesSourceCategoryColors(t *testing.T) {

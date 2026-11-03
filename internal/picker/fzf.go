@@ -143,7 +143,7 @@ func fzfSearchField(s sessionmodel.Session, separatorAware bool) string {
 	var terms []string
 	if separatorAware {
 		repl := strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ")
-		terms = append(terms, repl.Replace(s.Machine+" "+s.Name+" "+s.Path))
+		terms = append(terms, repl.Replace(s.Name+" "+s.Path))
 	}
 	if isHomeSession(s) {
 		terms = append(terms, "home")

@@ -87,6 +87,10 @@ commands or reading local files. Pane preview reads the remote terminal
 through `hc read` with its qualified terminal address. Selecting a remote
 space does not apply local session configuration or run startup commands there.
 
+For CLI previews, use `herdr-sesh preview buntu26/sp1` with the qualified
+workspace ID. Bare names and paths resolve locally, including the fallback
+that previews a local directory; they do not select a remote namesake.
+
 Configured sessions, zoxide directories, and directory entries still create
 local spaces. Creating remote spaces from configured sessions is not supported.
 
