@@ -1,3 +1,47 @@
+## v0.16.0 (2026-11-03)
+
+### 🚀 Features
+
+- feat(picker): select workspaces with mouse clicks by @fullerzz in [#167](https://github.com/fullerzz/herdr-plugin-sesh/pull/167) ([cb1df6a](https://github.com/fullerzz/herdr-plugin-sesh/commit/cb1df6a6ced45615f2e62d5067d219aa05e93aa5))
+
+- feat(herdr): add herdr-app client by @fullerzz in [#169](https://github.com/fullerzz/herdr-plugin-sesh/pull/169) ([a658b8d](https://github.com/fullerzz/herdr-plugin-sesh/commit/a658b8d35438f9caf0d438356e3a37760812d724))
+
+- feat: drive herdr-app from herdr-app terminals by @fullerzz in [#170](https://github.com/fullerzz/herdr-plugin-sesh/pull/170) ([2bb638d](https://github.com/fullerzz/herdr-plugin-sesh/commit/2bb638d4ffa2a9dcc5c165ad22f61aaa94e67fce))
+
+- feat: add sesh mod for the Herdr app by @fullerzz in [#171](https://github.com/fullerzz/herdr-plugin-sesh/pull/171) ([59b302e](https://github.com/fullerzz/herdr-plugin-sesh/commit/59b302eccb5e22baccce33550640d346d08aaff2))
+
+
+
+### 🐛 Bug Fixes
+
+- fix: give the sesh mod's picker dialog the keyboard by @fullerzz in [#174](https://github.com/fullerzz/herdr-plugin-sesh/pull/174) ([cd9e9b6](https://github.com/fullerzz/herdr-plugin-sesh/commit/cd9e9b63cfd0a4b64a126d21adfb4ebce1eeb0f5))
+
+
+
+### 🛬 Dependency Updates
+
+- chore(deps): update mise tools by @renovate[bot] in [#134](https://github.com/fullerzz/herdr-plugin-sesh/pull/134) ([1d1bcc5](https://github.com/fullerzz/herdr-plugin-sesh/commit/1d1bcc518347b468e438b05ef806102c97414348))
+
+- fix(go-deps): update go dependencies by @renovate[bot] in [#155](https://github.com/fullerzz/herdr-plugin-sesh/pull/155) ([99f5024](https://github.com/fullerzz/herdr-plugin-sesh/commit/99f50246d9a936a49e434c3699ccf4f2ad633427))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#152](https://github.com/fullerzz/herdr-plugin-sesh/pull/152) ([531d0de](https://github.com/fullerzz/herdr-plugin-sesh/commit/531d0de2ccb61888be08f8380d27845beab5c1bd))
+
+
+
+### 💼 Other
+
+- Add `pullfrog.yml` workflow by @fullerzz ([3053d26](https://github.com/fullerzz/herdr-plugin-sesh/commit/3053d262abf2ed00fca38ba527edb7e5913b2b28))
+
+
+
+### 🎡 Continuous Integration
+
+- ci: remove CodSpeed integration by @fullerzz in [#154](https://github.com/fullerzz/herdr-plugin-sesh/pull/154) ([8b12720](https://github.com/fullerzz/herdr-plugin-sesh/commit/8b12720366ed412f98445112992bedb4b99a73bc))
+
+- ci: pin pullfrog workflow actions to commit SHAs by @fullerzz in [#173](https://github.com/fullerzz/herdr-plugin-sesh/pull/173) ([0cc6f19](https://github.com/fullerzz/herdr-plugin-sesh/commit/0cc6f19a239a555f050143b741b31476c95174b2))
+
+
+
 ## v0.15.0 (2026-10-07)
 
 ### 🚀 Features
