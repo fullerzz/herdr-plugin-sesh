@@ -24,7 +24,7 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return herdr.NewCLIClient().WorkspacePaneRead(ctx, s.WorkspaceID)
+	return herdr.NewBackend().WorkspacePaneRead(ctx, s.WorkspaceID)
 }
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {

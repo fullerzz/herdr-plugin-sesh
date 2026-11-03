@@ -193,7 +193,7 @@ func (a *App) list(ctx context.Context, args []string) error {
 	}
 	cacheable := cfg.Cache && !*blacklisted && *hideDup
 	if cacheable {
-		if cached, ok, err := state.LoadSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
+		if cached, ok, err := state.LoadSessionCache(sessionStateDir(), resolvedConfigPath, 5*time.Second, time.Now()); err != nil {
 			a.warnf("ignoring session cache: %v", err)
 		} else if ok {
 			return a.printSessions(cached, *jsonOut)
@@ -206,7 +206,7 @@ func (a *App) list(ctx context.Context, args []string) error {
 	sources.ApplyConfig(&ss, cfg, "")
 	sessions := ss.Ordered()
 	if cacheable {
-		if err := state.SaveSessionCache(os.Getenv("HERDR_PLUGIN_STATE_DIR"), resolvedConfigPath, sessions, time.Now()); err != nil {
+		if err := state.SaveSessionCache(sessionStateDir(), resolvedConfigPath, sessions, time.Now()); err != nil {
 			a.warnf("could not save session cache: %v", err)
 		}
 	}
@@ -473,13 +473,26 @@ func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string, revis
 	}
 }
 
+// historyStateDir and sessionStateDir keep each backend's state apart, so
+// herdr-app space IDs never reach the Herdr plugin's history or cache, even
+// when HERDR_SESH_BACKEND=app runs inside a Herdr pane.
 func historyStateDir() (string, error) {
-	dir := os.Getenv("HERDR_PLUGIN_STATE_DIR")
-	if dir == "" && herdr.UsesApp() {
-		// herdr-app runs no plugins, so it never sets a plugin state directory.
+	if herdr.UsesApp() {
 		return appStateDir()
 	}
-	return state.SessionHistoryDir(dir, os.Getenv("HERDR_SOCKET_PATH"))
+	return state.SessionHistoryDir(os.Getenv("HERDR_PLUGIN_STATE_DIR"), os.Getenv("HERDR_SOCKET_PATH"))
+}
+
+// sessionStateDir is "" when there is nowhere to cache, which disables caching.
+func sessionStateDir() string {
+	if !herdr.UsesApp() {
+		return os.Getenv("HERDR_PLUGIN_STATE_DIR")
+	}
+	dir, err := appStateDir()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 func appStateDir() (string, error) {
@@ -497,6 +510,9 @@ func appStateDir() (string, error) {
 func (a *App) window(ctx context.Context, args []string) error {
 	c := herdr.NewBackend()
 	workspaceID := c.CurrentWorkspaceID(ctx)
+	if workspaceID == "" {
+		return errors.New("window: could not determine the current workspace")
+	}
 	if len(args) == 0 {
 		tabs, err := c.TabList(ctx, workspaceID)
 		if err != nil {
@@ -517,6 +533,7 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 		return errors.New("unknown plugin command")
 	}
 	switch args[0] {
+	// Plugin panes, hooks and the history watcher exist only in the Herdr TUI.
 	case "open-settings":
 		return herdr.NewCLIClient().PluginPaneOpen(ctx, "fullerzz.sesh", "settings", "overlay")
 	case "open-picker":

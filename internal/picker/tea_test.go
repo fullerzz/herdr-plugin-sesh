@@ -28,6 +28,10 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("HERDR_SESH_SMEAR_PRESET", "crisp"); err != nil {
 		panic(err)
 	}
+	// Pane previews must never reach a live herdr-app from a herdr-app terminal.
+	if err := os.Setenv("HERDR_SESH_BACKEND", "herdr"); err != nil {
+		panic(err)
+	}
 	os.Exit(m.Run())
 }
 
