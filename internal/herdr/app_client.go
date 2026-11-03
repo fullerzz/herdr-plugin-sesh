@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,9 +17,12 @@ import (
 // core through `hc`. Workspaces are herdr-app spaces.
 //
 // herdr-app's create commands always focus what they create and cannot set a
-// split's directory or any terminal environment, so AppClient restores the
-// shown tab after unfocused creates and types a cd/export prelude into new
-// terminals.
+// split's directory or any terminal environment. AppClient restores the shown
+// tab after unfocused creates, refocuses the pane a split took focus from, and
+// types a setup line into new terminals. The setup line needs a shell that runs
+// `eval "$(printf '\ooo')"`: sh, bash, zsh, or fish 3.4 and newer.
+//
+// An AppClient is safe for concurrent use.
 type AppClient struct {
 	AppBin, CoreBin string
 	Runner          Runner
@@ -27,7 +31,10 @@ type AppClient struct {
 	PollInterval time.Duration
 	// CallerTerminal is the hc address of the terminal running herdr-sesh.
 	CallerTerminal string
-	terminals      map[string]string // pane ID -> terminal address
+
+	mu        sync.Mutex
+	terminals map[string]string // pane ID -> terminal address
+	setups    map[string]string // terminal address -> its typed setup line
 }
 
 var _ Client = (*AppClient)(nil)
@@ -45,7 +52,6 @@ type appSpace struct {
 	ID     string   `json:"id"`
 	Name   string   `json:"name"`
 	Folder string   `json:"folder"`
-	Status *string  `json:"status"`
 	Tabs   []appTab `json:"tabs"`
 }
 
@@ -56,9 +62,11 @@ type appTab struct {
 	Terminals []appTerminal `json:"terminals"`
 }
 
+// appTerminal's Status is its agent status, null for a plain program.
 type appTerminal struct {
-	Terminal string `json:"terminal"`
-	Pane     string `json:"pane"`
+	Terminal string  `json:"terminal"`
+	Pane     string  `json:"pane"`
+	Status   *string `json:"status"`
 }
 
 type appStatus struct {
@@ -75,8 +83,15 @@ type appCreated struct {
 }
 
 func (c *AppClient) exec(ctx context.Context, bin string, args ...string) ([]byte, error) {
-	if c.Runner == nil {
-		c.Runner = ExecRunner{}
+	return c.execNamed(ctx, bin+" "+strings.Join(args, " "), bin, args...)
+}
+
+// execNamed reports failures as name, so arguments that may hold secrets stay
+// out of error text.
+func (c *AppClient) execNamed(ctx context.Context, name, bin string, args ...string) ([]byte, error) {
+	runner := c.Runner
+	if runner == nil {
+		runner = ExecRunner{}
 	}
 	timeout := c.Timeout
 	if timeout == 0 {
@@ -84,11 +99,10 @@ func (c *AppClient) exec(ctx context.Context, bin string, args ...string) ([]byt
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, stderr, err := c.Runner.Run(ctx, bin, args...)
+	out, stderr, err := runner.Run(ctx, bin, args...)
 	if err == nil {
 		return out, nil
 	}
-	name := bin + " " + strings.Join(args, " ")
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return out, fmt.Errorf("%s: %w", name, ctxErr)
 	}
@@ -181,38 +195,54 @@ func (c *AppClient) remember(pane, terminal string) {
 	if pane == "" || terminal == "" {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.terminals == nil {
 		c.terminals = make(map[string]string)
 	}
 	c.terminals[pane] = terminal
 }
 
+func (c *AppClient) lookupTerminal(pane string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.terminals[pane]
+	return t, ok
+}
+
+func (c *AppClient) lookupPane(terminal string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for pane, t := range c.terminals {
+		if t == terminal {
+			return pane, true
+		}
+	}
+	return "", false
+}
+
 func (c *AppClient) terminal(ctx context.Context, pane string) (string, error) {
-	if t, ok := c.terminals[pane]; ok {
+	if t, ok := c.lookupTerminal(pane); ok {
 		return t, nil
 	}
 	if _, err := c.layout(ctx); err != nil {
 		return "", err
 	}
-	if t, ok := c.terminals[pane]; ok {
+	if t, ok := c.lookupTerminal(pane); ok {
 		return t, nil
 	}
 	return "", fmt.Errorf("herdr-app pane %q has no terminal", pane)
 }
 
 func (c *AppClient) paneOf(ctx context.Context, terminal string) (string, error) {
-	for pane, t := range c.terminals {
-		if t == terminal {
-			return pane, nil
-		}
+	if pane, ok := c.lookupPane(terminal); ok {
+		return pane, nil
 	}
 	if _, err := c.layout(ctx); err != nil {
 		return "", err
 	}
-	for pane, t := range c.terminals {
-		if t == terminal {
-			return pane, nil
-		}
+	if pane, ok := c.lookupPane(terminal); ok {
+		return pane, nil
 	}
 	return "", fmt.Errorf("herdr-app terminal %q has no pane", terminal)
 }
@@ -236,7 +266,10 @@ func (c *AppClient) keepShown(ctx context.Context, focus bool) (func() error, er
 }
 
 // prelude types a directory change and exports into a new terminal, which
-// herdr-app cannot set when it creates one.
+// herdr-app cannot set when it creates one. The terminal echoes what is typed,
+// so the commands go out octal-encoded: neither values nor names appear in the
+// scrollback that PaneWaitOutput searches. The leading space keeps the line out
+// of shell history where the shell ignores space-prefixed commands.
 func (c *AppClient) prelude(ctx context.Context, terminal, cwd string, env map[string]string) error {
 	var parts []string
 	if cwd != "" {
@@ -252,13 +285,32 @@ func (c *AppClient) prelude(ctx context.Context, terminal, cwd string, env map[s
 	if len(parts) == 0 {
 		return nil
 	}
-	_, err := c.exec(ctx, c.CoreBin, "send", terminal, strings.Join(parts, " && "))
+	line := ` eval "$(printf '` + octal(strings.Join(parts, " && ")) + `')"`
+	c.mu.Lock()
+	if c.setups == nil {
+		c.setups = make(map[string]string)
+	}
+	c.setups[terminal] = line
+	c.mu.Unlock()
+	_, err := c.execNamed(ctx, c.CoreBin+" send "+terminal+" <terminal setup>", c.CoreBin, "send", terminal, line)
 	return err
 }
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// octal escapes every byte for printf, so the text survives any quoting.
+func octal(s string) string {
+	var b strings.Builder
+	for i := range len(s) {
+		fmt.Fprintf(&b, `\%03o`, s[i])
+	}
+	return b.String()
+}
+
+// statusRank orders agent statuses by urgency, as herdr-app does for a space.
+var statusRank = map[string]int{"idle": 1, "working": 2, "done": 3, "blocked": 4}
 
 func (c *AppClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	l, err := c.layout(ctx)
@@ -269,10 +321,12 @@ func (c *AppClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	ws := make([]Workspace, 0, len(l.Spaces))
 	for _, s := range l.Spaces {
 		w := Workspace{ID: s.ID, Label: s.Name, CWD: s.Folder}
-		if s.Status != nil {
-			w.AgentStatus = *s.Status
-		}
 		for _, t := range s.Tabs {
+			for _, term := range t.Terminals {
+				if term.Status != nil && statusRank[*term.Status] > statusRank[w.AgentStatus] {
+					w.AgentStatus = *term.Status
+				}
+			}
 			if t.Active {
 				w.ActiveTabID = t.ID
 				if len(t.Terminals) > 0 {
@@ -285,7 +339,7 @@ func (c *AppClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	return ws, nil
 }
 
-func (c *AppClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateRequest) (Workspace, error) {
+func (c *AppClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateRequest) (w Workspace, err error) {
 	restore, err := c.keepShown(ctx, r.Focus)
 	if err != nil {
 		return Workspace{}, err
@@ -294,11 +348,9 @@ func (c *AppClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 	if err := c.do(ctx, "space.new", map[string]any{"name": r.Label, "folder": r.CWD}, &made); err != nil {
 		return Workspace{}, err
 	}
-	w := Workspace{ID: made.Space, Label: r.Label, CWD: r.CWD, ActiveTabID: made.Tab}
-	if err := c.prelude(ctx, made.Terminal, "", r.Env); err != nil {
-		return w, err
-	}
-	return w, restore()
+	defer func() { err = errors.Join(err, restore()) }()
+	w = Workspace{ID: made.Space, Label: r.Label, CWD: r.CWD, ActiveTabID: made.Tab}
+	return w, c.prelude(ctx, made.Terminal, "", r.Env)
 }
 
 func (c *AppClient) WorkspaceFocus(ctx context.Context, id string) error {
@@ -330,7 +382,7 @@ func (c *AppClient) TabList(ctx context.Context, wid string) ([]Tab, error) {
 	return tabs, nil
 }
 
-func (c *AppClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, error) {
+func (c *AppClient) TabCreate(ctx context.Context, r TabCreateRequest) (tab Tab, err error) {
 	restore, err := c.keepShown(ctx, r.Focus)
 	if err != nil {
 		return Tab{}, err
@@ -343,14 +395,12 @@ func (c *AppClient) TabCreate(ctx context.Context, r TabCreateRequest) (Tab, err
 	if err := c.do(ctx, "tab.new", args, &made); err != nil {
 		return Tab{}, err
 	}
-	tab := Tab{ID: made.Tab, WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD}
+	defer func() { err = errors.Join(err, restore()) }()
+	tab = Tab{ID: made.Tab, WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD}
 	if tab.PaneID, err = c.paneOf(ctx, made.Terminal); err != nil {
 		return tab, err
 	}
-	if err := c.prelude(ctx, made.Terminal, "", r.Env); err != nil {
-		return tab, err
-	}
-	return tab, restore()
+	return tab, c.prelude(ctx, made.Terminal, "", r.Env)
 }
 
 func (c *AppClient) TabFocus(ctx context.Context, id string) error {
@@ -394,7 +444,7 @@ func (c *AppClient) PaneCurrent(ctx context.Context) (Pane, error) {
 		return Pane{}, err
 	}
 	for _, p := range panes {
-		if c.terminals[p.ID] == c.CallerTerminal {
+		if t, _ := c.lookupTerminal(p.ID); t == c.CallerTerminal {
 			return p, nil
 		}
 	}
@@ -420,15 +470,27 @@ func (c *AppClient) PaneRun(ctx context.Context, id, cmd string) error {
 	return err
 }
 
-// PaneSplit ignores Ratio: herdr-app splits evenly.
+// PaneSplit ignores Ratio: herdr-app splits evenly. herdr-app focuses the new
+// pane within its tab; when that tab is shown, the pane focused before the split
+// gets focus back. A tab that isn't shown keeps the new pane focused.
 func (c *AppClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, error) {
+	before, err := c.status(ctx)
+	if err != nil {
+		return Pane{}, err
+	}
 	var made appCreated
 	if err := c.do(ctx, "pane.split", map[string]any{"pane": r.PaneID, "direction": r.Direction}, &made); err != nil {
 		return Pane{}, err
 	}
 	c.remember(made.Pane, made.Terminal)
 	p := Pane{ID: made.Pane, CWD: r.CWD}
-	return p, c.prelude(ctx, made.Terminal, r.CWD, r.Env)
+	err = c.prelude(ctx, made.Terminal, r.CWD, r.Env)
+	if after, statusErr := c.status(ctx); statusErr != nil {
+		err = errors.Join(err, statusErr)
+	} else if before.FocusedPane != "" && after.FocusedPane == made.Pane {
+		err = errors.Join(err, c.PaneFocus(ctx, before.FocusedPane))
+	}
+	return p, err
 }
 
 func (c *AppClient) PaneFocus(ctx context.Context, id string) error {
@@ -436,11 +498,18 @@ func (c *AppClient) PaneFocus(ctx context.Context, id string) error {
 }
 
 // PaneWaitOutput polls the terminal's screen and history, so output printed
-// before the call counts.
+// before the call counts. The echoed setup line is part of that history, so a
+// match it contains is refused, like a match in the startup command.
 func (c *AppClient) PaneWaitOutput(ctx context.Context, id, match string, timeout time.Duration) error {
 	t, err := c.terminal(ctx, id)
 	if err != nil {
 		return err
+	}
+	c.mu.Lock()
+	setup := c.setups[t]
+	c.mu.Unlock()
+	if setup != "" && strings.Contains(setup, match) {
+		return fmt.Errorf("terminal %s: wait_for match %q appears in the terminal setup line it echoes", t, match)
 	}
 	interval := c.PollInterval
 	if interval == 0 {
