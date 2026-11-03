@@ -59,7 +59,9 @@ func fzfArgs(opts Options) []string {
 		"--prompt=" + prompt,
 		"--delimiter=\t",
 		"--with-nth=3,4,5",
-		"--nth=3..6",
+		// fzf applies --nth to the --with-nth fields: 2 is the label, which
+		// carries "[machine]" for remote spaces, and 3 is the path.
+		"--nth=2..3",
 		"--preview=" + fzfPreviewCommand(),
 		"--preview-window=right:60%,border-left,wrap",
 		"--header=Enter select  Ctrl-U clear  Esc cancel",
@@ -76,13 +78,14 @@ func fzfInput(items []sessionmodel.Session, separatorAware bool) string {
 	for i, s := range items {
 		_, _ = fmt.Fprintf(
 			&b,
-			"%d\t%s\t%s\t%s\t%s\t%s\n",
+			"%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			i,
 			fzfField(s.Source),
 			fzfSourceBadge(s.Source),
 			fzfField(fzfLabel(s)),
 			fzfField(s.Path),
 			fzfSearchField(s, separatorAware),
+			fzfField(s.Machine),
 		)
 	}
 	return b.String()
@@ -95,6 +98,11 @@ func fzfPreviewCommand() string {
 		`source={2}`,
 		`label={4}`,
 		`item_path={5}`,
+		`machine={7}`,
+		`if [ -n "$machine" ]; then`,
+		`  printf 'session: %s\nmachine: %s\npath: %s\n' "$label" "$machine" "$item_path"`,
+		`  exit 0`,
+		`fi`,
 		`if [ -z "$item_path" ] || [ ! -d "$item_path" ]; then`,
 		`  printf 'No item path available\n'`,
 		`  exit 0`,
@@ -124,10 +132,7 @@ func fzfPreviewCommand() string {
 }
 
 func fzfLabel(s sessionmodel.Session) string {
-	if s.Name != "" {
-		return s.Name
-	}
-	return s.Path
+	return s.DisplayName()
 }
 
 func fzfSourceBadge(source string) string {

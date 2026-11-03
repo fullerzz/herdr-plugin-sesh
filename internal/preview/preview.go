@@ -28,6 +28,9 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 }
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
+	if s.Machine != "" {
+		return remoteSummary(s), nil
+	}
 	if s.Path == "" {
 		if s.WorkspaceID != "" {
 			return fmt.Sprintf("workspace: %s\nid: %s\npath: %s\n", s.Name, s.WorkspaceID, s.Path), nil
@@ -46,6 +49,10 @@ func Render(ctx context.Context, s model.Session, fallbackCommand string) (strin
 		return fmt.Sprintf("workspace: %s\nid: %s\npath: %s\n", s.Name, s.WorkspaceID, s.Path), nil
 	}
 	return directoryFallback(s.Path)
+}
+
+func remoteSummary(s model.Session) string {
+	return fmt.Sprintf("workspace: %s\nmachine: %s\nid: %s\npath: %s\n", s.Name, s.Machine, s.WorkspaceID, s.Path)
 }
 
 func runShell(ctx context.Context, command string) (string, error) {

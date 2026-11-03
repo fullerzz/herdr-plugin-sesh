@@ -21,7 +21,7 @@ func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
 	}
 	var panes []herdr.Pane
 	for _, workspace := range ws {
-		if workspace.ForegroundCWD == "" && workspace.CWD == "" {
+		if workspace.Machine == "" && workspace.ForegroundCWD == "" && workspace.CWD == "" {
 			panes, err = s.Client.PaneList(ctx, "")
 			if err != nil {
 				panes = nil
@@ -33,6 +33,7 @@ func (s HerdrWorkspaces) List(ctx context.Context) (model.Sessions, error) {
 	for _, w := range ws {
 		path := workspacePath(w, panes)
 		out.Add(model.Session{
+			Machine:     w.Machine,
 			Source:      "herdr",
 			Name:        w.Label,
 			Path:        path,
@@ -51,7 +52,8 @@ func worktreeParentsByRepo(workspaces []herdr.Workspace) map[string][]herdr.Work
 		if worktree == nil || worktree.IsLinkedWorktree || worktree.RepoKey == "" {
 			continue
 		}
-		parents[worktree.RepoKey] = append(parents[worktree.RepoKey], workspace)
+		key := workspace.Machine + "\x00" + worktree.RepoKey
+		parents[key] = append(parents[key], workspace)
 	}
 	return parents
 }
@@ -62,7 +64,7 @@ func worktreeRelation(workspace herdr.Workspace, parentsByRepo map[string][]herd
 		return model.WorktreeRelation{}
 	}
 	relation := model.WorktreeRelation{Linked: true}
-	parents := parentsByRepo[worktree.RepoKey]
+	parents := parentsByRepo[workspace.Machine+"\x00"+worktree.RepoKey]
 	if len(parents) != 1 {
 		return relation
 	}
@@ -81,6 +83,9 @@ func workspacePath(w herdr.Workspace, panes []herdr.Pane) string {
 	}
 	if w.CWD != "" {
 		return w.CWD
+	}
+	if w.Machine != "" {
+		return ""
 	}
 	var first string
 	for _, p := range panes {

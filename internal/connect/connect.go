@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -38,6 +39,14 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 		}
 	}
 	if !ok {
+		for _, s := range candidates {
+			if s.Machine != "" && (s.Name == target || s.Path == target) {
+				if s.WorkspaceID == "" {
+					return Result{}, errors.New("remote session requires an existing workspace ID")
+				}
+				return Result{}, fmt.Errorf("%q is a remote space; connect with its workspace ID %q", target, s.WorkspaceID)
+			}
+		}
 		return Result{}, errors.New("no matching session")
 	}
 	if match.WorkspaceID != "" {
@@ -64,7 +73,14 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 
 func Resolve(candidates []model.Session, target string) (model.Session, bool) {
 	for _, s := range candidates {
-		if s.WorkspaceID == target || s.Name == target || s.Path == target {
+		if s.WorkspaceID != "" && s.WorkspaceID == target {
+			return s, true
+		}
+	}
+	// Remote spaces resolve only by qualified ID, so a local name or path
+	// never focuses a space on another machine.
+	for _, s := range candidates {
+		if s.Machine == "" && (s.Name == target || s.Path == target) {
 			return s, true
 		}
 	}

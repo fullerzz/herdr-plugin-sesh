@@ -26,6 +26,7 @@ type Worktree struct {
 }
 
 type Workspace struct {
+	Machine       string    `json:"machine,omitempty"`
 	ID            string    `json:"id"`
 	Label         string    `json:"label"`
 	CWD           string    `json:"cwd"`

@@ -49,10 +49,11 @@ type appLayout struct {
 }
 
 type appSpace struct {
-	ID     string   `json:"id"`
-	Name   string   `json:"name"`
-	Folder string   `json:"folder"`
-	Tabs   []appTab `json:"tabs"`
+	Machine string   `json:"machine"`
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Folder  string   `json:"folder"`
+	Tabs    []appTab `json:"tabs"`
 }
 
 type appTab struct {
@@ -320,7 +321,7 @@ func (c *AppClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	cwds := c.terminalCWDs(ctx)
 	ws := make([]Workspace, 0, len(l.Spaces))
 	for _, s := range l.Spaces {
-		w := Workspace{ID: s.ID, Label: s.Name, CWD: s.Folder}
+		w := Workspace{ID: s.ID, Label: s.Name, CWD: s.Folder, Machine: s.Machine}
 		for _, t := range s.Tabs {
 			for _, term := range t.Terminals {
 				if term.Status != nil && statusRank[*term.Status] > statusRank[w.AgentStatus] {
@@ -329,7 +330,7 @@ func (c *AppClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 			}
 			if t.Active {
 				w.ActiveTabID = t.ID
-				if len(t.Terminals) > 0 {
+				if len(t.Terminals) > 0 && s.Machine == "" {
 					w.ForegroundCWD = cwds[t.Terminals[0].Terminal]
 				}
 			}

@@ -41,7 +41,7 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 		}
 	}
 	out := model.NewSessions()
-	seenName := map[string]bool{}
+	seenName := map[[2]string]bool{}
 	bl := compile(blacklist)
 	for _, name := range ordered {
 		ss := by[name]
@@ -57,10 +57,11 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 				if key == "" {
 					key = sess.Path
 				}
-				if seenName[key] {
+				identity := [2]string{sess.Machine, key}
+				if seenName[identity] {
 					continue
 				}
-				seenName[key] = true
+				seenName[identity] = true
 			}
 			out.Add(sess)
 		}

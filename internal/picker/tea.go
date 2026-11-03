@@ -1139,6 +1139,9 @@ func (m teaModel) lastWorkspaceStatus() (label, path string) {
 				label = compactHome(item.Path)
 			}
 			path = item.Path
+			if item.Machine != "" {
+				label = item.DisplayName()
+			}
 		}
 	}
 	return label, path
@@ -1147,9 +1150,12 @@ func (m teaModel) lastWorkspaceStatus() (label, path string) {
 func (m teaModel) lastWorkspaceText() string {
 	label, path := m.lastWorkspaceStatus()
 	line := sectionStyle.Render("LAST WORKSPACE") + countStyle.Render(" · ") + rowLabelStyle.Render(label)
-	displayPath := compactHome(path)
-	if !m.hideLastWorkspacePath && displayPath != "" && displayPath != label {
-		line += pathStyle.Render("  " + displayPath)
+	shownPath := compactHome(path)
+	if item, ok := m.herdrWorkspaces[m.lastWorkspaceID]; ok && item.Machine != "" {
+		shownPath = path
+	}
+	if !m.hideLastWorkspacePath && shownPath != "" && shownPath != label {
+		line += pathStyle.Render("  " + shownPath)
 	}
 	return line
 }
@@ -1211,6 +1217,9 @@ func (m teaModel) previewTitle() string {
 		return title
 	}
 	label := current.Name
+	if current.Machine != "" {
+		label = current.DisplayName()
+	}
 	if label == "" {
 		label = compactHome(current.Path)
 	}
@@ -1602,6 +1611,9 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 		rail = selectedRail
 	}
 	label := s.Name
+	if s.Machine != "" {
+		label = s.DisplayName()
+	}
 	if label == "" {
 		label = compactHome(s.Path)
 	}
@@ -1625,7 +1637,7 @@ func rowWithRail(s sessionmodel.Session, selected bool, width int, showIcons, re
 	}
 	badge := sessionSourceBadgeStyle(s).Render(fitPlain(badgeText, badgeWidth))
 	remaining := maxInt(1, width-fixedWidth-badgeWidth)
-	path := compactHome(s.Path)
+	path := displayPath(s)
 	if path == label {
 		path = ""
 	}

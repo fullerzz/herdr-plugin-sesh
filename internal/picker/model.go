@@ -32,11 +32,16 @@ func (m *Model) Filter(q string) {
 	homeQuery := strings.EqualFold(q, "home")
 	for _, s := range m.All {
 		nameMatch := Match(s.Name, q, m.SeparatorAware)
-		pathMatch := Match(s.Path, q, m.SeparatorAware) || homeQuery && isHomePath(s.Path)
+		if s.Machine != "" {
+			// The raw "machine name" form lets "buntu26 api" match "[buntu26] api".
+			nameMatch = Match(s.DisplayName(), q, m.SeparatorAware) || Match(s.Machine+" "+s.Name, q, m.SeparatorAware)
+		}
+		home := homeQuery && isLocalHomePath(s)
+		pathMatch := Match(s.Path, q, m.SeparatorAware) || home
 		if !nameMatch && !pathMatch {
 			continue
 		}
-		if homeQuery && isHomePath(s.Path) {
+		if home {
 			if !m.DisableHomePrioritization {
 				homeMatches = append(homeMatches, s)
 			} else {
@@ -109,6 +114,22 @@ func isHomePath(p string) bool {
 	}
 	return strings.EqualFold(cleaned, filepath.Clean(home))
 }
+
+// Home heuristics compare against the local $HOME, so they never apply to
+// remote spaces; a remote "~" stays searchable only by its literal name.
+func isLocalHomePath(s model.Session) bool {
+	return s.Machine == "" && isHomePath(s.Path)
+}
+
 func isHomeSession(s model.Session) bool {
-	return isHomePath(s.Name) || isHomePath(s.Path)
+	return s.Machine == "" && (isHomePath(s.Name) || isHomePath(s.Path))
+}
+
+// displayPath abbreviates local paths only; a remote folder is not under the
+// local $HOME.
+func displayPath(s model.Session) string {
+	if s.Machine != "" {
+		return s.Path
+	}
+	return compactHome(s.Path)
 }

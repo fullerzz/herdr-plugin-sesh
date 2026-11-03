@@ -49,7 +49,7 @@ const appLS = `{"spaces":[
   {"id":"tb1","name":"1","active":false,"terminals":[{"terminal":"t1","pane":"p1","status":"idle"}]},
   {"id":"tb2","name":"2","active":true,"terminals":[{"terminal":"t2","pane":"p2","status":"working"},{"terminal":"t3","pane":"p3","status":null}]}]},
  {"id":"buntu/sp9","name":"web","folder":"/home/z/web","machine":"buntu","tabs":[
-  {"id":"buntu/tb9","name":"1","active":true,"terminals":[{"terminal":"buntu/t9","pane":"p9","status":null}]}]}]}`
+  {"id":"buntu/tb9","name":"1","active":true,"terminals":[{"terminal":"buntu/t9","pane":"buntu/p9","status":null}]}]}]}`
 
 // decodeSetup returns the commands an encoded terminal setup line runs.
 func decodeSetup(t *testing.T, line string) string {
@@ -79,9 +79,36 @@ func TestAppClientListsSpacesAsWorkspaces(t *testing.T) {
 	// herdr-app reports status per terminal; a space shows its most urgent one.
 	want := []Workspace{
 		{ID: "sp1", Label: "api", CWD: "/src/api", ForegroundCWD: "/src/api/cmd", ActiveTabID: "tb2", AgentStatus: "working"},
-		{ID: "buntu/sp9", Label: "web", CWD: "/home/z/web", ActiveTabID: "buntu/tb9"},
+		{ID: "buntu/sp9", Machine: "buntu", Label: "web", CWD: "/home/z/web", ActiveTabID: "buntu/tb9"},
 	}
 	assert.Equal(t, want, got)
+}
+
+func TestAppClientKeepsRemoteFolderAndQualifiedSelection(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{
+		"herdr-app ls": {appLS},
+		"hc ls":        {`{"terminals":[{"address":"buntu/t9","cwd":"/local/wrong"}]}`},
+	})
+	got, err := c.WorkspaceList(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "buntu", got[1].Machine)
+	assert.Empty(t, got[1].ForegroundCWD)
+	assert.Equal(t, "/home/z/web", got[1].CWD)
+	require.NoError(t, c.WorkspaceFocus(context.Background(), got[1].ID))
+	assert.Equal(t, []string{"herdr-app", "do", "space.select", `{"id":"buntu/sp9"}`}, r.calls[len(r.calls)-1])
+}
+
+func TestAppClientReadsRemotePaneThroughQualifiedTerminal(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{
+		"herdr-app ls":     {appLS},
+		"herdr-app status": {`{"space":"sp1","focused_pane":"p2"}`},
+		"hc read":          {"remote terminal output"},
+	})
+	got, err := c.WorkspacePaneRead(context.Background(), "buntu/sp9")
+	require.NoError(t, err)
+	assert.Equal(t, "remote terminal output", got)
+	assert.Equal(t, []string{"hc", "read", "buntu/t9"}, r.calls[len(r.calls)-1])
 }
 
 func TestAppClientUnfocusedWorkspaceCreateRestoresShownTabAndExportsEnv(t *testing.T) {
