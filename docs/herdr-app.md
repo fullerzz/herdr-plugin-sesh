@@ -2,8 +2,9 @@
 
 The [Herdr app](https://herdr.dev) runs mods, not plugins. The `sesh` mod in
 this repository opens the herdr-sesh picker over the app window. The picker
-lists the app's spaces alongside configured sessions and zoxide directories.
-Selecting an entry switches to its space or creates a new one.
+lists the app's local and remote spaces alongside configured sessions and
+zoxide directories. Selecting an existing space switches to it. Configured
+sessions and directories can create new local spaces.
 
 ## Install
 
@@ -53,10 +54,46 @@ herdr-core terminal outside a Herdr pane. The mod forces this mode with
 server. `connect`, `last`, `list`, and `window` follow the same rule. Run
 them from a terminal in the app to act on its spaces.
 
+## Select an existing remote space
+
+Register the remote machine with herdr-core using its SSH target:
+
+```bash
+hc machine add buntu26
+```
+
+`hc` owns machine registration and terminal processes. `herdr-app` owns the
+spaces shown in its window. Sesh reads those spaces from `herdr-app ls`;
+registering a machine does not create a remote space through Sesh.
+
+Open the picker and search for the machine name or space name. Remote entries
+show the machine before the name, for example `[buntu26] api`. Spaces with
+the same name on different machines remain separate entries. Select the
+entry to switch to that existing remote space.
+
+Remote IDs include the machine prefix, for example `buntu26/sp1`. Sesh keeps
+the full ID when selecting a space and recording switch history, so `last`
+can return to the remote space. For an explicit command, use the qualified ID
+reported by `herdr-app ls`:
+
+```bash
+HERDR_SESH_BACKEND=app herdr-sesh connect buntu26/sp1
+```
+
+Remote files stay on the remote machine. Sesh displays the space's recorded
+folder and does not inspect it through the local filesystem or Git. Remote
+command and directory previews show space metadata without running local
+commands or reading local files. Pane preview reads the remote terminal
+through `hc read` with its qualified terminal address. Selecting a remote
+space does not apply local session configuration or run startup commands there.
+
+Configured sessions, zoxide directories, and directory entries still create
+local spaces. Creating remote spaces from configured sessions is not supported.
+
 ## Differences from the Herdr plugin
 
-- Workspaces are spaces. Spaces on other machines are listed under the folder
-  they were made in.
+- Workspaces are spaces. Remote spaces show their machine and the folder
+  they were made in; local spaces can show a terminal's live directory.
 - The app runs no plugin hooks, so workspace history records only switches
   made through herdr-sesh. History lives in
   `$XDG_STATE_HOME/herdr-sesh/herdr-app/` (default `~/.local/state`).

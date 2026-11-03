@@ -27,6 +27,11 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 		return Result{}, errors.New("herdr client required")
 	}
 	match, ok := Resolve(candidates, target)
+	if !ok && remoteNamed(candidates, target) && len(candidates) == 1 {
+		// The picker passes only the selected item; never turn a remote
+		// space's name or folder into a local directory.
+		return Result{}, errors.New("remote session requires an existing workspace ID")
+	}
 	if !ok {
 		if st, err := os.Stat(target); err == nil && st.IsDir() {
 			name := target
@@ -48,6 +53,9 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 		}
 		return Result{Session: match}, nil
 	}
+	if match.Machine != "" {
+		return Result{}, errors.New("remote session requires an existing workspace ID")
+	}
 	initialTab := startup.PlanInitialTab(match)
 	req := herdr.WorkspaceCreateRequest{CWD: match.Path, Label: match.Name, Focus: !opts.NoFocus, Env: initialTab.Env}
 	w, err := client.WorkspaceCreate(ctx, req)
@@ -64,9 +72,25 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 
 func Resolve(candidates []model.Session, target string) (model.Session, bool) {
 	for _, s := range candidates {
-		if s.WorkspaceID == target || s.Name == target || s.Path == target {
+		if s.WorkspaceID != "" && s.WorkspaceID == target {
+			return s, true
+		}
+	}
+	// Remote spaces resolve only by qualified ID, so a local name or path
+	// never focuses a space on another machine.
+	for _, s := range candidates {
+		if s.Machine == "" && (s.Name == target || s.Path == target) {
 			return s, true
 		}
 	}
 	return model.Session{}, false
+}
+
+func remoteNamed(candidates []model.Session, target string) bool {
+	for _, s := range candidates {
+		if s.Machine != "" && s.WorkspaceID == "" && (s.Name == target || s.Path == target) {
+			return true
+		}
+	}
+	return false
 }

@@ -44,3 +44,15 @@ func TestKeyIsStableAndSourceScoped(t *testing.T) {
 	b.Worktree = WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent", ParentWorkspaceName: "parent"}
 	assert.Equal(t, Key(b), Key(a))
 }
+
+func TestRemoteSessionIdentityIncludesMachineAndJSONPreservesIt(t *testing.T) {
+	local := Session{Source: "herdr", Name: "api", Path: "/src/api", WorkspaceID: "sp1"}
+	remote := local
+	remote.Machine = "buntu26"
+	assert.NotEqual(t, Key(local), Key(remote))
+	data, err := json.Marshal(remote)
+	require.NoError(t, err)
+	var decoded Session
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	assert.Equal(t, remote, decoded)
+}

@@ -14,6 +14,7 @@ type WorktreeRelation struct {
 }
 
 type Session struct {
+	Machine               string           `json:"machine,omitempty"`
 	Source                string           `json:"source"`
 	Name                  string           `json:"name"`
 	Path                  string           `json:"path,omitempty"`
@@ -84,8 +85,23 @@ func NewSessions() Sessions {
 
 func Key(s Session) string {
 	base := fmt.Sprintf("%s\x00%s\x00%s\x00%s", s.Source, s.Name, s.Path, s.WorkspaceID)
+	if s.Machine != "" {
+		base += "\x00" + s.Machine
+	}
 	sum := sha256.Sum256([]byte(base))
 	return s.Source + ":" + hex.EncodeToString(sum[:8])
+}
+
+// DisplayName identifies remote sessions without changing their configured name.
+func (s Session) DisplayName() string {
+	name := s.Name
+	if name == "" {
+		name = s.Path
+	}
+	if s.Machine != "" {
+		return "[" + s.Machine + "] " + name
+	}
+	return name
 }
 
 func (ss *Sessions) Add(s Session) string {

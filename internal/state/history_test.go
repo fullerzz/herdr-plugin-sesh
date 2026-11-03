@@ -14,6 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestHistoryPreservesQualifiedRemoteWorkspaceIDs(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, RecordSwitch(dir, "sp1", "buntu26/sp1", 0))
+	got, err := LoadHistory(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"buntu26/sp1", "sp1"}, got.Workspaces)
+	previous, ok := got.PreviousWorkspace("buntu26/sp1")
+	assert.True(t, ok)
+	assert.Equal(t, "sp1", previous)
+}
+
 func TestSessionHistoryDirIsolatesSockets(t *testing.T) {
 	stateDir := t.TempDir()
 	firstDir, err := SessionHistoryDir(stateDir, "/tmp/herdr-a.sock")

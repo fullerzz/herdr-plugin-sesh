@@ -243,10 +243,14 @@ func (a *App) printSessions(sessions []model.Session, jsonOut bool) error {
 	}
 	for _, s := range sessions {
 		var err error
+		name := s.Name
+		if s.Machine != "" {
+			name = s.DisplayName()
+		}
 		if s.Path != "" {
-			_, err = fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, s.Name, s.Path)
+			_, err = fmt.Fprintf(a.Out, "%s	%s	%s\n", s.Source, name, s.Path)
 		} else {
-			_, err = fmt.Fprintf(a.Out, "%s	%s\n", s.Source, s.Name)
+			_, err = fmt.Fprintf(a.Out, "%s	%s\n", s.Source, name)
 		}
 		if err != nil {
 			return err

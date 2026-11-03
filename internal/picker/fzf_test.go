@@ -37,9 +37,9 @@ func TestFZFInputKeepsIndexHiddenAndAddsSeparatorAwareSearch(t *testing.T) {
 func TestFZFInputAddsHomeAliasSearchToken(t *testing.T) {
 	t.Setenv("HOME", "/Users/zach")
 	got := fzfInput([]model.Session{{Source: "herdr", Name: "zach", Path: "/Users/zach"}}, false)
-	require.True(t, strings.HasSuffix(got, "\thome\n"))
+	require.True(t, strings.HasSuffix(got, "\thome\t\n"))
 	args := strings.Join(fzfArgs(Options{}), "\n")
-	assert.Contains(t, args, "--nth=3..6")
+	assert.Contains(t, args, "--nth=2..3")
 }
 
 func TestFZFInputUsesSourceCategoryColors(t *testing.T) {
@@ -81,6 +81,7 @@ func TestFZFPreviewCommandFindsSystemToolsWithMinimalPath(t *testing.T) {
 		"{2}", "zoxide",
 		"{4}", "project",
 		"{5}", project,
+		"{7}", "''",
 	).Replace(fzfPreviewCommand())
 	run := func(t *testing.T, cmd *exec.Cmd) {
 		t.Helper()
