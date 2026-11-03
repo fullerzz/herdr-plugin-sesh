@@ -433,7 +433,7 @@ func (a *App) last(ctx context.Context, _ []string) error {
 	}
 	client := herdr.NewBackend()
 	currentWorkspaceID := client.CurrentWorkspaceID(ctx)
-	history, err := state.LoadHistory(historyDir)
+	history, err := loadLastHistory(ctx, client, historyDir)
 	if err != nil {
 		return err
 	}
@@ -448,6 +448,24 @@ func (a *App) last(ctx context.Context, _ []string) error {
 		a.warnf("could not record workspace history: %v", err)
 	}
 	return nil
+}
+
+// loadLastHistory loads the history `last` picks from. herdr-app has no history
+// watcher to drop spaces closed in its UI, so the app backend prunes history
+// against the live spaces first.
+func loadLastHistory(ctx context.Context, client herdr.Backend, dir string) (state.History, error) {
+	if !herdr.UsesApp() {
+		return state.LoadHistory(dir)
+	}
+	workspaces, err := client.WorkspaceList(ctx)
+	if err != nil {
+		return state.History{}, err
+	}
+	live := make([]string, 0, len(workspaces))
+	for _, w := range workspaces {
+		live = append(live, w.ID)
+	}
+	return state.RetainWorkspaces(dir, live)
 }
 
 // historyRevision captures history before a focus request for RecordSwitch.

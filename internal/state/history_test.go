@@ -466,3 +466,16 @@ func TestRecordUnwatchedSwitchRecordsOriginWhenTargetHeadsHistory(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"B", "C", "A"}, h.Workspaces)
 }
+
+func TestRetainWorkspacesDropsClosedWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, SaveHistory(dir, History{Workspaces: []string{"C", "B", "A"}}))
+
+	h, err := RetainWorkspaces(dir, []string{"A", "C"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C", "A"}, h.Workspaces)
+
+	saved, err := LoadHistory(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C", "A"}, saved.Workspaces)
+}

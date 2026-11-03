@@ -205,20 +205,37 @@ func RemoveWorkspace(dir, workspaceID string) error {
 	if dir == "" || workspaceID == "" {
 		return nil
 	}
-	return withHistoryLock(dir, func() error {
-		h, err := loadHistoryForWrite(dir)
+	_, err := filterWorkspaces(dir, func(id string) bool { return id != workspaceID })
+	return err
+}
+
+// RetainWorkspaces drops every history entry not in live and returns the result.
+func RetainWorkspaces(dir string, live []string) (History, error) {
+	keep := make(map[string]bool, len(live))
+	for _, id := range live {
+		keep[id] = true
+	}
+	return filterWorkspaces(dir, func(id string) bool { return keep[id] })
+}
+
+func filterWorkspaces(dir string, keep func(string) bool) (History, error) {
+	var h History
+	err := withHistoryLock(dir, func() error {
+		var err error
+		h, err = loadHistoryForWrite(dir)
 		if err != nil {
 			return err
 		}
 		workspaces := h.Workspaces[:0]
 		for _, id := range h.Workspaces {
-			if id != workspaceID {
+			if keep(id) {
 				workspaces = append(workspaces, id)
 			}
 		}
 		h.Workspaces = workspaces
 		return writeHistory(dir, h)
 	})
+	return h, err
 }
 
 func withHistoryLock(dir string, fn func() error) (err error) {

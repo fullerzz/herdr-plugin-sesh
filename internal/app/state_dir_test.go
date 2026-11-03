@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,4 +44,34 @@ func TestAppSwitchRecordsOriginWithoutHistoryWatcher(t *testing.T) {
 	h, err := state.LoadHistory(dir)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"B", "C", "A"}, h.Workspaces)
+}
+
+type liveSpaces struct {
+	herdr.Backend
+
+	ids []string
+}
+
+func (l liveSpaces) WorkspaceList(context.Context) ([]herdr.Workspace, error) {
+	workspaces := make([]herdr.Workspace, 0, len(l.ids))
+	for _, id := range l.ids {
+		workspaces = append(workspaces, herdr.Workspace{ID: id})
+	}
+	return workspaces, nil
+}
+
+func TestAppLastSkipsSpacesClosedInTheApp(t *testing.T) {
+	t.Setenv("HERDR_SESH_BACKEND", "app")
+	dir := t.TempDir()
+	require.NoError(t, state.SaveHistory(dir, state.History{Workspaces: []string{"C", "B", "A"}}))
+
+	h, err := loadLastHistory(t.Context(), liveSpaces{ids: []string{"A", "C"}}, dir)
+	require.NoError(t, err)
+	id, ok := h.PreviousWorkspace("C")
+	require.True(t, ok)
+	assert.Equal(t, "A", id)
+
+	saved, err := state.LoadHistory(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C", "A"}, saved.Workspaces)
 }
