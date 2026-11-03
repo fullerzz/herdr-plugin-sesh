@@ -444,7 +444,7 @@ func (a *App) last(ctx context.Context, _ []string) error {
 	if err := client.WorkspaceFocus(ctx, id); err != nil {
 		return err
 	}
-	if err := state.RecordSwitch(historyDir, currentWorkspaceID, id, history.Revision); err != nil {
+	if err := recordSwitch(historyDir, currentWorkspaceID, id, history.Revision); err != nil {
 		a.warnf("could not record workspace history: %v", err)
 	}
 	return nil
@@ -466,7 +466,7 @@ func (a *App) historyRevision() uint64 {
 func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string, revision uint64) {
 	historyDir, err := historyStateDir()
 	if err == nil {
-		err = state.RecordSwitch(historyDir, fromWorkspaceID, toWorkspaceID, revision)
+		err = recordSwitch(historyDir, fromWorkspaceID, toWorkspaceID, revision)
 	}
 	if err != nil {
 		a.warnf("could not record workspace history: %v", err)
@@ -476,6 +476,15 @@ func (a *App) recordWorkspaceSwitch(fromWorkspaceID, toWorkspaceID string, revis
 // historyStateDir and sessionStateDir keep each backend's state apart, so
 // herdr-app space IDs never reach the Herdr plugin's history or cache, even
 // when HERDR_SESH_BACKEND=app runs inside a Herdr pane.
+// recordSwitch defers to the Herdr TUI's history watcher where one runs;
+// herdr-app has none, so every herdr-sesh switch records its origin.
+func recordSwitch(dir, from, to string, revision uint64) error {
+	if herdr.UsesApp() {
+		return state.RecordUnwatchedSwitch(dir, from, to)
+	}
+	return state.RecordSwitch(dir, from, to, revision)
+}
+
 func historyStateDir() (string, error) {
 	if herdr.UsesApp() {
 		return appStateDir()

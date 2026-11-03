@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fullerzz/herdr-plugin-sesh/internal/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,4 +32,14 @@ func TestStateDirsKeepEachBackendApart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "/plugin/state", dir)
 	assert.Equal(t, "/plugin/state", sessionStateDir())
+}
+
+func TestAppSwitchRecordsOriginWithoutHistoryWatcher(t *testing.T) {
+	t.Setenv("HERDR_SESH_BACKEND", "app")
+	dir := t.TempDir()
+	require.NoError(t, state.SaveHistory(dir, state.History{Workspaces: []string{"B", "A"}}))
+	require.NoError(t, recordSwitch(dir, "C", "B", 0))
+	h, err := state.LoadHistory(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"B", "C", "A"}, h.Workspaces)
 }

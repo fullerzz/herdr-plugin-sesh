@@ -184,6 +184,23 @@ func RecordSwitch(dir, fromWorkspaceID, toWorkspaceID string, observedRevision u
 	})
 }
 
+// RecordUnwatchedSwitch records a switch for a Herdr with no history watcher,
+// such as herdr-app. Nothing else records switches made outside herdr-sesh, so
+// the origin is recorded even when toWorkspaceID already heads the history.
+func RecordUnwatchedSwitch(dir, fromWorkspaceID, toWorkspaceID string) error {
+	if dir == "" || toWorkspaceID == "" {
+		return nil
+	}
+	return withHistoryLock(dir, func() error {
+		h, err := loadHistoryForWrite(dir)
+		if err != nil {
+			return err
+		}
+		h.Workspaces = dedupeWorkspaces([]string{toWorkspaceID, fromWorkspaceID}, h.Workspaces)
+		return writeHistory(dir, h)
+	})
+}
+
 func RemoveWorkspace(dir, workspaceID string) error {
 	if dir == "" || workspaceID == "" {
 		return nil
