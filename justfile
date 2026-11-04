@@ -48,12 +48,17 @@ install-plugin: build
     @echo "{{ BOLD + BLUE + BG_BLACK }} Relinking Herdr plugin...{{ NORMAL }}"
     herdr plugin link "$PWD"
 
-# Build the binary and link the sesh mod into the Herdr app's home
+# Build the binary and link the sesh mods into the Herdr app's home
 install-app-mod: build
-    @echo "{{ BOLD + BLUE + BG_BLACK }} Linking Herdr app mod...{{ NORMAL }}"
+    @echo "{{ BOLD + BLUE + BG_BLACK }} Linking Herdr app mods...{{ NORMAL }}"
     mkdir -p "${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods"
-    ln -sfn "$PWD/herdr-app/mods/sesh" "${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/sesh"
-    herdr-app check "${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/sesh"
+    for mod in sesh sesh-last; do \
+        dest="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/$mod"; \
+        if [ -e "$dest" ] && [ ! -L "$dest" ]; then \
+            echo "$dest exists and is not a link; move it aside and run again" >&2; exit 1; \
+        fi; \
+        ln -sfn "$PWD/herdr-app/mods/$mod" "$dest" && herdr-app check "$dest" || exit 1; \
+    done
 
 # Run linters on the codebase
 lint:
@@ -74,6 +79,10 @@ fmt-check:
 test:
     @echo "{{ BOLD + BLUE + BG_BLACK }} Running tests...{{ NORMAL }}"
     gotestsum --format-icons=octicons --format=pkgname -- -race ./...
+
+# Exercise the installed last-space mod in the live app (changes navigation history)
+test-app-last:
+    uv run --frozen python .github/scripts/test-app-last.py
 
 # Run the application benchmark suite
 bench count='1':

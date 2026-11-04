@@ -58,6 +58,8 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		return a.window(ctx, args[1:])
 	case "plugin":
 		return a.plugin(ctx, args[1:])
+	case "app":
+		return appCommand(args[1:])
 	case "config":
 		return a.config(ctx, args[1:])
 	case "picker":
@@ -67,7 +69,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	}
 }
 func (a *App) usage() error {
-	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|config|--version")
+	_, err := fmt.Fprintln(a.Out, "herdr-sesh list|connect|preview|clone|root|last|window|picker|plugin|app|config|--version")
 	return err
 }
 
@@ -574,6 +576,19 @@ func (a *App) plugin(ctx context.Context, args []string) error {
 	default:
 		return errors.New("unknown plugin command")
 	}
+}
+
+// appCommand serves the herdr-app sesh-last mod, as plugin serves Herdr's hooks.
+// It always writes herdr-app history: the mod runs it outside any terminal.
+func appCommand(args []string) error {
+	if len(args) != 3 || args[0] != "record-switch" {
+		return errors.New("usage: herdr-sesh app record-switch FROM TO")
+	}
+	dir, err := appStateDir()
+	if err != nil {
+		return err
+	}
+	return state.RecordUnwatchedSwitch(dir, args[1], args[2])
 }
 
 func (a *App) watchHistory(ctx context.Context) (err error) {

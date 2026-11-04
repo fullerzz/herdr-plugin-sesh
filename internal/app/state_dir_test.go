@@ -75,3 +75,18 @@ func TestAppLastSkipsSpacesClosedInTheApp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"C", "A"}, saved.Workspaces)
 }
+
+func TestAppRecordSwitchWritesAppHistoryUnderAnyBackend(t *testing.T) {
+	t.Setenv("HERDR_SESH_BACKEND", "herdr")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir, err := appStateDir()
+	require.NoError(t, err)
+	require.NoError(t, state.SaveHistory(dir, state.History{Workspaces: []string{"A", "B"}}))
+
+	require.NoError(t, New().Run(t.Context(), []string{"app", "record-switch", "A", "buntu26/sp1"}))
+
+	h, err := state.LoadHistory(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"buntu26/sp1", "A", "B"}, h.Workspaces)
+	assert.Error(t, New().Run(t.Context(), []string{"app", "record-switch", "A"}))
+}
