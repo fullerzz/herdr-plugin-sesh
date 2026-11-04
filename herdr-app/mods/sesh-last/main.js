@@ -73,6 +73,7 @@ export default class SeshLast extends View {
     // Chained so quick switches reach the history in the order they happened.
     this.recording = this.recording
       .then(() => sesh(["app", "record-switch", from, space]))
+      .then(() => { this.warned = false; })
       .catch((e) => {
         if (this.warned) return;
         this.warned = true;

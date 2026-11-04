@@ -66,7 +66,7 @@ history_path /= "herdr-sesh/herdr-app/history.json"
 targets = [space for space in app("ls")["spaces"] if space["id"] != original["space"]]
 assert targets, "Open at least two spaces before running the live test"
 if not any(space["machine"] for space in targets):
-    logger.info("SKIP: no other remote space is open")
+    logger.info("NOTE: no other remote space is open; remote toggling not exercised")
 
 try:
     for cycle in range(2):
