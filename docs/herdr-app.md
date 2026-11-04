@@ -1,7 +1,8 @@
 # Herdr app
 
 The [Herdr app](https://herdr.dev) runs mods, not plugins. The `sesh` mod in
-this repository opens the herdr-sesh picker over the app window. The picker
+this repository opens the herdr-sesh picker over the app window, and the
+`sesh-last` mod switches to the space you were in before. The picker
 lists the app's local and remote spaces alongside configured sessions and
 zoxide directories. Selecting an existing space switches to it. Configured
 sessions and directories can create new local spaces.
@@ -17,14 +18,16 @@ sessions and directories can create new local spaces.
     ln -s "$PWD/bin/herdr-sesh" ~/.local/bin/herdr-sesh
     ```
 
-2. Link the mod into the app's home, `~/.config/herdr-app` unless
+2. Link the mods into the app's home, `~/.config/herdr-app` unless
    `HERDR_APP_HOME` names another. `just install-app-mod` builds the binary and
-   creates this link:
+   creates these links:
 
     ```bash
     mkdir -p ~/.config/herdr-app/mods
     ln -sfn "$PWD/herdr-app/mods/sesh" ~/.config/herdr-app/mods/sesh
+    ln -sfn "$PWD/herdr-app/mods/sesh-last" ~/.config/herdr-app/mods/sesh-last
     herdr-app check ~/.config/herdr-app/mods/sesh
+    herdr-app check ~/.config/herdr-app/mods/sesh-last
     ```
 
     The app writes `gpui-kit.d.ts` and `jsconfig.json` into the linked folder;
@@ -38,6 +41,50 @@ sessions and directories can create new local spaces.
 
     You can also open the picker from a shell with
     `herdr-app do mod.open '{"name":"sesh"}'`.
+
+## Switch to the last space
+
+Bind a key to the `sesh-last` mod in `~/.config/herdr-app/keys.json`, as the
+Herdr plugin's `fullerzz.sesh.last` action is bound in Herdr:
+
+```json
+{ "global": { "cmd-;": "mod.open:sesh-last" } }
+```
+
+The mod runs `herdr-sesh last`, which shows the most recent other space in
+herdr-sesh's history that is still open, and then closes. Pressing the key
+again returns to where you started. If there is nowhere to go back to, the
+app shows a notification.
+
+On its own, that history holds only switches made through herdr-sesh: the
+picker, `connect`, and `last`. To also record spaces you choose in the app
+itself, such as from the sidebar or with `space.select`, put a `sesh-last`
+block in the layout you use. The app's own layouts are read-only, so clone
+one first:
+
+```bash
+herdr-app do layout.clone '{"name":"main","as":"my-layout"}'
+```
+
+Then add a zero-width block to the end of the root's `children` in
+`~/.config/herdr-app/layouts/my-layout.json`:
+
+```json
+{ "id": "sesh-last", "type": "block", "size": { "px": 0 }, "content": { "mod": "sesh-last" } }
+```
+
+The block draws nothing. While the layout shows, it records each space switch
+with `herdr-sesh app record-switch`, so `last` returns to the previous
+space however you left it. A space shown for less than half a second is not
+recorded, so passing through one, or `connect --no-focus` briefly showing the
+space it creates, does not count as being there. Switches made while another
+layout shows, or while the app is closed, are not recorded.
+
+Run `just test-app-last` to exercise the installed mod in the running app. It
+requires this layout block and at least two open spaces. The test navigates
+between existing spaces (including remote ones), checks repeated toggles and
+transient-space suppression, then restores the original space, tab, and focus.
+Its navigation remains in history.
 
 ## How it works
 
@@ -99,7 +146,8 @@ local spaces. Creating remote spaces from configured sessions is not supported.
 - Workspaces are spaces. Remote spaces show their machine and the folder
   they were made in; local spaces can show a terminal's live directory.
 - The app runs no plugin hooks, so workspace history records only switches
-  made through herdr-sesh. History lives in
+  made through herdr-sesh, unless your layout has a
+  [`sesh-last` block](#switch-to-the-last-space). History lives in
   `$XDG_STATE_HOME/herdr-sesh/herdr-app/` (default `~/.local/state`).
   Closing a space outside the picker leaves its ID in history.
 - Layout splits ignore `ratio`; the app splits evenly.

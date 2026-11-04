@@ -98,8 +98,9 @@ security reviews.
 ### Herdr app
 
 The [Herdr app](https://herdr.dev) uses mods instead of plugins. Install the
-`sesh` mod from this repository with `just install-app-mod`, then bind
-`mod.open:sesh` to a key. See [Herdr app](docs/herdr-app.md).
+`sesh` and `sesh-last` mods from this repository with `just install-app-mod`,
+then bind `mod.open:sesh` to open the picker and `mod.open:sesh-last` to switch
+to the last space. See [Herdr app](docs/herdr-app.md).
 
 ## Quick start
 
