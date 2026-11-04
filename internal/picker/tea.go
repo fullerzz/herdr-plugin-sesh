@@ -182,6 +182,7 @@ type ReloadResult struct {
 }
 
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
+	uitheme.DetectHostAppearance(opts.HerdrThemeInherit)
 	configureHerdrTheme(opts.HerdrThemeInherit)
 	var popts []tea.ProgramOption
 	if opts.Output != nil {

@@ -76,24 +76,44 @@ command = "fullerzz.sesh.open-picker"
 `
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
-		name, custom := loadHerdrThemeConfig(path)
-		assert.Equal(t, "catppuccin", name)
-		want := map[string]string{"text": "#cdcdcd"}
-		assert.Equal(t, want, custom)
+		got := loadHerdrThemeConfig(path)
+		assert.Equal(t, "catppuccin", got.Name)
+		assert.Equal(t, map[string]string{"text": "#cdcdcd"}, stringTokens(got.Custom))
+	})
+
+	t.Run("reads auto_switch names and mode override tables", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		content := `
+[theme]
+name = "nord"
+auto_switch = true
+dark_name = "dracula"
+light_name = "one-light"
+
+[theme.custom]
+text = "#cdcdcd"
+
+[theme.custom.light]
+accent = "#123456"
+`
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		got := loadHerdrThemeConfig(path)
+		assert.True(t, got.AutoSwitch)
+		assert.Equal(t, "dracula", got.DarkName)
+		assert.Equal(t, "one-light", got.LightName)
+		assert.Equal(t, map[string]string{"text": "#cdcdcd"}, stringTokens(got.Custom))
+		assert.Equal(t, map[string]string{"accent": "#123456"}, stringTokens(got.Custom["light"]))
 	})
 
 	t.Run("missing file yields empty results", func(t *testing.T) {
-		name, custom := loadHerdrThemeConfig(filepath.Join(t.TempDir(), "absent.toml"))
-		assert.Empty(t, name)
-		assert.Nil(t, custom)
+		assert.Zero(t, loadHerdrThemeConfig(filepath.Join(t.TempDir(), "absent.toml")))
 	})
 
 	t.Run("invalid TOML yields empty results", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "config.toml")
 		require.NoError(t, os.WriteFile(path, []byte("[theme"), 0o600))
-		name, custom := loadHerdrThemeConfig(path)
-		assert.Empty(t, name)
-		assert.Nil(t, custom)
+		assert.Zero(t, loadHerdrThemeConfig(path))
 	})
 }
 
@@ -171,7 +191,7 @@ func TestResolveHerdrThemeTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveHerdrThemeTokens(tt.rawName, tt.custom)
+			got := resolveHerdrThemeTokens(tt.rawName, defaultHerdrTheme, tt.custom)
 			for token, want := range tt.contains {
 				assert.Equal(t, want, got[token])
 			}
@@ -181,6 +201,36 @@ func TestResolveHerdrThemeTokens(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHerdrThemeTokensFollowAutoSwitch(t *testing.T) {
+	theme := herdrThemeConfig{
+		Name:       "nord",
+		AutoSwitch: true,
+		DarkName:   "dracula",
+		LightName:  "one-light",
+		Custom: map[string]any{
+			"text":  "#cdcdcd",
+			"light": map[string]any{"accent": "#123456"},
+			"dark":  map[string]any{"accent": "#654321"},
+		},
+	}
+
+	dark := theme.tokens(true)
+	assert.Equal(t, "#ff5555", dark["red"], "dark appearance uses dark_name")
+	assert.Equal(t, "#654321", dark["accent"], "dark mode overrides apply")
+	assert.Equal(t, "#cdcdcd", dark["text"], "flat overrides apply")
+
+	light := theme.tokens(false)
+	assert.Equal(t, "#e45649", light["red"], "light appearance uses light_name")
+	assert.Equal(t, "#123456", light["accent"], "light mode overrides apply")
+
+	assert.Equal(t, "#1e66f5", herdrThemeConfig{AutoSwitch: true}.tokens(false)["accent"], "unset light_name falls back to catppuccin-latte")
+
+	theme.AutoSwitch = false
+	manual := theme.tokens(false)
+	assert.Equal(t, "#bf616a", manual["red"], "without auto_switch name wins")
+	assert.Equal(t, "#88c0d0", manual["accent"], "mode overrides need auto_switch")
 }
 
 func TestHerdrThemePalettesAreComplete(t *testing.T) {

@@ -93,6 +93,11 @@ With `herdr_theme_inherit = true`, the picker reads Herdr's config from
 `~/.config/herdr/config.toml`. Set `[theme] name` and optional `[theme.custom]`
 colors in **Herdr's config**, not the plugin config.
 
+With Herdr's `[theme] auto_switch = true`, the picker checks the terminal
+background when it opens and uses `light_name` or `dark_name`, plus
+`[theme.custom.light]` or `[theme.custom.dark]`, like Herdr does. When the
+background can't be read, it uses the dark theme.
+
 ??? info "Supported themes and custom colors"
 
     `catppuccin` (default), `catppuccin-latte`, `tokyo-night`, `tokyo-night-day`,
