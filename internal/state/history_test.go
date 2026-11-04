@@ -195,8 +195,8 @@ func TestHistoryMutationTimesOutWaitingForProcessLock(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_UN))
 		locked = false
-		<-done
-		require.FailNow(t, "history mutation remained blocked for two seconds")
+		err := <-done
+		require.FailNow(t, "history mutation remained blocked for two seconds", "result after unlock: %v", err)
 	}
 }
 

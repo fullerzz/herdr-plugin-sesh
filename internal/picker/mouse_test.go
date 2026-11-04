@@ -112,7 +112,9 @@ func TestTeaModelClickUsesLastRenderedFrame(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(output), tea.WithWindowSize(120, 28), tea.WithContext(ctx))
+	// Bubble Tea flushes frames on a ticker. The minimum rate keeps a flush from landing
+	// between the status re-sort and the click, which would replace the clicked frame.
+	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(output), tea.WithWindowSize(120, 28), tea.WithContext(ctx), tea.WithFPS(1))
 	go func() {
 		select {
 		case <-output.initial:
