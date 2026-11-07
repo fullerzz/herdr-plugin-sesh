@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"charm.land/lipgloss/v2"
 	toml "github.com/pelletier/go-toml/v2"
@@ -252,10 +253,12 @@ var herdrThemeAliases = map[string]string{
 var hexColorPattern = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 type herdrThemeConfig struct {
-	Theme struct {
-		Name   string            `toml:"name"`
-		Custom map[string]string `toml:"custom"`
-	} `toml:"theme"`
+	Name       string  `toml:"name"`
+	AutoSwitch bool    `toml:"auto_switch"`
+	DarkName   *string `toml:"dark_name"`
+	LightName  *string `toml:"light_name"`
+	// Custom holds flat token overrides plus optional [light] and [dark] mode tables.
+	Custom map[string]any `toml:"custom"`
 }
 
 func herdrConfigPath() string {
@@ -273,27 +276,86 @@ func herdrConfigPath() string {
 	return filepath.Join(configDir, "herdr", "config.toml")
 }
 
-func loadHerdrThemeConfig(path string) (string, map[string]string) {
+func loadHerdrThemeConfig(path string) herdrThemeConfig {
 	if path == "" {
-		return "", nil
+		return herdrThemeConfig{}
 	}
 	//nolint:gosec // the config path is user-selected by design.
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", nil
+		return herdrThemeConfig{}
 	}
-	var parsed herdrThemeConfig
+	var parsed struct {
+		Theme herdrThemeConfig `toml:"theme"`
+	}
 	if err := toml.Unmarshal(data, &parsed); err != nil {
-		return "", nil
+		return herdrThemeConfig{}
 	}
-	return parsed.Theme.Name, parsed.Theme.Custom
+	return parsed.Theme
+}
+
+// tokens mirrors Herdr's resolve_effective_theme: with auto_switch the host
+// appearance picks dark_name or light_name and its mode overrides.
+func (t herdrThemeConfig) tokens(dark bool) map[string]string {
+	flat := stringTokens(t.Custom)
+	darkName, lightName := siblingHerdrThemeNames(t.Name)
+	if t.DarkName != nil {
+		darkName = *t.DarkName
+	}
+	if t.LightName != nil {
+		lightName = *t.LightName
+	}
+	switch {
+	case !t.AutoSwitch:
+		return resolveHerdrThemeTokens(t.Name, defaultHerdrTheme, flat)
+	case dark:
+		return resolveHerdrThemeTokens(darkName, defaultHerdrTheme, flat, stringTokens(t.Custom["dark"]))
+	default:
+		return resolveHerdrThemeTokens(lightName, "catppuccin-latte", flat, stringTokens(t.Custom["light"]))
+	}
+}
+
+// siblingHerdrThemeNames mirrors Herdr's sibling_theme_names defaults.
+func siblingHerdrThemeNames(name string) (string, string) {
+	if name == "" {
+		name = defaultHerdrTheme
+	}
+	switch herdrThemeAliases[canonicalHerdrThemeName(name)] {
+	case "catppuccin", "catppuccin-latte":
+		return "catppuccin", "catppuccin-latte"
+	case "tokyo-night", "tokyo-night-day":
+		return "tokyo-night", "tokyo-night-day"
+	case "gruvbox", "gruvbox-light":
+		return "gruvbox", "gruvbox-light"
+	case "one-dark", "one-light":
+		return "one-dark", "one-light"
+	case "solarized", "solarized-light":
+		return "solarized", "solarized-light"
+	case "kanagawa", "kanagawa-lotus":
+		return "kanagawa", "kanagawa-lotus"
+	case "rose-pine", "rose-pine-dawn":
+		return "rose-pine", "rose-pine-dawn"
+	default:
+		return name, name
+	}
+}
+
+func stringTokens(table any) map[string]string {
+	values, _ := table.(map[string]any)
+	tokens := map[string]string{}
+	for token, value := range values {
+		if s, ok := value.(string); ok {
+			tokens[token] = s
+		}
+	}
+	return tokens
 }
 
 func ValidHexColor(value string) bool {
 	return hexColorPattern.MatchString(value)
 }
 
-func resolveHerdrThemeTokens(name string, custom map[string]string) map[string]string {
+func resolveHerdrThemeTokens(name, fallback string, overrides ...map[string]string) map[string]string {
 	tokens := map[string]string{}
 	switch key := herdrThemeAliases[canonicalHerdrThemeName(name)]; {
 	case key == "terminal":
@@ -302,15 +364,16 @@ func resolveHerdrThemeTokens(name string, custom map[string]string) map[string]s
 			tokens[token] = value
 		}
 	default:
-		for token, value := range herdrThemePalettes[defaultHerdrTheme] {
+		for token, value := range herdrThemePalettes[fallback] {
 			tokens[token] = value
 		}
 	}
-	for token, value := range custom {
-		if !ValidHexColor(value) {
-			continue
+	for _, custom := range overrides {
+		for token, value := range custom {
+			if ValidHexColor(value) {
+				tokens[token] = value
+			}
 		}
-		tokens[token] = value
 	}
 	return tokens
 }
@@ -321,13 +384,35 @@ func canonicalHerdrThemeName(raw string) string {
 	return strings.ReplaceAll(name, "_", "-")
 }
 
+var (
+	detectOnce sync.Once
+	// hostIsDark defaults to dark like Herdr when the appearance is unknown.
+	hostIsDark = true
+)
+
+// DetectHostAppearance captures auto_switch appearance before Bubble Tea owns
+// stdin, even if inheritance is disabled so settings can enable it later.
+func DetectHostAppearance() {
+	detectHostAppearance(func() bool {
+		// shortcut: OSC 11 luminance, not Herdr's Mode 2031 report; use a mode report when the terminal API supports it.
+		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	})
+}
+
+func detectHostAppearance(query func() bool) {
+	detectOnce.Do(func() {
+		if loadHerdrThemeConfig(herdrConfigPath()).AutoSwitch {
+			hostIsDark = query()
+		}
+	})
+}
+
 func Resolve(inherit bool) Palette {
 	p := Default()
 	if !inherit {
 		return p
 	}
-	name, custom := loadHerdrThemeConfig(herdrConfigPath())
-	for key, value := range resolveHerdrThemeTokens(name, custom) {
+	for key, value := range loadHerdrThemeConfig(herdrConfigPath()).tokens(hostIsDark) {
 		switch key {
 		case "text":
 			p.Text = lipgloss.Color(value)
