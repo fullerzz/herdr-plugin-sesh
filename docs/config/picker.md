@@ -4,6 +4,9 @@ icon: lucide/search
 
 # Picker configuration
 
+The native picker runs in both the Herdr TUI plugin and the Herdr app's `sesh`
+mod. Picker controls and settings are shared; host-specific behavior is noted below.
+
 Use the [Settings editor](../config.md#settings-editor) or edit `config.toml`.
 For example, add these settings to a native file with `version = 1`; if `[picker]`
 already exists, edit its values instead of adding another table:
@@ -93,6 +96,9 @@ With `herdr_theme_inherit = true`, the picker reads Herdr's config from
 `~/.config/herdr/config.toml`. Set `[theme] name` and optional `[theme.custom]`
 colors in **Herdr's config**, not the plugin config.
 
+Both integrations read this Herdr TUI theme configuration. The app mod does
+not read the Herdr app's theme settings.
+
 With Herdr's `[theme] auto_switch = true`, the picker checks the terminal
 background when it opens and uses `light_name` or `dark_name`, plus
 `[theme.custom.light]` or `[theme.custom.dark]`, like Herdr does. When the
@@ -149,18 +155,25 @@ green `✓` (idle), and teal `●` (done). Unknown states have no indicator.
 
 ## Workspace history
 
-The installed plugin automatically tracks switches through the picker, Herdr
-controls, and CLI for `last`, recent sorting, and the footer. History is separate
-per Herdr session; closed workspaces are removed. No extra setup is required.
+The installed Herdr TUI plugin automatically tracks switches through the picker,
+Herdr controls, and CLI for `last`, recent sorting, and the footer. History is
+separate per Herdr session; closed workspaces are removed. No extra setup is required.
 See [Workspace history tracking](../development/workspace-history.md) for storage,
 migration, lifecycle hooks, and reconnect limitations.
 
-!!! warning "Herdr 0.9.0 sidebar navigation"
+The app mods keep separate history and record Sesh switches by default.
+Recording sidebar navigation and other app switches requires a
+[`sesh-last` layout block](../herdr-app.md#switch-to-the-last-space).
+The app does not run the TUI plugin's lifecycle hooks.
+
+!!! warning "Herdr TUI 0.9.0 sidebar navigation"
 
     Sidebar switches can leave history stale. Upgrade the running Herdr server
     to 0.9.1 or newer; see [Previous workspace is unexpected](../troubleshooting.md#previous-workspace-is-unexpected).
 
 ### Sidebar marker
+
+This marker is available only in Herdr TUI. The app mods do not add a sidebar marker.
 
 The plugin reports a `sesh_last` workspace metadata token with the default value `last`
 on the workspace that `last` would switch to. Add `$sesh_last` to Herdr's

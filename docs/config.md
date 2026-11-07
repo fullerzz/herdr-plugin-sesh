@@ -8,6 +8,10 @@ icon: lucide/settings
 keys. Older Sesh files still load with a deprecation warning; see
 [Legacy migration](#legacy-migration).
 
+The Herdr TUI plugin and Herdr app mods share this format and its lookup order.
+The `herdr plugin` commands below apply to the TUI plugin. For app mod setup
+and host-specific limits, see [Herdr app](herdr-app.md).
+
 Configure a workspace once, then select it in the picker to open its named tabs
 and split panes, each with its own working directory, environment, and command.
 Layouts run when a workspace is **created**; reconnecting preserves your running
@@ -23,7 +27,7 @@ terminals.
 
 ## Create your configuration
 
-For a fresh installation, ask Herdr where this plugin keeps its configuration:
+For a fresh Herdr TUI plugin installation, ask Herdr for its managed directory:
 
 ```bash
 herdr plugin config-dir fullerzz.sesh
@@ -34,6 +38,11 @@ check the [lookup order](#configuration-file-lookup) and
 [migration instructions](#legacy-migration) before creating a higher-priority file.
 
 Herdr keeps runtime state in a separate `HERDR_PLUGIN_STATE_DIR` directory.
+
+For the app mods, use `~/.config/herdr-sesh/config.toml` or set
+`HERDR_SESH_CONFIG` to an explicit path. The app does not provide the TUI
+plugin's managed directories. App history uses a
+[separate state directory](herdr-app.md#differences-from-the-herdr-plugin).
 
 ### Add a workspace with a tab
 
@@ -57,11 +66,13 @@ If a native config already exists, add just the `[[tab]]` and `[[workspace]]`
 entries, using unique names; keep its single `version = 1` line. Migrate a
 legacy config before adding native entries.
 
-Open the picker from Herdr:
+Open the picker from Herdr TUI:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-picker
 ```
+
+In the Herdr app, open the [`sesh` mod](herdr-app.md#install) instead.
 
 Search for `my-project` and press ++enter++. A newly created
 workspace receives the named `git` tab and runs `git status` there. Selecting
@@ -76,7 +87,8 @@ and run `"$sesh_bin" config validate`. For splits, continue with the
 
 ## Settings editor
 
-Press **F2** in the native picker (**Ctrl+,** if preview cycling uses F2), or run:
+In either integration, press **F2** in the native picker (**Ctrl+,** if preview
+cycling uses F2). Herdr TUI also provides this plugin action:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-settings
@@ -173,7 +185,7 @@ Picker shortcuts, appearance, sorting, and history are documented in
 
 | Field | Runtime effect |
 | --- | --- |
-| `last_workspace_label` | Default `"last"`. Text for the sidebar's `$sesh_last` marker. An empty string hides the marker. At most 80 characters; control characters and leading or trailing whitespace are rejected. Applies on the next workspace focus or close event. See [Sidebar marker](config/picker.md#sidebar-marker). |
+| `last_workspace_label` | Default `"last"`. Text for the Herdr TUI sidebar's `$sesh_last` marker; does not add a marker to the app. An empty string hides the marker. At most 80 characters; control characters and leading or trailing whitespace are rejected. Applies on the next workspace focus or close event. See [Sidebar marker](config/picker.md#sidebar-marker). |
 
 ### `[workspace_defaults]`
 
