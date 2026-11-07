@@ -144,9 +144,14 @@ may leave a partial workspace; upgrade, then follow [recovery](#reconnecting-and
 
 !!! warning "Do not put secrets in pane environment values"
 
-    In Herdr TUI, values are passed as `--env KEY=VALUE` arguments and may be
-    visible to local users through process inspection, subject to OS permissions. Error redaction
-    does not hide them. Load secrets through shell credential tooling instead.
+    In Herdr TUI, values are passed as `--env KEY=VALUE` arguments. The Herdr
+    app sends octal-encoded setup commands through `hc send`. Octal encoding
+    is reversible. Values in either integration may be visible to local users
+    through process inspection, subject to OS permissions.
+
+    App setup commands may also enter shell history unless the shell ignores
+    commands with a leading space. Error redaction does not prevent these
+    exposures. Load secrets through shell credential tooling instead.
 
 `split_from` copies neither `path` nor `env`; configure each pane separately.
 The first pane is the root and cannot set `split_from`, `split`, or `ratio`.
