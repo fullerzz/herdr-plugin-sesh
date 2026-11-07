@@ -1,3 +1,42 @@
+## v0.17.0 (2026-11-07)
+
+### 🚀 Features
+
+- feat: support remote workspaces in the app picker by @fullerzz in [#175](https://github.com/fullerzz/herdr-plugin-sesh/pull/175) ([60f85d8](https://github.com/fullerzz/herdr-plugin-sesh/commit/60f85d8eb4442ed8d58417029b05d24d1eb69fdf))
+
+- feat: add last-space switching to the Herdr app by @fullerzz in [#177](https://github.com/fullerzz/herdr-plugin-sesh/pull/177) ([d0016bc](https://github.com/fullerzz/herdr-plugin-sesh/commit/d0016bc8a3d194e28faeea1118972848d7a2ca95))
+
+
+
+### 🐛 Bug Fixes
+
+- fix: follow Herdr theme auto_switch by @crierr in [#176](https://github.com/fullerzz/herdr-plugin-sesh/pull/176) ([53f5f0b](https://github.com/fullerzz/herdr-plugin-sesh/commit/53f5f0bbe16d5e8a1d2b5df261f25b0bd16dc471))
+
+
+
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#165](https://github.com/fullerzz/herdr-plugin-sesh/pull/165) ([85541f7](https://github.com/fullerzz/herdr-plugin-sesh/commit/85541f7c2dcbaa7c1bdbf78abe5b4f6b2c23262e))
+
+- chore(deps): update mise tools by @renovate[bot] in [#156](https://github.com/fullerzz/herdr-plugin-sesh/pull/156) ([3d00328](https://github.com/fullerzz/herdr-plugin-sesh/commit/3d003285a5691148c1e07d22d332c833b68b3f34))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#178](https://github.com/fullerzz/herdr-plugin-sesh/pull/178) ([3c08840](https://github.com/fullerzz/herdr-plugin-sesh/commit/3c08840c96191b08d88572d21866f00c9d4d60d0))
+
+- fix(go-deps): update module charm.land/bubbletea/v2 to v2.1.1 by @renovate[bot] in [#166](https://github.com/fullerzz/herdr-plugin-sesh/pull/166) ([b984db5](https://github.com/fullerzz/herdr-plugin-sesh/commit/b984db58e55c2c2adb09fe0d68fae8dd0b943d21))
+
+
+
+### 📚 Documentation
+
+- docs: distinguish Herdr TUI plugin and app mods by @fullerzz in [#180](https://github.com/fullerzz/herdr-plugin-sesh/pull/180) ([e57db30](https://github.com/fullerzz/herdr-plugin-sesh/commit/e57db30966b960c179cf293790a43ad000472694))
+
+
+
+
+### New Contributors
+
+* @crierr made their first contribution in [#176](https://github.com/fullerzz/herdr-plugin-sesh/pull/176)
+
 ## v0.16.0 (2026-11-03)
 
 ### 🚀 Features
