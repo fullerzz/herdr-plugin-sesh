@@ -97,6 +97,13 @@ With Herdr's `[theme] auto_switch = true`, the picker checks the terminal
 background when it opens and uses `light_name` or `dark_name`, plus
 `[theme.custom.light]` or `[theme.custom.dark]`, like Herdr does. When the
 background can't be read, it uses the dark theme.
+Omitted mode names are derived from `name`: for example, `tokyo-night` uses
+`tokyo-night` in dark terminals and `tokyo-night-day` in light terminals.
+Themes without a sibling, such as `nord`, use the same theme in both modes.
+Explicit empty or unknown mode names use the default for that mode:
+`catppuccin` for dark and `catppuccin-latte` for light.
+The startup appearance is captured even when inheritance is disabled, so
+enabling it in settings uses that appearance without querying the terminal again.
 
 ??? info "Supported themes and custom colors"
 

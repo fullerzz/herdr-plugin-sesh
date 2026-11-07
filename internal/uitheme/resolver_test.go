@@ -3,8 +3,10 @@ package uitheme
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,8 +102,8 @@ accent = "#123456"
 
 		got := loadHerdrThemeConfig(path)
 		assert.True(t, got.AutoSwitch)
-		assert.Equal(t, "dracula", got.DarkName)
-		assert.Equal(t, "one-light", got.LightName)
+		assert.Equal(t, new("dracula"), got.DarkName)
+		assert.Equal(t, new("one-light"), got.LightName)
 		assert.Equal(t, map[string]string{"text": "#cdcdcd"}, stringTokens(got.Custom))
 		assert.Equal(t, map[string]string{"accent": "#123456"}, stringTokens(got.Custom["light"]))
 	})
@@ -207,8 +209,8 @@ func TestHerdrThemeTokensFollowAutoSwitch(t *testing.T) {
 	theme := herdrThemeConfig{
 		Name:       "nord",
 		AutoSwitch: true,
-		DarkName:   "dracula",
-		LightName:  "one-light",
+		DarkName:   new("dracula"),
+		LightName:  new("one-light"),
 		Custom: map[string]any{
 			"text":  "#cdcdcd",
 			"light": map[string]any{"accent": "#123456"},
@@ -231,6 +233,106 @@ func TestHerdrThemeTokensFollowAutoSwitch(t *testing.T) {
 	manual := theme.tokens(false)
 	assert.Equal(t, "#bf616a", manual["red"], "without auto_switch name wins")
 	assert.Equal(t, "#88c0d0", manual["accent"], "mode overrides need auto_switch")
+}
+
+func TestHerdrThemeTokensDeriveModeNames(t *testing.T) {
+	tests := []struct {
+		name, dark, light string
+	}{
+		{"", "catppuccin", "catppuccin-latte"},
+		{"catppuccin", "catppuccin", "catppuccin-latte"},
+		{"latte", "catppuccin", "catppuccin-latte"},
+		{"tokyo-night", "tokyo-night", "tokyo-night-day"},
+		{"Tokyo Night Day", "tokyo-night", "tokyo-night-day"},
+		{"nord", "nord", "nord"},
+		{"dracula", "dracula", "dracula"},
+		{"vesper", "vesper", "vesper"},
+		{"terminal", "terminal", "terminal"},
+		{"gruvbox-light", "gruvbox", "gruvbox-light"},
+		{"onelight", "one-dark", "one-light"},
+		{"solarized-dark", "solarized", "solarized-light"},
+		{"lotus", "kanagawa", "kanagawa-lotus"},
+		{"rosepine_dawn", "rose-pine", "rose-pine-dawn"},
+		{"not-a-theme", "catppuccin", "catppuccin-latte"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			theme := herdrThemeConfig{Name: tt.name, AutoSwitch: true}
+			assert.Equal(t, resolveHerdrThemeTokens(tt.dark, defaultHerdrTheme), theme.tokens(true))
+			assert.Equal(t, resolveHerdrThemeTokens(tt.light, "catppuccin-latte"), theme.tokens(false))
+
+			theme.DarkName = new("dracula")
+			assert.Equal(t, herdrThemePalettes["dracula"], theme.tokens(true))
+			assert.Equal(t, resolveHerdrThemeTokens(tt.light, "catppuccin-latte"), theme.tokens(false))
+			theme.DarkName = nil
+			theme.LightName = new("one-light")
+			assert.Equal(t, resolveHerdrThemeTokens(tt.dark, defaultHerdrTheme), theme.tokens(true))
+			assert.Equal(t, herdrThemePalettes["one-light"], theme.tokens(false))
+		})
+	}
+}
+
+func TestHerdrThemeTokensPreserveFallbacksAndOverrides(t *testing.T) {
+	theme := herdrThemeConfig{
+		Name: "tokyo-night", AutoSwitch: true,
+		DarkName: new("invalid-dark"), LightName: new("invalid-light"),
+	}
+	assert.Equal(t, herdrThemePalettes["catppuccin"], theme.tokens(true))
+	assert.Equal(t, herdrThemePalettes["catppuccin-latte"], theme.tokens(false))
+
+	theme.DarkName, theme.LightName = nil, nil
+	theme.Custom = map[string]any{
+		"accent": "#111111",
+		"text":   "#222222",
+		"dark":   map[string]any{"accent": "#333333", "text": "invalid"},
+		"light":  map[string]any{"accent": "#444444", "text": "invalid"},
+	}
+	assert.Equal(t, "#333333", theme.tokens(true)["accent"])
+	assert.Equal(t, "#444444", theme.tokens(false)["accent"])
+	assert.Equal(t, "#222222", theme.tokens(true)["text"])
+	assert.Equal(t, "#222222", theme.tokens(false)["text"])
+	assert.Equal(t, "#f7768e", theme.tokens(true)["red"])
+	assert.Equal(t, "#f52a65", theme.tokens(false)["red"])
+}
+
+func TestHerdrThemeExplicitEmptyModeNamesUseFallbacks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[theme]
+name = "tokyo-night"
+auto_switch = true
+dark_name = ""
+light_name = ""
+`), 0o600))
+	theme := loadHerdrThemeConfig(path)
+	assert.Equal(t, herdrThemePalettes["catppuccin"], theme.tokens(true))
+	assert.Equal(t, herdrThemePalettes["catppuccin-latte"], theme.tokens(false))
+}
+
+func TestHostAppearanceIsCachedBeforeInheritanceIsEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[theme]\nname = \"tokyo-night\"\nauto_switch = true\n"), 0o600))
+	t.Setenv("HERDR_CONFIG_PATH", path)
+	detectOnce = sync.Once{}
+	hostIsDark = true
+	t.Cleanup(func() {
+		detectOnce = sync.Once{}
+		hostIsDark = true
+	})
+
+	queries := 0
+	detectHostAppearance(func() bool {
+		queries++
+		return false
+	})
+	assert.Equal(t, Default(), Resolve(false), "inheritance starts disabled")
+	assert.Equal(t, lipgloss.Color("#3760bf"), Resolve(true).Text, "enabling inheritance uses the captured light appearance")
+	detectHostAppearance(func() bool {
+		queries++
+		return true
+	})
+	assert.Equal(t, 1, queries, "embedded settings must not query while Bubble Tea owns stdin")
+	assert.Equal(t, lipgloss.Color("#3760bf"), Resolve(true).Text)
 }
 
 func TestHerdrThemePalettesAreComplete(t *testing.T) {

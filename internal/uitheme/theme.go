@@ -253,10 +253,10 @@ var herdrThemeAliases = map[string]string{
 var hexColorPattern = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 type herdrThemeConfig struct {
-	Name       string `toml:"name"`
-	AutoSwitch bool   `toml:"auto_switch"`
-	DarkName   string `toml:"dark_name"`
-	LightName  string `toml:"light_name"`
+	Name       string  `toml:"name"`
+	AutoSwitch bool    `toml:"auto_switch"`
+	DarkName   *string `toml:"dark_name"`
+	LightName  *string `toml:"light_name"`
 	// Custom holds flat token overrides plus optional [light] and [dark] mode tables.
 	Custom map[string]any `toml:"custom"`
 }
@@ -298,13 +298,45 @@ func loadHerdrThemeConfig(path string) herdrThemeConfig {
 // appearance picks dark_name or light_name and its mode overrides.
 func (t herdrThemeConfig) tokens(dark bool) map[string]string {
 	flat := stringTokens(t.Custom)
+	darkName, lightName := siblingHerdrThemeNames(t.Name)
+	if t.DarkName != nil {
+		darkName = *t.DarkName
+	}
+	if t.LightName != nil {
+		lightName = *t.LightName
+	}
 	switch {
 	case !t.AutoSwitch:
 		return resolveHerdrThemeTokens(t.Name, defaultHerdrTheme, flat)
 	case dark:
-		return resolveHerdrThemeTokens(t.DarkName, defaultHerdrTheme, flat, stringTokens(t.Custom["dark"]))
+		return resolveHerdrThemeTokens(darkName, defaultHerdrTheme, flat, stringTokens(t.Custom["dark"]))
 	default:
-		return resolveHerdrThemeTokens(t.LightName, "catppuccin-latte", flat, stringTokens(t.Custom["light"]))
+		return resolveHerdrThemeTokens(lightName, "catppuccin-latte", flat, stringTokens(t.Custom["light"]))
+	}
+}
+
+// siblingHerdrThemeNames mirrors Herdr's sibling_theme_names defaults.
+func siblingHerdrThemeNames(name string) (string, string) {
+	if name == "" {
+		name = defaultHerdrTheme
+	}
+	switch herdrThemeAliases[canonicalHerdrThemeName(name)] {
+	case "catppuccin", "catppuccin-latte":
+		return "catppuccin", "catppuccin-latte"
+	case "tokyo-night", "tokyo-night-day":
+		return "tokyo-night", "tokyo-night-day"
+	case "gruvbox", "gruvbox-light":
+		return "gruvbox", "gruvbox-light"
+	case "one-dark", "one-light":
+		return "one-dark", "one-light"
+	case "solarized", "solarized-light":
+		return "solarized", "solarized-light"
+	case "kanagawa", "kanagawa-lotus":
+		return "kanagawa", "kanagawa-lotus"
+	case "rose-pine", "rose-pine-dawn":
+		return "rose-pine", "rose-pine-dawn"
+	default:
+		return name, name
 	}
 }
 
@@ -358,14 +390,19 @@ var (
 	hostIsDark = true
 )
 
-// DetectHostAppearance queries the terminal background once per process when
-// the inherited Herdr theme uses auto_switch. Call it before a Bubble Tea
-// program owns stdin; later calls are no-ops.
-func DetectHostAppearance(inherit bool) {
+// DetectHostAppearance captures auto_switch appearance before Bubble Tea owns
+// stdin, even if inheritance is disabled so settings can enable it later.
+func DetectHostAppearance() {
+	detectHostAppearance(func() bool {
+		// shortcut: OSC 11 luminance, not Herdr's Mode 2031 report; use a mode report when the terminal API supports it.
+		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	})
+}
+
+func detectHostAppearance(query func() bool) {
 	detectOnce.Do(func() {
-		if inherit && loadHerdrThemeConfig(herdrConfigPath()).AutoSwitch {
-			// shortcut: OSC 11 luminance, not Herdr's Mode 2031 report; they differ only if the host's reported scheme disagrees with its background.
-			hostIsDark = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+		if loadHerdrThemeConfig(herdrConfigPath()).AutoSwitch {
+			hostIsDark = query()
 		}
 	})
 }

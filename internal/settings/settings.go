@@ -73,7 +73,7 @@ type Model struct {
 func Open(opts config.LoadOptions, onSaved func(string) error) (Model, error) {
 	doc, err := config.OpenSettings(opts)
 	if err == nil {
-		uitheme.DetectHostAppearance(doc.Config.TUI.HerdrThemeInherit)
+		uitheme.DetectHostAppearance()
 		m := newModel(doc)
 		m.opts = opts
 		m.onSaved = onSaved
