@@ -4,6 +4,10 @@ icon: lucide/wrench
 
 # Troubleshooting
 
+The `herdr plugin` commands on this page apply to the **Herdr TUI plugin**.
+For **Herdr app mods**, check the [app setup](herdr-app.md#install), the binary's
+login-shell `PATH`, and the [backend selection](commands.md#choose-the-herdr-backend).
+
 ## Check installation and logs
 
 ```bash
@@ -19,10 +23,17 @@ release. For direct binary commands below, first follow the
 
 ## A workspace is missing
 
+Remote spaces are available only through the Herdr app integration. If you
+expect a remote entry, use the app's `sesh` mod or run commands with
+`HERDR_SESH_BACKEND=app`, and confirm the space appears in `herdr-app ls`.
+Registering a machine alone does not create a space. See
+[remote space selection](herdr-app.md#select-an-existing-remote-space).
+
 - Clear the filter with ++ctrl+u++. Name and path matching can place results
   in different groups.
-- Confirm you are in the intended Herdr session. Its socket determines which
-  running workspaces are visible.
+- Confirm you are targeting the intended host. In Herdr TUI, the session's
+  socket determines which running workspaces are visible. The app backend
+  lists the app's spaces.
 - Run `"$sesh_bin" list --json` and check the active config with
   `"$sesh_bin" config path`.
 - Check `list.blacklist` and deduplication with `list --blacklisted` and
@@ -92,7 +103,11 @@ the cursor trail. See [cursor settings](config/picker.md#cursor-and-status-indic
 
 ## Previous workspace is unexpected
 
-History is scoped to the Herdr session and automatically removes closed
+In the Herdr app, switches outside Sesh require a
+[`sesh-last` layout block](herdr-app.md#switch-to-the-last-space). The TUI
+plugin's lifecycle watcher and the server upgrade below do not apply to the app.
+
+In Herdr TUI, history is scoped to the session and automatically removes closed
 workspaces. Use the installed `fullerzz.sesh.last` action to retain Herdr's
 plugin environment. Check logs if lifecycle tracking stops; a subsequent
 lifecycle hook can restart the watcher. Hiding the footer does not disable
@@ -104,7 +119,8 @@ events. See [history behavior](config/picker.md#workspace-history) and the
 
 ## Report a reproducible problem
 
-Include the Herdr and plugin versions, OS, native/fzf picker choice, the exact
+State whether you use the Herdr TUI plugin or the Herdr app mods. Include the
+host and herdr-sesh versions, OS, native/fzf picker choice, the exact
 action or command, expected and actual behavior, and relevant log errors.
 Share a minimal config that reproduces the issue, removing private paths and
 commands as needed. A screenshot is useful for layout problems; include terminal

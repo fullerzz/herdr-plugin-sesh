@@ -9,6 +9,10 @@ tags:
 
 # Workspace history tracking
 
+This page describes the **Herdr TUI plugin's** lifecycle hooks and subscriber.
+The Herdr app mods use separate history and a layout block instead. See
+[app last-space tracking](../herdr-app.md#switch-to-the-last-space).
+
 The `last-workspace-tracking` implementation keeps `herdr-sesh last` and the
 picker's previous-workspace marker accurate when focus changes outside the
 plugin. Herdr lifecycle hooks elect one long-lived subscriber per socket, and

@@ -4,6 +4,11 @@ icon: lucide/keyboard
 
 # Keybindings
 
+The native picker and settings controls work in both integrations.
+[Herdr actions](#herdr-actions) below apply to the **Herdr TUI plugin**.
+For **Herdr app mod** bindings in `keys.json`, see the
+[app picker](herdr-app.md#install) and [last-space setup](herdr-app.md#switch-to-the-last-space).
+
 ## Native picker controls
 
 | Key | Action |
@@ -112,10 +117,12 @@ herdr plugin pane open --plugin fullerzz.sesh --entrypoint picker --placement ov
 | Y in save review | Confirm writing the reviewed changes. |
 | Esc | Cancel the current edit, close review, or return; confirm before discarding unsaved changes. |
 
-Open settings directly with:
+In Herdr TUI, open settings directly with:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-settings
 ```
+
+In the Herdr app, use the picker's settings shortcut or run `herdr-sesh config edit`.
 
 See [Settings editor](config.md#settings-editor) for file handling and migration.

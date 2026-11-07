@@ -1,11 +1,20 @@
 # Herdr app
 
+This page covers the **herdr-app mods** for the desktop app. The
+[Herdr TUI plugin](index.md#choose-your-herdr-integration) has separate
+installation, keybindings, and history tracking.
+
 The [Herdr app](https://herdr.dev) runs mods, not plugins. The `sesh` mod in
 this repository opens the herdr-sesh picker over the app window, and the
 `sesh-last` mod switches to the space you were in before. The picker
 lists the app's local and remote spaces alongside configured sessions and
 zoxide directories. Selecting an existing space switches to it. Configured
 sessions and directories can create new local spaces.
+
+Remote workspace support is available only with the app integration, including
+direct CLI commands targeting the app backend. The Herdr TUI plugin cannot
+list or select the app's remote spaces. Sesh cannot create remote spaces from
+configured sessions.
 
 ## Install
 
@@ -41,6 +50,12 @@ sessions and directories can create new local spaces.
 
     You can also open the picker from a shell with
     `herdr-app do mod.open '{"name":"sesh"}'`.
+
+The mods use the shared [Sesh configuration](config.md#configuration-file-lookup).
+Use `~/.config/herdr-sesh/config.toml` or set `HERDR_SESH_CONFIG` to an explicit
+path. The app does not provide the TUI plugin's managed config directory.
+Use the picker's [settings shortcut](keybindings.md#native-picker-controls)
+or run `herdr-sesh config edit` to edit settings.
 
 ## Switch to the last space
 
@@ -134,14 +149,23 @@ commands or reading local files. Pane preview reads the remote terminal
 through `hc read` with its qualified terminal address. Selecting a remote
 space does not apply local session configuration or run startup commands there.
 
-For CLI previews, use `herdr-sesh preview buntu26/sp1` with the qualified
-workspace ID. Bare names and paths resolve locally, including the fallback
-that previews a local directory; they do not select a remote namesake.
+For CLI previews, select the app backend and use the qualified workspace ID:
+
+```bash
+HERDR_SESH_BACKEND=app herdr-sesh preview buntu26/sp1
+```
+
+Bare names and paths resolve locally, including the fallback that previews a
+local directory; they do not select a remote namesake.
 
 Configured sessions, zoxide directories, and directory entries still create
 local spaces. Creating remote spaces from configured sessions is not supported.
 
 ## Differences from the Herdr plugin
+
+These differences apply when using the app mods or CLI commands with
+`HERDR_SESH_BACKEND=app`. See the
+[integration comparison](index.md#choose-your-herdr-integration) for an overview.
 
 - Workspaces are spaces. Remote spaces show their machine and the folder
   they were made in; local spaces can show a terminal's live directory.

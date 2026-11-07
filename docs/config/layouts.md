@@ -11,6 +11,14 @@ discovered project. See [Configuration](../config.md) for file setup and lookup.
 For one named tab without pane splits, start with the
 [small workspace example](../config.md#add-a-workspace-with-a-tab).
 
+!!! note "Herdr TUI and Herdr app layouts"
+
+    Both integrations use these definitions to create local workspaces.
+    The walkthrough's proportions and focus behavior describe Herdr TUI.
+    The app splits evenly, ignores `ratio`, and has different focus behavior
+    during creation. See [app layout differences](../herdr-app.md#differences-from-the-herdr-plugin).
+    Configured layouts cannot create remote spaces.
+
 ## Pane layout walkthrough
 
 The following complete native configuration creates an editor on the left,
@@ -57,11 +65,13 @@ tabs = ["development"]
 ```
 
 The `tabs` list activates the layout; defining a tab alone does not create it.
-Open the picker from the intended Herdr session:
+Open the picker from the intended Herdr TUI session:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-picker
 ```
+
+In the Herdr app, open the [`sesh` mod](../herdr-app.md#install) instead.
 
 Select `my-project`, which must not already be open. The new workspace opens on
 Herdr's initial tab; select `development` to see the layout with the editor
@@ -114,7 +124,7 @@ paths resolve against the tab directory: a tab `path = "frontend"` would make
 
 ## `[[tab.pane]]`
 
-Layouts require Herdr 0.8.2 or newer, as enforced by the plugin manifest.
+Herdr TUI layouts require Herdr 0.8.2 or newer, as enforced by the plugin manifest.
 Direct CLI use has no version preflight: check `herdr --version`. An older binary
 may leave a partial workspace; upgrade, then follow [recovery](#reconnecting-and-recovering-a-partial-layout).
 
@@ -125,29 +135,30 @@ may leave a partial workspace; upgrade, then follow [recovery](#reconnecting-and
 | `name` | Pane name referenced by later `split_from` values. Must be non-empty and unique within the tab. |
 | `split_from` | Earlier pane to split. Required for every pane after the first; forward and self references are rejected. |
 | `split` | `"right"` or `"down"`. Required for every pane after the first. |
-| `ratio` | Optional share of the split given to the new pane, from `0.1` to `0.9`. Without it, Herdr splits evenly. |
+| `ratio` | Optional share of the split given to the new pane, from `0.1` to `0.9` in Herdr TUI. Without it, the TUI splits evenly. The app always splits evenly and ignores this field. |
 | `path` | Optional working directory. Without it, the tab path is used; relative paths resolve against the tab path and `~/` is expanded. |
-| `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values cannot contain NUL bytes. Values pass as arguments, not through a shell. Shell startup files can override them. |
+| `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values cannot contain NUL bytes. Herdr TUI passes values as arguments; the app sends [shell setup commands](../herdr-app.md#differences-from-the-herdr-plugin). Shell startup files can override them. |
 | `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
 | `wait_for` | Optional readiness check: `{ match = "...", timeout_ms = 15000 }`. Requires `startup`. See [Waiting for a pane to become ready](#waiting-for-a-pane-to-become-ready). |
 | `focus` | Optional `true` to focus this pane once a new workspace's layout is built. See [Choosing the focused pane](#choosing-the-focused-pane). |
 
 !!! warning "Do not put secrets in pane environment values"
 
-    Values are passed as `--env KEY=VALUE` arguments and may be visible to local
-    users through process inspection, subject to OS permissions. Error redaction
+    In Herdr TUI, values are passed as `--env KEY=VALUE` arguments and may be
+    visible to local users through process inspection, subject to OS permissions. Error redaction
     does not hide them. Load secrets through shell credential tooling instead.
 
 `split_from` copies neither `path` nor `env`; configure each pane separately.
 The first pane is the root and cannot set `split_from`, `split`, or `ratio`.
 Its `path` and `env` apply at tab creation (or workspace creation when reusing
-the initial tab). Later panes split in declaration order without taking focus.
+the initial tab). In Herdr TUI, later panes split in declaration order without
+taking focus.
 
 ## Initial tab behavior
 
-Herdr creates an initial tab. With configured tabs, reuse and focus follow this
-table; picker selection uses the normal column, while `connect --no-focus`
-creates the workspace in the background:
+Herdr creates an initial tab. In Herdr TUI, reuse and focus follow this table
+when tabs are configured. Picker selection uses the normal column, while
+`connect --no-focus` creates the workspace in the background:
 
 | Workspace startup | First tab's root pane | Reuse initial tab? | Active tab: normal / `--no-focus` |
 | --- | --- | --- | --- |
@@ -208,15 +219,21 @@ list may reach only one marked pane: config load rejects two markers in one
 tab, two marked tabs in one list, or a marked tab listed twice. Several lists
 can share the same marked tab.
 
-`connect --no-focus` ignores the marker and keeps your current focus. The
-marker applies only when the layout completes; reconnecting to an open
-workspace never reapplies the marker. Startup commands can still change a
-pane's directory after creation; reconnect by name or ID if that happens.
+`connect --no-focus` ignores the marker. It keeps your current focus in Herdr
+TUI; the app restores the previously shown tab after creation. The marker
+applies only when the layout completes; reconnecting to an open workspace
+never reapplies the marker. Startup commands can still change a pane's
+directory after creation; reconnect by name or ID if that happens.
 
-Focus uses Herdr's `pane.focus` socket API through `HERDR_SOCKET_PATH`, which
-Herdr sets for the picker, plugin actions, and its panes. Run direct CLI
-commands from a Herdr pane to use explicit focus. If the socket is unavailable
-or focus fails, the command reports a warning and keeps the completed layout.
+In Herdr TUI, focus uses the `pane.focus` socket API through
+`HERDR_SOCKET_PATH`, which Herdr sets for the picker, plugin actions, and its
+panes. Run direct CLI commands from a Herdr TUI pane to use explicit focus.
+
+In the Herdr app, focus uses the app's `pane.focus` command and does not require
+`HERDR_SOCKET_PATH`. For direct CLI use, select the app backend with
+`HERDR_SESH_BACKEND=app`; see [backend selection](../commands.md#choose-the-herdr-backend).
+
+If focus fails, the command reports a warning and keeps the completed layout.
 Connect still succeeds and records the workspace switch in history.
 
 ## Waiting for a pane to become ready
@@ -258,7 +275,9 @@ Timeout, wait failure, or interruption stops later panes, commands, and tabs;
 errors identify the workspace, tab, pane, and failed check. Running processes
 are kept; use [recovery](#reconnecting-and-recovering-a-partial-layout).
 `wait_for` is a one-time startup barrier, not health monitoring or automatic
-restart. It uses `herdr pane wait-output`, supported since Herdr 0.8.2.
+restart. In Herdr TUI, it uses `herdr pane wait-output`, supported since
+Herdr 0.8.2. The Herdr app instead polls the terminal's screen and recent
+history through `hc read TERMINAL --lines 1000`.
 
 ## Reconnecting and recovering a partial layout
 

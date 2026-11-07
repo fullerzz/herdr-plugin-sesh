@@ -14,11 +14,30 @@ zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command,
 tabs, and pane layouts.
 
-| Sesh term | Herdr term |
-| --- | --- |
-| Session | Workspace |
-| Window | Tab |
-| Picker | Overlay pane |
+## Choose your Herdr integration
+
+This repository provides a **herdr-tui plugin** for Herdr's terminal UI and
+**herdr-app mods** for the desktop app. Both use the same `herdr-sesh` binary
+and native TOML configuration.
+
+| Capability | Herdr TUI plugin | Herdr app mods |
+| --- | --- | --- |
+| Installation | [Plugin installation](#install) | [App mod setup](herdr-app.md#install) |
+| Open the picker | `fullerzz.sesh.open-picker` plugin action | `mod.open:sesh` |
+| Select existing remote workspaces | Unavailable | Supported for existing remote spaces |
+| Track navigation outside Sesh | Automatic through plugin hooks | Requires a [`sesh-last` layout block](herdr-app.md#switch-to-the-last-space) |
+| Pane split ratios | Supported | Splits evenly; ignores `ratio` |
+
+Remote workspace support is available only through the Herdr app integration,
+including direct CLI commands targeting the app. Configured sessions and
+directory entries create local workspaces in both integrations; Sesh cannot
+create remote workspaces from configuration.
+
+| Sesh term | Herdr TUI term | Herdr app term |
+| --- | --- | --- |
+| Session | Workspace | Space |
+| Window | Tab | Tab |
+| Picker | Overlay pane | Mod dialog |
 
 The picker focuses a workspace that is already running. Selecting a configured
 workspace or zoxide directory creates one if it is not open. Startup commands,
@@ -35,6 +54,9 @@ tabs, and pane layouts run only when a workspace is created.
 
 ## Requirements
 
+These requirements apply to the Herdr TUI plugin. For the desktop app, follow
+the [Herdr app setup](herdr-app.md#install).
+
 - Herdr 0.8.2 or newer
 - Linux or macOS
 - Git and Go 1.26.4 or newer for Herdr's source-based plugin installation
@@ -43,17 +65,21 @@ tabs, and pane layouts run only when a workspace is created.
 
 ## Install
 
+For Herdr TUI, install the plugin:
+
 ```bash
 herdr plugin install fullerzz/herdr-plugin-sesh
 ```
 
 ## First use
 
-From a running Herdr session, open the picker through the installed plugin action:
+From a running Herdr TUI session, open the picker through the installed plugin action:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-picker
 ```
+
+In the Herdr app, open the [`sesh` mod](herdr-app.md#install) instead.
 
 You should see your running Herdr workspaces. If zoxide has recorded directories,
 those appear too. Type part of a name or path, then press ++enter++ to focus an
