@@ -136,10 +136,13 @@ func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, he
 func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
 	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
 	if target != "" {
-		srcs = append(srcs, sources.DirectPath{
-			Path:  target,
-			Label: namer.Namer{}.Name(ctx, target, cfg.DirLength),
-		})
+		direct := sources.DirectPath{Path: target}
+		// Naming runs git in the target, so only a local directory is named:
+		// the target may be the name of a workspace on another machine.
+		if st, err := os.Stat(target); err == nil && st.IsDir() {
+			direct.Label = namer.Namer{}.Name(ctx, target, cfg.DirLength)
+		}
+		srcs = append(srcs, direct)
 	}
 	merged, err := sources.Merge(ctx, srcs, cfg.SortOrder, cfg.Blacklist, false, true)
 	if err != nil {
@@ -305,25 +308,12 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return err
 	}
 	revision := a.historyRevision()
-	res, err := connectpkg.Connect(ctx, backend.client, []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
-		Warnf: a.warnf,
-		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, backend.cfg.DirLength) },
-	})
+	res, err := connectpkg.Open(ctx, backend.client, selected, connectpkg.Options{Warnf: a.warnf})
 	if err != nil {
 		return err
 	}
 	a.recordWorkspaceSwitch(backend.pickerWorkspaceID, res.Session.WorkspaceID, revision)
 	return nil
-}
-
-func pickerTarget(s model.Session) string {
-	if s.WorkspaceID != "" {
-		return s.WorkspaceID
-	}
-	if s.Path != "" {
-		return s.Path
-	}
-	return s.Name
 }
 
 func (a *App) connect(ctx context.Context, args []string) error {
@@ -380,6 +370,12 @@ func (a *App) preview(ctx context.Context, args []string) error {
 		return err
 	}
 	s, ok := connectpkg.Resolve(sessions, target)
+	if !ok {
+		// As in connect: a local directory at target comes before a remote name.
+		if st, err := os.Stat(target); err != nil || !st.IsDir() {
+			s, ok = connectpkg.ConfiguredRemote(sessions, target)
+		}
+	}
 	if !ok {
 		s = model.Session{Name: filepath.Base(target), Path: target}
 	}

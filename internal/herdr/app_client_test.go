@@ -2,7 +2,11 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,21 +55,24 @@ const appLS = `{"spaces":[
  {"id":"buntu/sp9","name":"web","folder":"/home/z/web","machine":"buntu","tabs":[
   {"id":"buntu/tb9","name":"1","active":true,"terminals":[{"terminal":"buntu/t9","pane":"buntu/p9","status":null}]}]}]}`
 
-// decodeSetup returns the commands an encoded terminal setup line runs.
-func decodeSetup(t *testing.T, line string) string {
+// wrapper is the shell command every argv-started terminal runs.
+const wrapper = `cd -- "$1"; shift; exec env "$@" "${SHELL:-/bin/sh}" -l`
+
+// assertDo checks a herdr-app do call's command and JSON arguments.
+func assertDo(t *testing.T, call []string, command string, args map[string]any) {
 	t.Helper()
-	const prefix, suffix = ` eval "$(printf '`, `')"`
-	require.True(t, strings.HasPrefix(line, prefix) && strings.HasSuffix(line, suffix), "setup line %q", line)
-	body := strings.TrimSuffix(strings.TrimPrefix(line, prefix), suffix)
-	var out []byte
-	for len(body) >= 4 && body[0] == '\\' {
-		n, err := strconv.ParseUint(body[1:4], 8, 8)
-		require.NoError(t, err)
-		out = append(out, byte(n))
-		body = body[4:]
+	require.Len(t, call, 4)
+	assert.Equal(t, []string{"herdr-app", "do", command}, call[:3])
+	want, err := json.Marshal(args)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), call[3])
+}
+
+func assertNoSend(t *testing.T, calls [][]string) {
+	t.Helper()
+	for _, call := range calls {
+		assert.False(t, call[0] == "hc" && call[1] == "send", "unexpected terminal input %q", call)
 	}
-	require.Empty(t, body, "setup line must be fully octal-encoded")
-	return string(out)
 }
 
 const hcLS = `{"terminals":[
@@ -111,34 +118,188 @@ func TestAppClientReadsRemotePaneThroughQualifiedTerminal(t *testing.T) {
 	assert.Equal(t, []string{"hc", "read", "buntu/t9"}, r.calls[len(r.calls)-1])
 }
 
-func TestAppClientUnfocusedWorkspaceCreateRestoresShownTabAndExportsEnv(t *testing.T) {
+func TestAppClientUnfocusedWorkspaceCreateRestoresShownTabAndStartsShellWithEnv(t *testing.T) {
 	c, r := newTestAppClient(map[string][]string{
 		"herdr-app status":       {`{"space":"sp0","tab":"tb0","focused_pane":"p0"}`},
 		"herdr-app do space.new": {`{"space":"sp1","tab":"tb1","terminal":"t7"}`},
 	})
-	w, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/src/api", Label: "api", Env: map[string]string{"B": "it's", "A": "1"}})
+	w, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/src/api", Label: "api", Env: map[string]string{"B": "it's two", "A": "1"}})
 	require.NoError(t, err)
 	assert.Equal(t, Workspace{ID: "sp1", Label: "api", CWD: "/src/api", ActiveTabID: "tb1"}, w)
-	require.Len(t, r.calls, 4)
+	require.Len(t, r.calls, 3)
 	assert.Equal(t, []string{"herdr-app", "status"}, r.calls[0])
-	assert.Equal(t, []string{"herdr-app", "do", "space.new", `{"folder":"/src/api","name":"api"}`}, r.calls[1])
-	assert.Equal(t, []string{"hc", "send", "t7"}, r.calls[2][:3])
-	assert.Equal(t, `export A='1' B='it'\''s'`, decodeSetup(t, r.calls[2][3]))
-	assert.Equal(t, []string{"herdr-app", "do", "tab.select", `{"id":"tb0"}`}, r.calls[3])
+	assertDo(t, r.calls[1], "space.new", map[string]any{"name": "api", "folder": "/src/api",
+		"argv": []string{"/bin/sh", "-c", wrapper, "sh", ".", "A=1", "B=it's two"}})
+	assert.Equal(t, []string{"herdr-app", "do", "tab.select", `{"id":"tb0"}`}, r.calls[2])
 }
 
-func TestAppClientRestoresShownTabWhenSetupFailsAndHidesEnvValues(t *testing.T) {
-	c, r := newTestAppClient(map[string][]string{
-		"herdr-app status":       {`{"space":"sp0","tab":"tb0","focused_pane":"p0"}`},
-		"herdr-app do space.new": {`{"space":"sp1","tab":"tb1","terminal":"t7"}`},
-		"hc send":                {`{"error":"terminal is gone"}`},
+func TestAppClientWorkspaceCreateWithoutEnvSendsNoArgv(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{"herdr-app do space.new": {`{"space":"sp1","tab":"tb1","terminal":"t7"}`}})
+	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{CWD: "/src/api", Label: "api", Focus: true})
+	require.NoError(t, err)
+	require.Len(t, r.calls, 1)
+	assertDo(t, r.calls[0], "space.new", map[string]any{"name": "api", "folder": "/src/api"})
+}
+
+// herdr-app may echo its argv in a message, in any encoding. No match on the
+// values can clear every form, so a create that carries env reports no message.
+func TestAppClientCreateErrorsWithholdMessageWhenEnvIsSet(t *testing.T) {
+	// serde_json, which herdr-app uses, leaves & unescaped where Go writes \u0026.
+	//nolint:gosec // a fake value that must stay out of error text.
+	const secret = "p&ss\"word\n"
+	env := map[string]string{"API_TOKEN": secret}
+	creates := map[string]func(c *AppClient) error{
+		"space.new": func(c *AppClient) error {
+			_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Label: "api", Focus: true, Env: env})
+			return err
+		},
+		"tab.new": func(c *AppClient) error {
+			_, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "sp1", Label: "logs", Focus: true, Env: env})
+			return err
+		},
+		"pane.split": func(c *AppClient) error {
+			_, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "right", Env: env})
+			return err
+		},
+	}
+	replies := map[string]func(body string) (stdout, stderr string){
+		"JSON error":             func(string) (string, string) { return `{"error":"cannot spawn API_TOKEN=p&ss\"word\n"}`, "" },
+		"JSON error with body":   func(body string) (string, string) { return `{"error":` + strconv.Quote(body) + `}`, "" },
+		"stderr":                 func(string) (string, string) { return "", "spawn failed: env API_TOKEN=" + secret },
+		"stderr with body":       func(body string) (string, string) { return "", "invalid request body: " + body + "\n" },
+		"message without values": func(string) (string, string) { return `{"error":"spawn failed"}`, "" },
+	}
+	for command, create := range creates {
+		for name, reply := range replies {
+			t.Run(command+" "+name, func(t *testing.T) {
+				c, r := newTestAppClient(nil)
+				c.Runner = runnerFunc(func(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
+					if bin == "herdr-app" && args[0] == "do" && args[1] == command {
+						stdout, stderr := reply(args[2])
+						return []byte(stdout), []byte(stderr), errors.New("exit status 1")
+					}
+					return r.Run(ctx, bin, args...)
+				})
+				err := create(c)
+				require.Error(t, err)
+				assert.Equal(t, "herdr-app do "+command+": exit status 1 (herdr-app's message is withheld because the request carried env values)", err.Error())
+			})
+		}
+	}
+}
+
+// Without env there is nothing to hide: the error keeps herdr-app's message
+// and names the request, which says what a select or focus was aimed at.
+func TestAppClientErrorsWithoutEnvNameTheRequest(t *testing.T) {
+	c, _ := newTestAppClient(map[string][]string{
+		"herdr-app do space.new":    {`{"error":"unknown machine \"nosuchbox\""}`},
+		"herdr-app do space.select": {`{"error":"no such space"}`},
 	})
-	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Label: "api", Env: map[string]string{"API_TOKEN": "s3cr3t"}})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "terminal is gone")
-	assert.NotContains(t, err.Error(), "s3cr3t")
-	assert.NotContains(t, err.Error(), "API_TOKEN")
-	assert.Equal(t, []string{"herdr-app", "do", "tab.select", `{"id":"tb0"}`}, r.calls[len(r.calls)-1])
+	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Machine: "nosuchbox", Label: "api", Focus: true})
+	require.EqualError(t, err, `herdr-app do space.new {"folder":"","machine":"nosuchbox","name":"api"}: unknown machine "nosuchbox"`)
+	require.EqualError(t, c.WorkspaceFocus(context.Background(), "sp7"), `herdr-app do space.select {"id":"sp7"}: no such space`)
+}
+
+// runShellArgv runs shellArgv's program from dir as herdr-app would, with
+// typed as the startup command hc send delivers afterwards.
+func runShellArgv(t *testing.T, argv []string, dir, shell, typed string) (string, error) {
+	t.Helper()
+	//nolint:gosec // the test runs the argv shellArgv built.
+	cmd := exec.Command(argv[0], argv[1:]...)
+	home := t.TempDir()
+	cmd.Dir = dir
+	cmd.Env = []string{"SHELL=" + shell, "HOME=" + home, "ZDOTDIR=" + home, "PATH=/usr/bin:/bin", "ENV=/dev/null"}
+	cmd.Stdin = strings.NewReader(typed)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestShellArgvStartsShellInDirectoryWithValuesIntact(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), `it's $(x) "d" -`)
+	require.NoError(t, os.Mkdir(dir, 0o750))
+	value := "a'b\"c $(touch pwned) `x` \\n\nline2 *"
+	for _, shell := range []string{"/bin/bash", "/bin/zsh", "/bin/sh", ""} {
+		out, err := runShellArgv(t, shellArgv(dir, map[string]string{"V": value}), t.TempDir(), shell, "printf '%s|' \"$V\"; pwd -P\n")
+		require.NoError(t, err, shell)
+		assert.Contains(t, out, value+"|", shell)
+		assert.Contains(t, out, filepath.Base(dir), shell)
+		assert.NoFileExists(t, filepath.Join(dir, "pwned"), shell)
+	}
+}
+
+// A pane path that does not exist must not end the terminal: the startup
+// command is typed into it next, as it was after the typed cd this replaced.
+func TestShellArgvStartsShellWhenDirectoryIsMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "typo")
+	out, err := runShellArgv(t, shellArgv(missing, map[string]string{"PORT": "8080"}), t.TempDir(), "/bin/bash", "echo \"STARTUP-RAN $PORT\"\n")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "typo: No such file or directory")
+	assert.Contains(t, out, "STARTUP-RAN 8080")
+}
+
+// herdr-app starts a space's or tab's program in folder, so the wrapper must
+// not enter a relative folder a second time.
+func TestAppClientSpaceAndTabShellsStayInTheirFolder(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "src", "api"), 0o750))
+	creates := map[string]func(c *AppClient, folder string) error{
+		"space.new": func(c *AppClient, folder string) error {
+			_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Machine: "buntu26", CWD: folder, Label: "api", Focus: true, Env: map[string]string{"PORT": "8080"}})
+			return err
+		},
+		"tab.new": func(c *AppClient, folder string) error {
+			_, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "buntu26/sp1", CWD: folder, Label: "logs", Focus: true, Env: map[string]string{"PORT": "8080"}})
+			return err
+		},
+	}
+	for command, create := range creates {
+		for name, folder := range map[string]string{"relative": "src/api", "absolute": filepath.Join(home, "src", "api")} {
+			t.Run(command+" "+name, func(t *testing.T) {
+				var out string
+				c, r := newTestAppClient(map[string][]string{"herdr-app ls": {`{"spaces":[{"id":"buntu26/sp1","tabs":[{"id":"tb3","terminals":[{"terminal":"t3","pane":"p3"}]}]}]}`}})
+				c.Runner = runnerFunc(func(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
+					if bin != "herdr-app" || args[0] != "do" || args[1] != command {
+						return r.Run(ctx, bin, args...)
+					}
+					var body struct {
+						Folder string   `json:"folder"`
+						Argv   []string `json:"argv"`
+					}
+					require.NoError(t, json.Unmarshal([]byte(args[2]), &body))
+					dir := body.Folder
+					if !filepath.IsAbs(dir) {
+						dir = filepath.Join(home, dir)
+					}
+					var err error
+					out, err = runShellArgv(t, body.Argv, dir, "/bin/bash", "printf '%s|' \"$PORT\"; pwd -P\n")
+					require.NoError(t, err, out)
+					return []byte(`{"space":"buntu26/sp1","tab":"tb3","terminal":"t3"}`), nil, nil
+				})
+				require.NoError(t, create(c, folder))
+				assert.NotContains(t, out, "No such file or directory")
+				assert.Contains(t, out, "8080|")
+				assert.Contains(t, out, filepath.Join("src", "api"))
+			})
+		}
+	}
+}
+
+type runnerFunc func(context.Context, string, ...string) ([]byte, []byte, error)
+
+func (f runnerFunc) Run(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
+	return f(ctx, bin, args...)
+}
+
+func TestAppClientTabCreateStartsShellWithEnv(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{
+		"herdr-app do tab.new": {`{"space":"sp1","tab":"tb3","terminal":"t3"}`},
+		"herdr-app ls":         {`{"spaces":[{"id":"sp1","tabs":[{"id":"tb3","terminals":[{"terminal":"t3","pane":"p3"}]}]}]}`},
+	})
+	_, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "sp1", CWD: "/src", Label: "logs", Focus: true, Env: map[string]string{"PORT": "8080"}})
+	require.NoError(t, err)
+	assertDo(t, r.calls[0], "tab.new", map[string]any{"space": "sp1", "name": "logs", "folder": "/src",
+		"argv": []string{"/bin/sh", "-c", wrapper, "sh", ".", "PORT=8080"}})
+	assertNoSend(t, r.calls)
 }
 
 func TestAppClientFocusedTabCreateLeavesFocus(t *testing.T) {
@@ -156,21 +317,24 @@ func TestAppClientFocusedTabCreateLeavesFocus(t *testing.T) {
 	assert.Equal(t, want, r.calls)
 }
 
-func TestAppClientSplitTypesDirectoryThenRunsInNewTerminal(t *testing.T) {
+func TestAppClientSplitStartsShellInDirectoryThenRunsInNewTerminal(t *testing.T) {
 	c, r := newTestAppClient(map[string][]string{"herdr-app do pane.split": {`{"pane":"p5","terminal":"t5"}`}})
 	p, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "down", CWD: "/src/web", Ratio: 0.3})
 	require.NoError(t, err)
+	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "down",
+		"argv": []string{"/bin/sh", "-c", wrapper, "sh", "/src/web"}})
+	assertNoSend(t, r.calls)
 	require.NoError(t, c.PaneRun(context.Background(), p.ID, "npm run dev"))
-	var sends [][]string
-	for _, call := range r.calls {
-		if call[0] == "hc" && call[1] == "send" {
-			sends = append(sends, call)
-		}
-	}
-	require.Len(t, sends, 2)
-	assert.Equal(t, `cd -- '/src/web'`, decodeSetup(t, sends[0][3]))
-	assert.Equal(t, []string{"hc", "send", "t5", "npm run dev"}, sends[1])
-	assert.Contains(t, r.calls, []string{"herdr-app", "do", "pane.split", `{"direction":"down","pane":"p1"}`})
+	assert.Equal(t, []string{"hc", "send", "t5", "npm run dev"}, r.calls[len(r.calls)-1])
+}
+
+func TestAppClientSplitWithOnlyEnvStaysInInheritedDirectory(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{"herdr-app do pane.split": {`{"pane":"p5","terminal":"t5"}`}})
+	_, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "right", Env: map[string]string{"PORT": "8080"}})
+	require.NoError(t, err)
+	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "right",
+		"argv": []string{"/bin/sh", "-c", wrapper, "sh", ".", "PORT=8080"}})
+	assertNoSend(t, r.calls)
 }
 
 func TestAppClientReportsHerdrAppErrors(t *testing.T) {
@@ -218,6 +382,7 @@ func TestAppClientSplitGivesFocusBackInShownTab(t *testing.T) {
 	})
 	_, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "right"})
 	require.NoError(t, err)
+	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "right"})
 	assert.Equal(t, []string{"herdr-app", "do", "pane.focus", `{"pane":"p1"}`}, r.calls[len(r.calls)-1])
 }
 
@@ -231,26 +396,6 @@ func TestAppClientSplitInHiddenTabLeavesShownFocus(t *testing.T) {
 	for _, call := range r.calls {
 		assert.NotEqual(t, "pane.focus", call[len(call)-2], "split in a hidden tab must not change focus")
 	}
-}
-
-func TestAppClientWaitForIgnoresEchoedSetupLine(t *testing.T) {
-	c, r := newTestAppClient(map[string][]string{"herdr-app do pane.split": {`{"pane":"p5","terminal":"t5"}`}})
-	_, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "down", CWD: "/srv/ready", Env: map[string]string{"PORT": "8080"}})
-	require.NoError(t, err)
-	var echo string
-	for _, call := range r.calls {
-		if call[0] == "hc" && call[1] == "send" {
-			echo = call[3]
-		}
-	}
-	r.replies["hc read"] = []string{echo + "\nnpm start"}
-	for _, match := range []string{"8080", "ready", "PORT"} {
-		err := c.PaneWaitOutput(context.Background(), "p5", match, 20*time.Millisecond)
-		require.ErrorIs(t, err, context.DeadlineExceeded, "match %q", match)
-	}
-	err = c.PaneWaitOutput(context.Background(), "p5", "printf", time.Second)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "terminal setup line")
 }
 
 func TestAppClientListsPanesWithFocusAndLiveDirectory(t *testing.T) {
@@ -289,4 +434,33 @@ func TestAppClientIsSafeForConcurrentUse(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err)
 	}
+}
+
+func TestAppClientWorkspaceCreateOnMachine(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{"herdr-app do space.new": {`{"space":"buntu26/sp1","tab":"buntu26/tb1","terminal":"buntu26/t7"}`}})
+	w, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Machine: "buntu26", CWD: "/home/zach/api", Label: "api", Focus: true, Env: map[string]string{"A": "1"}})
+	require.NoError(t, err)
+	assert.Equal(t, Workspace{ID: "buntu26/sp1", Label: "api", CWD: "/home/zach/api", ActiveTabID: "buntu26/tb1", Machine: "buntu26"}, w)
+	require.Len(t, r.calls, 1)
+	assertDo(t, r.calls[0], "space.new", map[string]any{"name": "api", "machine": "buntu26", "folder": "/home/zach/api",
+		"argv": []string{"/bin/sh", "-c", wrapper, "sh", ".", "A=1"}})
+}
+
+func TestAppClientMachineHome(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{"hc exec": {"/home/zach"}})
+	home, err := c.MachineHome(context.Background(), "buntu26")
+	require.NoError(t, err)
+	assert.Equal(t, "/home/zach", home)
+	assert.Equal(t, [][]string{{"hc", "exec", "--on", "buntu26", "--", "sh", "-c", `printf %s "$HOME"`}}, r.calls)
+
+	// hc's reply to `hc exec --on nosuchbox`: exit 4, empty stdout, JSON on stderr.
+	c.Runner = runnerFunc(func(context.Context, string, ...string) ([]byte, []byte, error) {
+		return nil, []byte(`{"error":{"hint":"machines: buntu26","kind":"machine_unknown","message":"unknown machine \"nosuchbox\""}}` + "\n"), errors.New("exit status 4")
+	})
+	_, err = c.MachineHome(context.Background(), "nosuchbox")
+	require.EqualError(t, err, `home on machine "nosuchbox": unknown machine "nosuchbox"`)
+
+	c, _ = newTestAppClient(map[string][]string{"hc exec": {""}})
+	_, err = c.MachineHome(context.Background(), "buntu26")
+	require.ErrorContains(t, err, "not an absolute path")
 }

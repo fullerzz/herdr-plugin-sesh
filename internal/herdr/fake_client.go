@@ -29,12 +29,28 @@ type FakeClient struct {
 	ReportedTokens []string
 	// Ops records tab creation, runs, splits, waits, and pane focus in call order.
 	Ops []string
+	// MachineHomes answers MachineHome; a missing machine is unknown.
+	MachineHomes map[string]string
+	HomeQueries  []string
+}
+
+var _ MachineClient = (*FakeClient)(nil)
+
+func (f *FakeClient) MachineHome(_ context.Context, machine string) (string, error) {
+	f.HomeQueries = append(f.HomeQueries, machine)
+	if home, ok := f.MachineHomes[machine]; ok {
+		return home, nil
+	}
+	return "", fmt.Errorf("unknown machine %q", machine)
 }
 
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
 func (f *FakeClient) WorkspaceCreate(_ context.Context, r WorkspaceCreateRequest) (Workspace, error) {
 	f.CreatedWorkspaces = append(f.CreatedWorkspaces, r)
-	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD, ActiveTabID: "initial-tab"}
+	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD, ActiveTabID: "initial-tab", Machine: r.Machine}
+	if r.Machine != "" {
+		w.ID = r.Machine + "/" + w.ID
+	}
 	f.Workspaces = append(f.Workspaces, w)
 	// Like Herdr, every new workspace starts with one tab and root pane.
 	f.Panes = append(f.Panes, Pane{ID: "initial-pane", WorkspaceID: w.ID, TabID: w.ActiveTabID, CWD: r.CWD})

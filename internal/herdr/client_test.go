@@ -309,3 +309,13 @@ func TestCLIClientWorkspaceReportTokenSetsAndClears(t *testing.T) {
 		{"/bin/herdr", "workspace", "report-metadata", "w1", "--source", "src", "--clear-token", "mark"},
 	}, rr.calls)
 }
+
+func TestCLIClientRefusesWorkspaceOnMachine(t *testing.T) {
+	rr := &recRunner{}
+	c := &CLIClient{Bin: "/bin/herdr", Runner: rr}
+	_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Machine: "buntu26", CWD: "/srv/api", Label: "api"})
+	require.ErrorIs(t, err, ErrNoMachines)
+	assert.Empty(t, rr.calls)
+	_, ok := any(c).(MachineClient)
+	assert.False(t, ok)
+}

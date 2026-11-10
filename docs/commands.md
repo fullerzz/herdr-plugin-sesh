@@ -34,10 +34,12 @@ app's remote spaces. For example, to select an existing remote space:
 HERDR_SESH_BACKEND=app herdr-sesh connect buntu26/sp1
 ```
 
-Use the qualified space ID from `herdr-app ls`. Sesh cannot create remote
-spaces from configured sessions. See
+Use the qualified space ID from `herdr-app ls`. A configured workspace with a
+`machine` creates its space on that machine; see
 [Remote spaces](herdr-app.md#select-an-existing-remote-space) for registration
-and preview behavior.
+and preview behavior, and
+[remote workspaces](herdr-app.md#create-a-remote-space-from-a-configured-workspace)
+for creation.
 
 ## Run the binary directly
 

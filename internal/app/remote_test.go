@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -79,10 +81,36 @@ func TestAppPickerCollectsAndSelectsRemoteNamesakeByQualifiedID(t *testing.T) {
 	list.Filter("buntu26")
 	selected, ok := list.Current()
 	require.True(t, ok)
-	assert.Equal(t, "buntu26/sp1", pickerTarget(selected))
-	result, err := connect.Connect(context.Background(), client, col.Sessions, pickerTarget(selected), connect.Options{})
+	assert.Equal(t, "buntu26/sp1", selected.WorkspaceID)
+	result, err := connect.Open(context.Background(), client, selected, connect.Options{})
 	require.NoError(t, err)
 	assert.False(t, result.Created)
 	assert.Equal(t, "buntu26/sp1", result.Session.WorkspaceID)
 	assert.Equal(t, []string{`{"id":"buntu26/sp1"}`}, runner.selected)
+}
+
+// A connect or preview target may name a workspace on another machine, or be
+// its path there, so collecting sessions for it must not run git on it here.
+func TestCollectForRemoteTargetRunsNoLocalGit(t *testing.T) {
+	bin := t.TempDir()
+	log := filepath.Join(t.TempDir(), "git.log")
+	//nolint:gosec // the test's fake git must be executable.
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\necho \"$@\" >> '"+log+"'\nexit 1\n"), 0o755))
+	t.Setenv("PATH", bin) // Also excludes the user's zoxide database.
+	t.Chdir(t.TempDir())
+	cfg := config.Default()
+	cfg.SessionConfigs = []config.SessionConfig{{Name: "api", Machine: "buntu26", Path: "/remote-only/api"}}
+	for _, target := range []string{"api", "/remote-only/api"} {
+		sessions, err := (&App{}).collectAllowUnavailableHerdr(context.Background(), cfg, target)
+		require.NoError(t, err)
+		require.Len(t, sessions, 1)
+		assert.Equal(t, "buntu26", sessions[0].Machine)
+	}
+	assert.NoFileExists(t, log, "git ran locally for a remote target")
+
+	// The sentinel works: a local directory target is still named with git.
+	local := t.TempDir()
+	_, err := (&App{}).collectAllowUnavailableHerdr(context.Background(), cfg, local)
+	require.NoError(t, err)
+	assert.FileExists(t, log)
 }

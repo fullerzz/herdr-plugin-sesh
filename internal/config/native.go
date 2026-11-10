@@ -120,8 +120,14 @@ const maxLastWorkspaceLabelLen = 80
 
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// machinePattern accepts a plain machine name. A slash would make qualified
+// IDs such as machine/sp1 ambiguous.
+var machinePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 type nativeWorkspace struct {
-	Name           string   `toml:"name"`
+	Name string `toml:"name"`
+	// Machine names an hc machine; Path is then a path on that machine.
+	Machine        string   `toml:"machine,omitempty"`
 	Path           string   `toml:"path,omitempty"`
 	Startup        string   `toml:"startup,omitempty"`
 	Preview        string   `toml:"preview,omitempty"`
@@ -217,26 +223,8 @@ func (n nativeConfig) validate(path string) error {
 	if err != nil {
 		return err
 	}
-	workspaceNames := map[string]bool{}
-	for _, w := range n.Workspaces {
-		if w.Name == "" {
-			return fail("workspace.name", "must not be empty")
-		}
-		if w.Path == "" {
-			return fail("workspace.path", "must not be empty for workspace %q", w.Name)
-		}
-		if workspaceNames[w.Name] {
-			return fail("workspace.name", "duplicate workspace %q", w.Name)
-		}
-		workspaceNames[w.Name] = true
-		for _, ref := range w.Tabs {
-			if _, ok := focusedPanes[ref]; !ok {
-				return fail("workspace.tabs", "workspace %q references unknown tab %q", w.Name, ref)
-			}
-		}
-		if conflict := focusConflict(w.Tabs, focusedPanes); conflict != "" {
-			return fail("workspace.tabs", "workspace %q %s", w.Name, conflict)
-		}
+	if err := n.validateWorkspaces(fail, focusedPanes); err != nil {
+		return err
 	}
 	for _, r := range n.Rules {
 		if r.PathGlob == "" {
@@ -253,6 +241,34 @@ func (n nativeConfig) validate(path string) error {
 		}
 		if conflict := focusConflict(r.Tabs, focusedPanes); conflict != "" {
 			return fail("rule.tabs", "rule %q %s", r.PathGlob, conflict)
+		}
+	}
+	return nil
+}
+
+func (n nativeConfig) validateWorkspaces(fail func(key, format string, args ...any) error, focusedPanes map[string]string) error {
+	workspaceNames := map[string]bool{}
+	for _, w := range n.Workspaces {
+		if w.Name == "" {
+			return fail("workspace.name", "must not be empty")
+		}
+		if w.Path == "" {
+			return fail("workspace.path", "must not be empty for workspace %q", w.Name)
+		}
+		if workspaceNames[w.Name] {
+			return fail("workspace.name", "duplicate workspace %q", w.Name)
+		}
+		workspaceNames[w.Name] = true
+		if w.Machine != "" && !machinePattern.MatchString(w.Machine) {
+			return fail("workspace.machine", "workspace %q has invalid machine name %q; use a name from `hc machine ls`", w.Name, w.Machine)
+		}
+		for _, ref := range w.Tabs {
+			if _, ok := focusedPanes[ref]; !ok {
+				return fail("workspace.tabs", "workspace %q references unknown tab %q", w.Name, ref)
+			}
+		}
+		if conflict := focusConflict(w.Tabs, focusedPanes); conflict != "" {
+			return fail("workspace.tabs", "workspace %q %s", w.Name, conflict)
 		}
 	}
 	return nil
@@ -449,6 +465,7 @@ func (n nativeConfig) apply(cfg *Config) {
 		cfg.SessionConfigs = append(cfg.SessionConfigs, SessionConfig{
 			DefaultSessionConfig: DefaultSessionConfig{StartupCommand: w.Startup, PreviewCommand: w.Preview},
 			Name:                 w.Name,
+			Machine:              w.Machine,
 			Path:                 w.Path,
 			DisableStartCommand:  w.DisableStartup,
 			Windows:              w.Tabs,

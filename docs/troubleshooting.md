@@ -26,7 +26,8 @@ release. For direct binary commands below, first follow the
 Remote spaces are available only through the Herdr app integration. If you
 expect a remote entry, use the app's `sesh` mod or run commands with
 `HERDR_SESH_BACKEND=app`, and confirm the space appears in `herdr-app ls`.
-Registering a machine alone does not create a space. See
+Registering a machine alone does not create a space; add `machine` to a
+configured workspace to create one. See
 [remote space selection](herdr-app.md#select-an-existing-remote-space).
 
 - Clear the filter with ++ctrl+u++. Name and path matching can place results

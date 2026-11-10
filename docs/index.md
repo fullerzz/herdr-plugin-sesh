@@ -24,14 +24,14 @@ and native TOML configuration.
 | --- | --- | --- |
 | Installation | [Plugin installation](#install) | [App mod setup](herdr-app.md#install) |
 | Open the picker | `fullerzz.sesh.open-picker` plugin action | `mod.open:sesh` |
-| Select existing remote workspaces | Unavailable | Supported for existing remote spaces |
+| Remote workspaces | Unavailable | Select existing remote spaces; create configured ones |
 | Track navigation outside Sesh | Automatic through plugin hooks | Requires a [`sesh-last` layout block](herdr-app.md#switch-to-the-last-space) |
 | Pane split ratios | Supported | Splits evenly; ignores `ratio` |
 
 Remote workspace support is available only through the Herdr app integration,
 including direct CLI commands targeting the app. Configured sessions and
-directory entries create local workspaces in both integrations; Sesh cannot
-create remote workspaces from configuration.
+directory entries create local workspaces in both integrations. With the app,
+a configured workspace that names a `machine` creates its space on that machine.
 
 | Sesh term | Herdr TUI term | Herdr app term |
 | --- | --- | --- |

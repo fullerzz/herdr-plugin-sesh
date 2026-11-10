@@ -16,11 +16,12 @@ import (
 // AppClient drives the Herdr desktop app through `herdr-app` and its terminal
 // core through `hc`. Workspaces are herdr-app spaces.
 //
-// herdr-app's create commands always focus what they create and cannot set a
-// split's directory or any terminal environment. AppClient restores the shown
-// tab after unfocused creates, refocuses the pane a split took focus from, and
-// types a setup line into new terminals. The setup line needs a shell that runs
-// `eval "$(printf '\ooo')"`: sh, bash, zsh, or fish 3.4 and newer.
+// herdr-app's create commands always focus what they create. AppClient restores
+// the shown tab after unfocused creates and refocuses the pane a split took
+// focus from. A split has no folder argument, and no create command sets an
+// environment, so AppClient starts such terminals with shellArgv instead. For a
+// space or tab, herdr-app runs that argv inside its own login shell, so startup
+// files run twice; spaces and tabs get argv only when they need an environment.
 //
 // An AppClient is safe for concurrent use.
 type AppClient struct {
@@ -34,10 +35,12 @@ type AppClient struct {
 
 	mu        sync.Mutex
 	terminals map[string]string // pane ID -> terminal address
-	setups    map[string]string // terminal address -> its typed setup line
 }
 
-var _ Client = (*AppClient)(nil)
+var (
+	_ Client        = (*AppClient)(nil)
+	_ MachineClient = (*AppClient)(nil)
+)
 
 func NewAppClient() *AppClient {
 	return &AppClient{AppBin: "herdr-app", CoreBin: "hc", Runner: ExecRunner{}, Timeout: 10 * time.Second,
@@ -84,12 +87,15 @@ type appCreated struct {
 }
 
 func (c *AppClient) exec(ctx context.Context, bin string, args ...string) ([]byte, error) {
-	return c.execNamed(ctx, bin+" "+strings.Join(args, " "), bin, args...)
+	out, _, err := c.execNamed(ctx, bin+" "+strings.Join(args, " "), false, bin, args...)
+	return out, err
 }
 
 // execNamed reports failures as name, so arguments that may hold secrets stay
-// out of error text.
-func (c *AppClient) execNamed(ctx context.Context, name, bin string, args ...string) ([]byte, error) {
+// out of error text. With secret set, the program's own message is withheld
+// too: it may echo its arguments in any encoding, so no match on the values
+// can clear it.
+func (c *AppClient) execNamed(ctx context.Context, name string, secret bool, bin string, args ...string) (out, stderr []byte, err error) {
 	runner := c.Runner
 	if runner == nil {
 		runner = ExecRunner{}
@@ -100,29 +106,43 @@ func (c *AppClient) execNamed(ctx context.Context, name, bin string, args ...str
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, stderr, err := runner.Run(ctx, bin, args...)
+	out, stderr, err = runner.Run(ctx, bin, args...)
 	if err == nil {
-		return out, nil
+		return out, stderr, nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return out, fmt.Errorf("%s: %w", name, ctxErr)
+		return out, stderr, fmt.Errorf("%s: %w", name, ctxErr)
+	}
+	if secret {
+		return out, stderr, fmt.Errorf("%s: %w (herdr-app's message is withheld because the request carried env values)", name, err)
 	}
 	// herdr-app reports command failures as {"error": "..."} on stdout.
 	var reply struct {
 		Error string `json:"error"`
 	}
 	if json.Unmarshal(out, &reply) == nil && reply.Error != "" {
-		return out, fmt.Errorf("%s: %s", name, reply.Error)
+		return out, stderr, fmt.Errorf("%s: %s", name, reply.Error)
 	}
-	return out, fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(stderr)))
+	return out, stderr, fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(stderr)))
 }
 
 func (c *AppClient) do(ctx context.Context, command string, args map[string]any, reply any) error {
+	return c.create(ctx, command, args, nil, reply)
+}
+
+// create runs a herdr-app command whose argv may carry env. With env set,
+// neither the body nor herdr-app's own message reaches error text; without,
+// the error names the request, which says what a select or focus was aimed at.
+func (c *AppClient) create(ctx context.Context, command string, args map[string]any, env map[string]string, reply any) error {
 	body, err := json.Marshal(args)
 	if err != nil {
 		return err
 	}
-	out, err := c.exec(ctx, c.AppBin, "do", command, string(body))
+	name := c.AppBin + " do " + command
+	if len(env) == 0 {
+		name += " " + string(body)
+	}
+	out, _, err := c.execNamed(ctx, name, len(env) > 0, c.AppBin, "do", command, string(body))
 	if err != nil || reply == nil {
 		return err
 	}
@@ -266,48 +286,22 @@ func (c *AppClient) keepShown(ctx context.Context, focus bool) (func() error, er
 	}, nil
 }
 
-// prelude types a directory change and exports into a new terminal, which
-// herdr-app cannot set when it creates one. The terminal echoes what is typed,
-// so the commands go out octal-encoded: neither values nor names appear in the
-// scrollback that PaneWaitOutput searches. The leading space keeps the line out
-// of shell history where the shell ignores space-prefixed commands.
-func (c *AppClient) prelude(ctx context.Context, terminal, cwd string, env map[string]string) error {
-	var parts []string
-	if cwd != "" {
-		parts = append(parts, "cd -- "+shellQuote(cwd))
+// shellArgv starts the user's login shell in dir with env exported. herdr-app
+// runs it as the terminal's program, so nothing is typed into the terminal.
+// Values reach the shell as arguments, never through shell parsing. An empty
+// dir keeps the directory herdr-app starts the program in. A dir that cannot
+// be entered prints cd's error and still starts the shell: exiting instead
+// would end the terminal before its startup command arrives.
+func shellArgv(dir string, env map[string]string) []string {
+	if dir == "" {
+		dir = "."
 	}
-	if len(env) > 0 {
-		exports := make([]string, 0, len(env))
-		for _, k := range slices.Sorted(maps.Keys(env)) {
-			exports = append(exports, k+"="+shellQuote(env[k]))
-		}
-		parts = append(parts, "export "+strings.Join(exports, " "))
+	argv := make([]string, 0, 5+len(env))
+	argv = append(argv, "/bin/sh", "-c", `cd -- "$1"; shift; exec env "$@" "${SHELL:-/bin/sh}" -l`, "sh", dir)
+	for _, k := range slices.Sorted(maps.Keys(env)) {
+		argv = append(argv, k+"="+env[k])
 	}
-	if len(parts) == 0 {
-		return nil
-	}
-	line := ` eval "$(printf '` + octal(strings.Join(parts, " && ")) + `')"`
-	c.mu.Lock()
-	if c.setups == nil {
-		c.setups = make(map[string]string)
-	}
-	c.setups[terminal] = line
-	c.mu.Unlock()
-	_, err := c.execNamed(ctx, c.CoreBin+" send "+terminal+" <terminal setup>", c.CoreBin, "send", terminal, line)
-	return err
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// octal escapes every byte for printf, so the text survives any quoting.
-func octal(s string) string {
-	var b strings.Builder
-	for i := range len(s) {
-		fmt.Fprintf(&b, `\%03o`, s[i])
-	}
-	return b.String()
+	return argv
 }
 
 // statusRank orders agent statuses by urgency, as herdr-app does for a space.
@@ -345,13 +339,54 @@ func (c *AppClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 	if err != nil {
 		return Workspace{}, err
 	}
+	args := map[string]any{"name": r.Label, "folder": r.CWD}
+	if r.Machine != "" {
+		args["machine"] = r.Machine
+	}
+	if len(r.Env) > 0 {
+		// folder already puts the program in r.CWD; entering a relative one
+		// again from there would fail.
+		args["argv"] = shellArgv("", r.Env)
+	}
 	var made appCreated
-	if err := c.do(ctx, "space.new", map[string]any{"name": r.Label, "folder": r.CWD}, &made); err != nil {
+	if err := c.create(ctx, "space.new", args, r.Env, &made); err != nil {
 		return Workspace{}, err
 	}
 	defer func() { err = errors.Join(err, restore()) }()
-	w = Workspace{ID: made.Space, Label: r.Label, CWD: r.CWD, ActiveTabID: made.Tab}
-	return w, c.prelude(ctx, made.Terminal, "", r.Env)
+	return Workspace{ID: made.Space, Label: r.Label, CWD: r.CWD, ActiveTabID: made.Tab, Machine: r.Machine}, nil
+}
+
+// MachineHome asks the machine itself: herdr-app does not expand ~ in folders.
+func (c *AppClient) MachineHome(ctx context.Context, machine string) (string, error) {
+	args := []string{"exec", "--on", machine, "--", "sh", "-c", `printf %s "$HOME"`}
+	out, stderr, err := c.execNamed(ctx, c.CoreBin+" "+strings.Join(args, " "), false, c.CoreBin, args...)
+	if err != nil {
+		// hc reports its own failures, such as an unknown machine, on stderr.
+		if _, message := HCError(stderr); message != "" {
+			return "", fmt.Errorf("home on machine %q: %s", machine, message)
+		}
+		return "", fmt.Errorf("home on machine %q: %w", machine, err)
+	}
+	home := string(out)
+	if !strings.HasPrefix(home, "/") {
+		return "", fmt.Errorf("home on machine %q: got %q, not an absolute path", machine, home)
+	}
+	return home, nil
+}
+
+// HCError decodes hc's own {"error":{"kind":...,"message":...}} report, which
+// hc writes to stderr.
+func HCError(stderr []byte) (kind, message string) {
+	var reply struct {
+		Error struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(stderr, &reply) != nil {
+		return "", ""
+	}
+	return reply.Error.Kind, reply.Error.Message
 }
 
 func (c *AppClient) WorkspaceFocus(ctx context.Context, id string) error {
@@ -392,16 +427,17 @@ func (c *AppClient) TabCreate(ctx context.Context, r TabCreateRequest) (tab Tab,
 	if r.CWD != "" {
 		args["folder"] = r.CWD
 	}
+	if len(r.Env) > 0 {
+		args["argv"] = shellArgv("", r.Env)
+	}
 	var made appCreated
-	if err := c.do(ctx, "tab.new", args, &made); err != nil {
+	if err := c.create(ctx, "tab.new", args, r.Env, &made); err != nil {
 		return Tab{}, err
 	}
 	defer func() { err = errors.Join(err, restore()) }()
 	tab = Tab{ID: made.Tab, WorkspaceID: r.WorkspaceID, Label: r.Label, CWD: r.CWD}
-	if tab.PaneID, err = c.paneOf(ctx, made.Terminal); err != nil {
-		return tab, err
-	}
-	return tab, c.prelude(ctx, made.Terminal, "", r.Env)
+	tab.PaneID, err = c.paneOf(ctx, made.Terminal)
+	return tab, err
 }
 
 func (c *AppClient) TabFocus(ctx context.Context, id string) error {
@@ -479,17 +515,19 @@ func (c *AppClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 	if err != nil {
 		return Pane{}, err
 	}
+	args := map[string]any{"pane": r.PaneID, "direction": r.Direction}
+	if r.CWD != "" || len(r.Env) > 0 {
+		args["argv"] = shellArgv(r.CWD, r.Env)
+	}
 	var made appCreated
-	if err := c.do(ctx, "pane.split", map[string]any{"pane": r.PaneID, "direction": r.Direction}, &made); err != nil {
+	if err := c.create(ctx, "pane.split", args, r.Env, &made); err != nil {
 		return Pane{}, err
 	}
 	c.remember(made.Pane, made.Terminal)
 	p := Pane{ID: made.Pane, CWD: r.CWD}
-	err = c.prelude(ctx, made.Terminal, r.CWD, r.Env)
-	if after, statusErr := c.status(ctx); statusErr != nil {
-		err = errors.Join(err, statusErr)
-	} else if before.FocusedPane != "" && after.FocusedPane == made.Pane {
-		err = errors.Join(err, c.PaneFocus(ctx, before.FocusedPane))
+	after, err := c.status(ctx)
+	if err == nil && before.FocusedPane != "" && after.FocusedPane == made.Pane {
+		err = c.PaneFocus(ctx, before.FocusedPane)
 	}
 	return p, err
 }
@@ -499,18 +537,11 @@ func (c *AppClient) PaneFocus(ctx context.Context, id string) error {
 }
 
 // PaneWaitOutput polls the terminal's screen and history, so output printed
-// before the call counts. The echoed setup line is part of that history, so a
-// match it contains is refused, like a match in the startup command.
+// before the call counts.
 func (c *AppClient) PaneWaitOutput(ctx context.Context, id, match string, timeout time.Duration) error {
 	t, err := c.terminal(ctx, id)
 	if err != nil {
 		return err
-	}
-	c.mu.Lock()
-	setup := c.setups[t]
-	c.mu.Unlock()
-	if setup != "" && strings.Contains(setup, match) {
-		return fmt.Errorf("terminal %s: wait_for match %q appears in the terminal setup line it echoes", t, match)
 	}
 	interval := c.PollInterval
 	if interval == 0 {

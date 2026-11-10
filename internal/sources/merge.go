@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"regexp"
+	"slices"
 	"sync"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/model"
@@ -41,7 +42,7 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 		}
 	}
 	out := model.NewSessions()
-	seenName := map[[2]string]bool{}
+	seenName := map[[2]string]string{}
 	bl := compile(blacklist)
 	for _, name := range ordered {
 		ss := by[name]
@@ -58,15 +59,35 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 					key = sess.Path
 				}
 				identity := [2]string{sess.Machine, key}
-				if seenName[identity] {
+				if kept, ok := seenName[identity]; ok {
+					// The open remote space stands in for its configured entry,
+					// whichever source comes first.
+					if sess.Machine != "" && sess.Source == "config" {
+						s := out.Directory[kept]
+						s.Configured = true
+						out.Directory[kept] = s
+					} else if sess.Machine != "" && sess.WorkspaceID != "" && out.Directory[kept].Source == "config" {
+						sess.Configured = true
+						seenName[identity] = replace(&out, kept, sess)
+					}
 					continue
 				}
-				seenName[identity] = true
+				seenName[identity] = out.Add(sess)
+				continue
 			}
 			out.Add(sess)
 		}
 	}
 	return out, nil
+}
+
+// replace puts s in old's place in the display order.
+func replace(ss *model.Sessions, old string, s model.Session) string {
+	key := model.Key(s)
+	delete(ss.Directory, old)
+	ss.Directory[key] = s
+	ss.OrderedIndex[slices.Index(ss.OrderedIndex, old)] = key
+	return key
 }
 func compile(items []string) []*regexp.Regexp {
 	out := []*regexp.Regexp{}
