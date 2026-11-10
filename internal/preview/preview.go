@@ -29,7 +29,7 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
 	if s.Machine != "" {
-		return remoteSummary(s), nil
+		return renderRemote(ctx, s), nil
 	}
 	if s.Path == "" {
 		if s.WorkspaceID != "" {
