@@ -145,19 +145,19 @@ HERDR_SESH_BACKEND=app herdr-sesh connect buntu26/sp1
 
 Remote files stay on the remote machine. Sesh never inspects a remote space's
 folder through the local filesystem or local Git. Its directory preview runs on
-that machine through `hc exec`: a portable `ls -A -p -1` listing of the space's
+that machine in one `hc exec` call: a portable `ls -A -p -1` listing of the space's
 folder, followed by `git status --short --branch`. Configured preview commands
 name local tools, so they run only for local spaces; in the native picker and
 `herdr-sesh preview`, remote spaces always get this built-in preview. The
 experimental fzf picker shows a remote space's name, machine, and path only.
 When the folder is not a Git repository or the machine has no Git, the
 preview shows only the listing. When the Git status cannot be
-read for another reason, such as the machine disconnecting, the folder
-becoming unreachable, or the preview deadline expiring, the listing ends with
-one line saying why. The preview has 3 seconds in total. If the listing itself
-fails or does not finish in time, the preview shows the space's metadata and
-one line explaining why. A remote space without a recorded folder shows its
-metadata only. Pane preview reads the remote terminal through `hc read` with
+read for another reason, such as a Git that cannot run or a repository Git
+refuses, the listing ends with one line saying why. The preview has 3 seconds
+in total. If the listing itself fails, or the call fails or does not finish in
+time, for example because the machine disconnects or the folder is
+unreachable, the preview shows the space's metadata and one line explaining
+why. A remote space without a recorded folder shows its metadata only. Pane preview reads the remote terminal through `hc read` with
 its qualified terminal address. Selecting an existing remote space does not
 apply local session configuration or run startup commands there.
 
@@ -196,7 +196,9 @@ terminals, so they name the remote machine's tools.
   a relative workspace `path` starts there too. Sesh asks the machine for
   `$HOME` with one `hc exec` call before it creates the space; a workspace
   whose paths are all absolute skips the call. Relative tab and pane paths
-  resolve against the workspace path as usual.
+  resolve against the workspace path as usual. `~user/...` paths are rejected,
+  so use an absolute path for another user's home; connecting fails before
+  anything is created, and the preview runs nothing and says why.
 - Sesh does not check the path locally, inspect it with Git, or add it to
   zoxide. `[[rule]]` entries and `workspace_defaults.startup` match local
   paths, so they do not apply to remote workspaces.
@@ -204,16 +206,19 @@ terminals, so they name the remote machine's tools.
   target is always a local path. A target is first checked as a local
   directory, and one that exists is named with local Git, so a local
   directory called like the workspace wins.
-- Once the space is open, it is listed once, as the open space. Selecting it,
-  or connecting by its name, switches to that space instead of creating
-  another. Sesh matches the open space by machine and name, as it matches
-  local spaces by name.
+- Once the space is open, it is listed once, as the open space, in the
+  position of whichever source comes first. Selecting it, or connecting by its
+  name, switches to that space instead of creating another. Sesh matches the
+  open space by machine and name; an open local `[[workspace]]` entry is
+  listed once the same way, by name.
 - A local session with the same name wins a bare `connect api`. Use the
   picker, or the open space's qualified ID, to reach the remote one.
 - An unknown or unreachable machine fails with the error from `hc` or
   herdr-app, and nothing is created.
-- The Herdr TUI backend has no machines. Connecting to a configured remote
-  workspace there fails with an error that names the Herdr app.
+- The Herdr TUI backend has no machines, so `list` and the picker omit
+  `[[workspace]]` entries that set `machine`. Connecting to one by its name
+  there fails with an error that names the Herdr app, and previewing it shows
+  its metadata and one line saying remote previews need the Herdr app.
 
 ## Differences from the Herdr plugin
 
@@ -231,7 +236,9 @@ These differences apply when using the app mods or CLI commands with
 - Layout splits ignore `ratio`; the app splits evenly.
 - herdr-sesh starts a pane with `env` by passing the app a `/bin/sh` command
   that exports the values and starts your `$SHELL` as a login shell. Environment
-  values are not typed into the terminal. When the root
+  values are not typed into the terminal. The values are set before the login
+  shell starts, so its startup files run after them, and a value a startup file
+  exports wins. When the root
   pane of a new space or tab sets `env`, the app runs that command inside its
   own login shell, so shell startup files run twice, and exiting the shell
   leaves you in one without the `env` values. Values are visible in the
@@ -246,9 +253,10 @@ These differences apply when using the app mods or CLI commands with
   shell shows the `cd` error and stays in its current directory. Root panes
   of spaces and tabs still start in the app's `folder` before shell startup,
   so their startup files can change that directory. When the app refuses
-  to create a pane that sets `env`, the error names the command and its exit
-  status only: the app's message could repeat the values, so Sesh withholds
-  it. Remove `env` to see the message.
+  to create a pane that sets `env`, the error names the command and shows the
+  app's message, but never the request. If the message contains one of the
+  `env` values, as written or JSON-escaped, Sesh withholds it and shows only
+  the exit status; remove `env` to see that message.
 - In the shown tab, a split gives focus back to the pane that had it. In a tab
   that isn't shown, the last split pane keeps focus.
 - The app focuses everything it creates. For `connect --no-focus`,

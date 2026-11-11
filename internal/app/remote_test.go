@@ -120,12 +120,14 @@ func TestPreviewConfiguredRemoteNamePrefersLocalDirectory(t *testing.T) {
 	t.Chdir(dir)
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+":/usr/bin:/bin")
-	t.Setenv("HERDR_SESH_BACKEND", "herdr")
-	t.Setenv("HERDR_BIN_PATH", "/usr/bin/false")
+	t.Setenv("HERDR_SESH_BACKEND", "app")
 	log := filepath.Join(dir, "hc.log")
 	t.Setenv("PREVIEW_HC_LOG", log)
+	// The fake answers only hc exec, with the preview script's header line.
 	//nolint:gosec // executable fixture at the hc process boundary.
-	require.NoError(t, os.WriteFile(filepath.Join(bin, "hc"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PREVIEW_HC_LOG\"\nprintf 'remote-preview\\n'\n"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "hc"), []byte("#!/bin/sh\n[ \"$1\" = exec ] || exit 1\nprintf '%s\\n' \"$*\" >> \"$PREVIEW_HC_LOG\"\nprintf '0 14\\nremote-preview'\n"), 0o700))
+	//nolint:gosec // executable fixture at the herdr-app process boundary.
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "herdr-app"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
 	cfg := filepath.Join(dir, "config.toml")
 	require.NoError(t, os.WriteFile(cfg, []byte(`version = 1
 [workspace_defaults]
@@ -150,4 +152,76 @@ path = "/remote-only/api"
 	require.NoError(t, a.preview(t.Context(), []string{"--config", cfg, "api"}))
 	assert.Equal(t, "local-preview", out.String())
 	assert.NoFileExists(t, log)
+}
+
+const localAndRemoteConfig = `version = 1
+[[workspace]]
+name = "web"
+path = "/src/web"
+[[workspace]]
+name = "api"
+machine = "buntu26"
+path = "/srv/api"
+`
+
+func sessionNames(sessions []model.Session) []string {
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		names = append(names, s.DisplayName())
+	}
+	return names
+}
+
+// useAppBackend selects herdr-app with fakes that fail every call, so the
+// live app is never asked.
+func useAppBackend(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	for _, name := range []string{"herdr-app", "hc"} {
+		//nolint:gosec // executable fixtures at the process boundary.
+		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o700))
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HERDR_SESH_BACKEND", "app")
+}
+
+// A backend without machines cannot open a remote [[workspace]] entry, so
+// list and the picker leave it out; herdr-app lists it.
+func TestListAndPickerOmitRemoteWorkspacesWithoutMachines(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(localAndRemoteConfig), 0o600))
+	cfg, err := (&App{}).loadConfig(cfgPath)
+	require.NoError(t, err)
+
+	t.Run("herdr TUI", func(t *testing.T) {
+		assert.Equal(t, []string{"web"}, sessionNames(runListJSON(t, cfgPath, "")))
+		assert.Equal(t, []string{"web"}, sessionNames(runPickerJSON(t, cfgPath, "")))
+		col, err := (&App{}).collectPickerWithClient(t.Context(), cfg, nil, &herdr.CLIClient{Bin: "/usr/bin/false", Runner: herdr.ExecRunner{}})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"web"}, sessionNames(col.Sessions))
+	})
+	t.Run("herdr-app", func(t *testing.T) {
+		useAppBackend(t)
+		want := []string{"web", "[buntu26] api"}
+		assert.ElementsMatch(t, want, sessionNames(runListJSON(t, cfgPath, "")))
+		assert.ElementsMatch(t, want, sessionNames(runPickerJSON(t, cfgPath, "")))
+		col, err := (&App{}).collectPickerWithClient(t.Context(), cfg, nil, &herdr.AppClient{AppBin: "/usr/bin/false", CoreBin: "/usr/bin/false", Runner: herdr.ExecRunner{}})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, want, sessionNames(col.Sessions))
+	})
+}
+
+// connect and preview keep remote entries under a backend without machines,
+// so the name is explained instead of matching nothing.
+func TestConnectAndPreviewKeepRemoteWorkspacesWithoutMachines(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(localAndRemoteConfig), 0o600))
+	configureFakeSources(t, "")
+	t.Chdir(t.TempDir())
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	err := a.connect(t.Context(), []string{"--config", cfgPath, "api"})
+	require.ErrorIs(t, err, herdr.ErrNoMachines)
+	require.NoError(t, a.preview(t.Context(), []string{"--config", cfgPath, "api"}))
+	assert.Equal(t, "workspace: api\nmachine: buntu26\nid: \npath: /srv/api\nremote previews need the Herdr app (herdr-app)\n", out.String())
 }

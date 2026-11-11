@@ -27,9 +27,22 @@ func RenderPane(ctx context.Context, s model.Session) (string, error) {
 	return herdr.NewBackend().WorkspacePaneRead(ctx, s.WorkspaceID)
 }
 
+// Render previews s, reaching a remote session's machine through the backend
+// herdr.NewBackend selects.
 func Render(ctx context.Context, s model.Session, fallbackCommand string) (string, error) {
+	var machines herdr.MachineClient
 	if s.Machine != "" {
-		return renderRemote(ctx, s), nil
+		machines, _ = herdr.NewBackend().(herdr.MachineClient)
+	}
+	return RenderWith(ctx, machines, s, fallbackCommand)
+}
+
+// RenderWith previews s, reaching a remote session's machine through
+// machines. With nil machines, a backend without machines, a remote session's
+// preview runs nothing and shows its metadata.
+func RenderWith(ctx context.Context, machines herdr.MachineClient, s model.Session, fallbackCommand string) (string, error) {
+	if s.Machine != "" {
+		return renderRemote(ctx, machines, s), nil
 	}
 	if s.Path == "" {
 		if s.WorkspaceID != "" {
