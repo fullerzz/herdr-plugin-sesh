@@ -219,11 +219,18 @@ func TestShellArgvStartsShellInDirectoryWithValuesIntact(t *testing.T) {
 	require.NoError(t, os.Mkdir(dir, 0o750))
 	value := "a'b\"c $(touch pwned) `x` \\n\nline2 *"
 	for _, shell := range []string{"/bin/bash", "/bin/zsh", "/bin/sh", ""} {
-		out, err := runShellArgv(t, shellArgv(dir, map[string]string{"V": value}), t.TempDir(), shell, "printf '%s|' \"$V\"; pwd -P\n")
-		require.NoError(t, err, shell)
-		assert.Contains(t, out, value+"|", shell)
-		assert.Contains(t, out, filepath.Base(dir), shell)
-		assert.NoFileExists(t, filepath.Join(dir, "pwned"), shell)
+		t.Run(shell, func(t *testing.T) {
+			if shell == "/bin/zsh" {
+				if _, err := os.Stat(shell); os.IsNotExist(err) {
+					t.Skip("optional zsh is not installed")
+				}
+			}
+			out, err := runShellArgv(t, shellArgv(dir, map[string]string{"V": value}), t.TempDir(), shell, "printf '%s|' \"$V\"; pwd -P\n")
+			require.NoError(t, err, shell)
+			assert.Contains(t, out, value+"|", shell)
+			assert.Contains(t, out, filepath.Base(dir), shell)
+			assert.NoFileExists(t, filepath.Join(dir, "pwned"), shell)
+		})
 	}
 }
 
@@ -233,7 +240,7 @@ func TestShellArgvStartsShellWhenDirectoryIsMissing(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "typo")
 	out, err := runShellArgv(t, shellArgv(missing, map[string]string{"PORT": "8080"}), t.TempDir(), "/bin/bash", "echo \"STARTUP-RAN $PORT\"\n")
 	require.NoError(t, err, out)
-	assert.Contains(t, out, "typo: No such file or directory")
+	assert.Contains(t, out, missing)
 	assert.Contains(t, out, "STARTUP-RAN 8080")
 }
 
