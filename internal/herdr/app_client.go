@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 )
 
 // AppClient drives the Herdr desktop app through `herdr-app` and its terminal
@@ -18,8 +20,8 @@ import (
 //
 // herdr-app's create commands always focus what they create. AppClient restores
 // the shown tab after unfocused creates and refocuses the pane a split took
-// focus from. A split has no folder argument, and no create command sets an
-// environment, so AppClient starts such terminals with shellArgv instead. For a
+// focus from. Split directories are sent after shell startup; environments
+// are supplied through shellArgv. For a
 // space or tab, herdr-app runs that argv inside its own login shell, so startup
 // files run twice; spaces and tabs get argv only when they need an environment.
 //
@@ -33,8 +35,9 @@ type AppClient struct {
 	// CallerTerminal is the hc address of the terminal running herdr-sesh.
 	CallerTerminal string
 
-	mu        sync.Mutex
-	terminals map[string]string // pane ID -> terminal address
+	mu                sync.Mutex
+	terminals         map[string]string // pane ID -> terminal address
+	directoryCommands map[string]string // terminal address -> echoed directory setup
 }
 
 var (
@@ -516,8 +519,8 @@ func (c *AppClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 		return Pane{}, err
 	}
 	args := map[string]any{"pane": r.PaneID, "direction": r.Direction}
-	if r.CWD != "" || len(r.Env) > 0 {
-		args["argv"] = shellArgv(r.CWD, r.Env)
+	if len(r.Env) > 0 {
+		args["argv"] = shellArgv("", r.Env)
 	}
 	var made appCreated
 	if err := c.create(ctx, "pane.split", args, r.Env, &made); err != nil {
@@ -525,11 +528,22 @@ func (c *AppClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 	}
 	c.remember(made.Pane, made.Terminal)
 	p := Pane{ID: made.Pane, CWD: r.CWD}
-	after, err := c.status(ctx)
-	if err == nil && before.FocusedPane != "" && after.FocusedPane == made.Pane {
-		err = c.PaneFocus(ctx, before.FocusedPane)
+	if r.CWD != "" {
+		// Apply after login files, which may change directory themselves.
+		command := config.SubstitutePath(" cd -- {}", r.CWD)
+		c.mu.Lock()
+		if c.directoryCommands == nil {
+			c.directoryCommands = make(map[string]string)
+		}
+		c.directoryCommands[made.Terminal] = command
+		c.mu.Unlock()
+		_, err = c.exec(ctx, c.CoreBin, "send", made.Terminal, command)
 	}
-	return p, err
+	after, statusErr := c.status(ctx)
+	if statusErr == nil && before.FocusedPane != "" && after.FocusedPane == made.Pane {
+		statusErr = c.PaneFocus(ctx, before.FocusedPane)
+	}
+	return p, errors.Join(err, statusErr)
 }
 
 func (c *AppClient) PaneFocus(ctx context.Context, id string) error {
@@ -542,6 +556,12 @@ func (c *AppClient) PaneWaitOutput(ctx context.Context, id, match string, timeou
 	t, err := c.terminal(ctx, id)
 	if err != nil {
 		return err
+	}
+	c.mu.Lock()
+	setup := c.directoryCommands[t]
+	c.mu.Unlock()
+	if setup != "" && strings.Contains(setup, match) {
+		return fmt.Errorf("terminal %s: wait_for match %q appears in the directory setup line it echoes", t, match)
 	}
 	interval := c.PollInterval
 	if interval == 0 {

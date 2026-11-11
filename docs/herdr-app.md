@@ -229,19 +229,21 @@ These differences apply when using the app mods or CLI commands with
   `$XDG_STATE_HOME/herdr-sesh/herdr-app/` (default `~/.local/state`).
   Closing a space outside the picker leaves its ID in history.
 - Layout splits ignore `ratio`; the app splits evenly.
-- herdr-sesh starts a pane with `env` or a split's `path` by passing the app a
-  `/bin/sh` command that changes directory, exports the values, and starts your
-  `$SHELL` as a login shell. Nothing is typed into the terminal. When the root
+- herdr-sesh starts a pane with `env` by passing the app a `/bin/sh` command
+  that exports the values and starts your `$SHELL` as a login shell. Environment
+  values are not typed into the terminal. When the root
   pane of a new space or tab sets `env`, the app runs that command inside its
   own login shell, so shell startup files run twice, and exiting the shell
   leaves you in one without the `env` values. Values are visible in the
   terminal's command line, for example through `hc get` or the process list.
-  The directory is set before your shell reads its startup files, so a
-  startup file that changes directory, such as `cd "$HOME"` in a login
-  profile, moves the pane away from its `path`, as it already does for the
-  first pane of a space or tab. When a split's `path` cannot be entered, the
-  pane shows the `cd` error and its shell starts in the directory the split
-  inherited. When the app refuses
+  For a split with a `path`, Sesh sends a quoted `cd` command after shell
+  startup and before the configured startup command, so a login profile that
+  changes directory cannot override that path. The `cd` line may appear in
+  terminal history; `wait_for` rejects a match contained in that line to avoid
+  counting its echo as readiness. If the directory cannot be entered, the
+  shell shows the `cd` error and stays in its current directory. Root panes
+  of spaces and tabs still start in the app's `folder` before shell startup,
+  so their startup files can change that directory. When the app refuses
   to create a pane that sets `env`, the error names the command and its exit
   status only: the app's message could repeat the values, so Sesh withholds
   it. Remove `env` to see the message.

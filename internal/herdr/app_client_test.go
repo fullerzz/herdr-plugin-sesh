@@ -321,9 +321,8 @@ func TestAppClientSplitStartsShellInDirectoryThenRunsInNewTerminal(t *testing.T)
 	c, r := newTestAppClient(map[string][]string{"herdr-app do pane.split": {`{"pane":"p5","terminal":"t5"}`}})
 	p, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "down", CWD: "/src/web", Ratio: 0.3})
 	require.NoError(t, err)
-	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "down",
-		"argv": []string{"/bin/sh", "-c", wrapper, "sh", "/src/web"}})
-	assertNoSend(t, r.calls)
+	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "down"})
+	assert.Equal(t, []string{"hc", "send", "t5", " cd -- /src/web"}, r.calls[2])
 	require.NoError(t, c.PaneRun(context.Background(), p.ID, "npm run dev"))
 	assert.Equal(t, []string{"hc", "send", "t5", "npm run dev"}, r.calls[len(r.calls)-1])
 }
@@ -335,6 +334,57 @@ func TestAppClientSplitWithOnlyEnvStaysInInheritedDirectory(t *testing.T) {
 	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "right",
 		"argv": []string{"/bin/sh", "-c", wrapper, "sh", ".", "PORT=8080"}})
 	assertNoSend(t, r.calls)
+}
+
+func TestAppClientSplitDirectoryWinsOverLoginProfile(t *testing.T) {
+	for _, withEnv := range []bool{false, true} {
+		t.Run(strconv.FormatBool(withEnv), func(t *testing.T) {
+			home := t.TempDir()
+			dir := filepath.Join(t.TempDir(), "it's $(touch injected) web")
+			require.NoError(t, os.Mkdir(dir, 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(home, ".bash_profile"), []byte("cd \"$HOME\"\nalias profile_alias='echo PROFILE_LOADED'\n"), 0o600))
+			c, r := newTestAppClient(map[string][]string{"herdr-app do pane.split": {`{"pane":"p5","terminal":"remote/t5"}`}})
+			var env map[string]string
+			if withEnv {
+				env = map[string]string{"PORT": "8080"}
+			}
+			p, err := c.PaneSplit(t.Context(), PaneSplitRequest{PaneID: "p1", Direction: "right", CWD: dir, Env: env})
+			require.NoError(t, err)
+			require.NoError(t, c.PaneRun(t.Context(), p.ID, "profile_alias; printf 'PORT=%s\\n' \"$PORT\"; pwd -P"))
+			argv := []string{"/bin/bash", "-l"}
+			var input strings.Builder
+			for _, call := range r.calls {
+				if len(call) > 3 && call[0] == "herdr-app" && call[2] == "pane.split" {
+					var body struct {
+						Argv []string `json:"argv"`
+					}
+					require.NoError(t, json.Unmarshal([]byte(call[3]), &body))
+					if len(body.Argv) > 0 {
+						argv = body.Argv
+					}
+				}
+				if len(call) > 3 && call[0] == "hc" && call[1] == "send" {
+					assert.Equal(t, "remote/t5", call[2])
+					input.WriteString(call[3] + "\n")
+				}
+			}
+			//nolint:gosec // execute the actual create argv against an isolated profile.
+			cmd := exec.Command(argv[0], argv[1:]...)
+			cmd.Dir = home
+			cmd.Env = []string{"HOME=" + home, "SHELL=/bin/bash", "PATH=/usr/bin:/bin", "BASH_ENV=/dev/null"}
+			cmd.Stdin = strings.NewReader("shopt -s expand_aliases\n" + input.String())
+			out, err := cmd.CombinedOutput()
+			require.NoError(t, err, string(out))
+			physical, err := filepath.EvalSymlinks(dir)
+			require.NoError(t, err)
+			assert.Contains(t, string(out), physical+"\n")
+			assert.Contains(t, string(out), "PROFILE_LOADED")
+			if withEnv {
+				assert.Contains(t, string(out), "PORT=8080")
+			}
+			assert.NoFileExists(t, filepath.Join(home, "injected"))
+		})
+	}
 }
 
 func TestAppClientReportsHerdrAppErrors(t *testing.T) {
@@ -356,6 +406,31 @@ func TestAppClientWaitForOutputTimesOut(t *testing.T) {
 	c, _ := newTestAppClient(map[string][]string{"herdr-app ls": {appLS}, "hc read": {"booting"}})
 	err := c.PaneWaitOutput(context.Background(), "p2", "ready on", 20*time.Millisecond)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestAppClientWaitForRejectsEchoedDirectorySetup(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{
+		"herdr-app do pane.split": {`{"pane":"p5","terminal":"t5"}`},
+		"hc read":                 {"ready from application"},
+	})
+	p, err := c.PaneSplit(t.Context(), PaneSplitRequest{PaneID: "p1", Direction: "right", CWD: "/src/listening"})
+	require.NoError(t, err)
+	count := len(r.calls)
+	require.ErrorContains(t, c.PaneWaitOutput(t.Context(), p.ID, "listening", time.Second), "directory setup line")
+	assert.Len(t, r.calls, count)
+	require.NoError(t, c.PaneWaitOutput(t.Context(), p.ID, "ready from application", time.Second))
+}
+
+func TestAppClientSplitRestoresFocusWhenDirectorySendFails(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{
+		"herdr-app status":        {`{"focused_pane":"p1"}`, `{"focused_pane":"p5"}`},
+		"herdr-app do pane.split": {`{"pane":"p5","terminal":"t5"}`},
+		"hc send":                 {`{"error":"terminal unavailable"}`},
+	})
+	p, err := c.PaneSplit(t.Context(), PaneSplitRequest{PaneID: "p1", Direction: "right", CWD: "/src/web"})
+	require.ErrorContains(t, err, "terminal unavailable")
+	assert.Equal(t, "p5", p.ID)
+	assert.Equal(t, []string{"herdr-app", "do", "pane.focus", `{"pane":"p1"}`}, r.calls[len(r.calls)-1])
 }
 
 func TestAppClientFocusedPaneIsShownSpace(t *testing.T) {
