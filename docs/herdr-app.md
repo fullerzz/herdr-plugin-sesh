@@ -196,9 +196,9 @@ terminals, so they name the remote machine's tools.
   a relative workspace `path` starts there too. Sesh asks the machine for
   `$HOME` with one `hc exec` call before it creates the space; a workspace
   whose paths are all absolute skips the call. Relative tab and pane paths
-  resolve against the workspace path as usual. `~user/...` paths are rejected,
-  so use an absolute path for another user's home; connecting fails before
-  anything is created, and the preview runs nothing and says why.
+  resolve against the workspace path as usual. `~user/...` paths are rejected
+  when the config loads, in the workspace `path` and in the paths of the tabs
+  and panes it uses, so use an absolute path for another user's home.
 - Sesh does not check the path locally, inspect it with Git, or add it to
   zoxide. `[[rule]]` entries and `workspace_defaults.startup` match local
   paths, so they do not apply to remote workspaces.

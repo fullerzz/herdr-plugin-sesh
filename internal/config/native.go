@@ -248,6 +248,10 @@ func (n nativeConfig) validate(path string) error {
 
 func (n nativeConfig) validateWorkspaces(fail func(key, format string, args ...any) error, focusedPanes map[string]string) error {
 	workspaceNames := map[string]bool{}
+	tabs := make(map[string]nativeTab, len(n.Tabs))
+	for _, t := range n.Tabs {
+		tabs[t.Name] = t
+	}
 	for _, w := range n.Workspaces {
 		if w.Name == "" {
 			return fail("workspace.name", "must not be empty")
@@ -262,12 +266,27 @@ func (n nativeConfig) validateWorkspaces(fail func(key, format string, args ...a
 		if w.Machine != "" && !machinePattern.MatchString(w.Machine) {
 			return fail("workspace.machine", "workspace %q has invalid machine name %q; use a name from `hc machine ls`", w.Name, w.Machine)
 		}
-		if w.Machine != "" && strings.HasPrefix(w.Path, "~") && !HasHomePrefix(w.Path) {
+		if w.Machine != "" && otherUsersHome(w.Path) {
 			return fail("workspace.path", "workspace %q on machine %q: path %q names another user's home; use an absolute path", w.Name, w.Machine, w.Path)
 		}
 		for _, ref := range w.Tabs {
 			if _, ok := focusedPanes[ref]; !ok {
 				return fail("workspace.tabs", "workspace %q references unknown tab %q", w.Name, ref)
+			}
+			if w.Machine == "" {
+				continue
+			}
+			// Checked here, on the paths as written: a relative tab or pane
+			// path is joined to its parent before a space is created, which
+			// hides the ~ from any later check.
+			tab := tabs[ref]
+			if otherUsersHome(tab.Path) {
+				return fail("workspace.tabs", "workspace %q on machine %q: tab %q path %q names another user's home; use an absolute path", w.Name, w.Machine, ref, tab.Path)
+			}
+			for _, p := range tab.Panes {
+				if otherUsersHome(p.Path) {
+					return fail("workspace.tabs", "workspace %q on machine %q: tab %q pane %q path %q names another user's home; use an absolute path", w.Name, w.Machine, ref, p.Name, p.Path)
+				}
 			}
 		}
 		if conflict := focusConflict(w.Tabs, focusedPanes); conflict != "" {
@@ -275,6 +294,12 @@ func (n nativeConfig) validateWorkspaces(fail func(key, format string, args ...a
 		}
 	}
 	return nil
+}
+
+// otherUsersHome reports a ~user path. Only the connecting user's home is known
+// on another machine, so a machine workspace cannot use one.
+func otherUsersHome(path string) bool {
+	return strings.HasPrefix(path, "~") && !HasHomePrefix(path)
 }
 
 // focusConflict describes a tab list that would focus more than one pane, or
