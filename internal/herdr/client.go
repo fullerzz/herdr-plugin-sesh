@@ -122,6 +122,22 @@ type WorkspaceCreateRequest struct {
 type MachineClient interface {
 	// MachineHome is the home directory on machine.
 	MachineHome(ctx context.Context, machine string) (string, error)
+	// MachineExec runs r.Argv on machine. On failure it returns stdout and
+	// stderr unchanged, so callers can decode HCError(stderr); a deadline or
+	// cancellation matches context.DeadlineExceeded or context.Canceled.
+	MachineExec(ctx context.Context, machine string, r MachineExecRequest) (stdout, stderr []byte, err error)
+}
+
+// MachineExecRequest: Dir is hc's --cwd ("" = the machine's home; hc resolves a
+// relative Dir against that home). Env entries are KEY=VALUE for hc's --env.
+// Timeout > 0 bounds the call and is also passed as hc's --timeout in whole
+// seconds, rounded up, which ends the remote program; 0 uses the client's
+// default.
+type MachineExecRequest struct {
+	Dir     string
+	Env     []string
+	Timeout time.Duration
+	Argv    []string
 }
 
 // ErrNoMachines reports a remote workspace request to a backend without

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -90,20 +91,24 @@ type appCreated struct {
 }
 
 func (c *AppClient) exec(ctx context.Context, bin string, args ...string) ([]byte, error) {
-	out, _, err := c.execNamed(ctx, bin+" "+strings.Join(args, " "), false, bin, args...)
+	out, _, err := c.execNamed(ctx, bin+" "+strings.Join(args, " "), nil, 0, bin, args...)
 	return out, err
 }
 
 // execNamed reports failures as name, so arguments that may hold secrets stay
-// out of error text. With secret set, the program's own message is withheld
-// too: it may echo its arguments in any encoding, so no match on the values
-// can clear it.
-func (c *AppClient) execNamed(ctx context.Context, name string, secret bool, bin string, args ...string) (out, stderr []byte, err error) {
+// out of error text. It appends the program's own message (herdr-app's
+// {"error": ...} reply, else stderr) unless that message contains one of
+// secrets, raw or JSON-string-escaped: herdr-app may echo its arguments, so a
+// message that could repeat a value is withheld. timeout > 0 replaces the
+// client's Timeout.
+func (c *AppClient) execNamed(ctx context.Context, name string, secrets []string, timeout time.Duration, bin string, args ...string) (out, stderr []byte, err error) {
 	runner := c.Runner
 	if runner == nil {
 		runner = ExecRunner{}
 	}
-	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = c.Timeout
+	}
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
@@ -116,26 +121,57 @@ func (c *AppClient) execNamed(ctx context.Context, name string, secret bool, bin
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return out, stderr, fmt.Errorf("%s: %w", name, ctxErr)
 	}
-	if secret {
-		return out, stderr, fmt.Errorf("%s: %w (herdr-app's message is withheld because the request carried env values)", name, err)
-	}
 	// herdr-app reports command failures as {"error": "..."} on stdout.
 	var reply struct {
 		Error string `json:"error"`
 	}
-	if json.Unmarshal(out, &reply) == nil && reply.Error != "" {
+	replied := json.Unmarshal(out, &reply) == nil && reply.Error != ""
+	message := string(stderr)
+	if replied {
+		message = reply.Error
+	}
+	if echoesAny(message, secrets) {
+		return out, stderr, fmt.Errorf("%s: %w (herdr-app's message is withheld because the request carried env values)", name, err)
+	}
+	if replied {
 		return out, stderr, fmt.Errorf("%s: %s", name, reply.Error)
 	}
-	return out, stderr, fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(stderr)))
+	return out, stderr, fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(message))
+}
+
+// echoesAny reports whether message contains a non-empty value raw or
+// JSON-string-escaped, with & < > escaped as Go's json.Marshal writes them
+// (create's request body) or left alone as serde_json writes them (herdr-app).
+func echoesAny(message string, values []string) bool {
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if strings.Contains(message, v) || strings.Contains(message, jsonEscaped(v, true)) || strings.Contains(message, jsonEscaped(v, false)) {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonEscaped is v as it appears between the quotes of a JSON string.
+func jsonEscaped(v string, escapeHTML bool) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(escapeHTML)
+	_ = enc.Encode(v) // a string always encodes
+	s := strings.TrimSuffix(b.String(), "\n")
+	return s[1 : len(s)-1]
 }
 
 func (c *AppClient) do(ctx context.Context, command string, args map[string]any, reply any) error {
 	return c.create(ctx, command, args, nil, reply)
 }
 
-// create runs a herdr-app command whose argv may carry env. With env set,
-// neither the body nor herdr-app's own message reaches error text; without,
-// the error names the request, which says what a select or focus was aimed at.
+// create runs a herdr-app command whose argv may carry env. With env set, the
+// body never reaches error text, and herdr-app's own message does only when it
+// contains no env value, raw or JSON-escaped; without env, the error names the
+// request, which says what a select or focus was aimed at.
 func (c *AppClient) create(ctx context.Context, command string, args map[string]any, env map[string]string, reply any) error {
 	body, err := json.Marshal(args)
 	if err != nil {
@@ -145,7 +181,7 @@ func (c *AppClient) create(ctx context.Context, command string, args map[string]
 	if len(env) == 0 {
 		name += " " + string(body)
 	}
-	out, _, err := c.execNamed(ctx, name, len(env) > 0, c.AppBin, "do", command, string(body))
+	out, _, err := c.execNamed(ctx, name, slices.Collect(maps.Values(env)), 0, c.AppBin, "do", command, string(body))
 	if err != nil || reply == nil {
 		return err
 	}
@@ -359,10 +395,32 @@ func (c *AppClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateReques
 	return Workspace{ID: made.Space, Label: r.Label, CWD: r.CWD, ActiveTabID: made.Tab, Machine: r.Machine}, nil
 }
 
+// MachineExec runs r.Argv on machine through `hc exec --on`. Its error names
+// the hc call with env keys but not their values.
+func (c *AppClient) MachineExec(ctx context.Context, machine string, r MachineExecRequest) (stdout, stderr []byte, err error) {
+	args := []string{"exec", "--on", machine}
+	if r.Dir != "" {
+		args = append(args, "--cwd", r.Dir)
+	}
+	named := slices.Clone(args)
+	for _, kv := range r.Env {
+		key, _, _ := strings.Cut(kv, "=")
+		args = append(args, "--env", kv)
+		named = append(named, "--env", key)
+	}
+	var tail []string
+	if r.Timeout > 0 {
+		// Round up: a sub-second timeout must not become hc's --timeout 0.
+		tail = append(tail, "--timeout", strconv.FormatInt(int64((r.Timeout+time.Second-1)/time.Second), 10))
+	}
+	tail = append(append(tail, "--"), r.Argv...)
+	args, named = append(args, tail...), append(named, tail...)
+	return c.execNamed(ctx, c.CoreBin+" "+strings.Join(named, " "), nil, r.Timeout, c.CoreBin, args...)
+}
+
 // MachineHome asks the machine itself: herdr-app does not expand ~ in folders.
 func (c *AppClient) MachineHome(ctx context.Context, machine string) (string, error) {
-	args := []string{"exec", "--on", machine, "--", "sh", "-c", `printf %s "$HOME"`}
-	out, stderr, err := c.execNamed(ctx, c.CoreBin+" "+strings.Join(args, " "), false, c.CoreBin, args...)
+	out, stderr, err := c.MachineExec(ctx, machine, MachineExecRequest{Argv: []string{"sh", "-c", `printf %s "$HOME"`}})
 	if err != nil {
 		// hc reports its own failures, such as an unknown machine, on stderr.
 		if _, message := HCError(stderr); message != "" {

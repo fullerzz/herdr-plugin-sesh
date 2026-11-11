@@ -141,20 +141,64 @@ func TestAppClientWorkspaceCreateWithoutEnvSendsNoArgv(t *testing.T) {
 	assertDo(t, r.calls[0], "space.new", map[string]any{"name": "api", "folder": "/src/api"})
 }
 
-// herdr-app may echo its argv in a message, in any encoding. No match on the
-// values can clear every form, so a create that carries env reports no message.
-func TestAppClientCreateErrorsWithholdMessageWhenEnvIsSet(t *testing.T) {
+// herdr-app may echo its argv in a message, raw or JSON-escaped. A create that
+// carries env withholds any message that contains a value in either form.
+func TestAppClientCreateErrorsWithholdMessageThatEchoesEnvValue(t *testing.T) {
 	// serde_json, which herdr-app uses, leaves & unescaped where Go writes \u0026.
 	//nolint:gosec // a fake value that must stay out of error text.
 	const secret = "p&ss\"word\n"
-	env := map[string]string{"API_TOKEN": secret}
-	creates := map[string]func(c *AppClient) error{
+	// serdeEscaped is the value as serde_json writes it inside a JSON string.
+	const serdeEscaped = `p&ss\"word\n`
+	replies := map[string]func(body string) (stdout, stderr string){
+		"JSON error":           func(string) (string, string) { return `{"error":"cannot spawn API_TOKEN=p&ss\"word\n"}`, "" },
+		"JSON error with body": func(body string) (string, string) { return `{"error":` + strconv.Quote(body) + `}`, "" },
+		"JSON error with serde env": func(string) (string, string) {
+			return `{"error":` + strconv.Quote(`bad env ["API_TOKEN=`+serdeEscaped+`"]`) + `}`, ""
+		},
+		"stderr":                func(string) (string, string) { return "", "spawn failed: env API_TOKEN=" + secret },
+		"stderr with body":      func(body string) (string, string) { return "", "invalid request body: " + body + "\n" },
+		"stderr with serde env": func(string) (string, string) { return "", `bad env ["API_TOKEN=` + serdeEscaped + `"]` + "\n" },
+	}
+	for command, create := range envCreates(map[string]string{"API_TOKEN": secret}) {
+		for name, reply := range replies {
+			t.Run(command+" "+name, func(t *testing.T) {
+				err := create(failingCreateClient(command, reply))
+				require.Error(t, err)
+				assert.Equal(t, "herdr-app do "+command+": exit status 1 (herdr-app's message is withheld because the request carried env values)", err.Error())
+			})
+		}
+	}
+}
+
+// A message that repeats no env value is shown, so an unknown machine, a
+// missing folder or a bad pane ID is visible. The body still stays out.
+func TestAppClientCreateErrorsShowMessageWithoutEnvValues(t *testing.T) {
+	replies := map[string]struct {
+		reply func(body string) (stdout, stderr string)
+		want  string
+	}{
+		"JSON error": {func(string) (string, string) { return `{"error":"unknown machine \"nosuchbox\""}`, "" }, `unknown machine "nosuchbox"`},
+		"stderr":     {func(string) (string, string) { return "", "no such folder: /src/typo\n" }, "exit status 1: no such folder: /src/typo"},
+	}
+	for command, create := range envCreates(map[string]string{"API_TOKEN": "hunter2", "EMPTY": ""}) {
+		for name, tc := range replies {
+			t.Run(command+" "+name, func(t *testing.T) {
+				err := create(failingCreateClient(command, tc.reply))
+				require.EqualError(t, err, "herdr-app do "+command+": "+tc.want)
+			})
+		}
+	}
+}
+
+// envCreates runs each herdr-app create that can carry env.
+func envCreates(env map[string]string) map[string]func(c *AppClient) error {
+	return map[string]func(c *AppClient) error{
 		"space.new": func(c *AppClient) error {
-			_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Label: "api", Focus: true, Env: env})
+			_, err := c.WorkspaceCreate(context.Background(), WorkspaceCreateRequest{Machine: "nosuchbox", CWD: "/src/typo", Label: "api", Focus: true, Env: env})
 			return err
 		},
 		"tab.new": func(c *AppClient) error {
-			_, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "sp1", Label: "logs", Focus: true, Env: env})
+			_, err := c.TabCreate(context.Background(), TabCreateRequest{WorkspaceID: "sp1", CWD: "/src/typo", Label: "logs", Focus: true, Env: env})
 			return err
 		},
 		"pane.split": func(c *AppClient) error {
@@ -162,30 +206,19 @@ func TestAppClientCreateErrorsWithholdMessageWhenEnvIsSet(t *testing.T) {
 			return err
 		},
 	}
-	replies := map[string]func(body string) (stdout, stderr string){
-		"JSON error":             func(string) (string, string) { return `{"error":"cannot spawn API_TOKEN=p&ss\"word\n"}`, "" },
-		"JSON error with body":   func(body string) (string, string) { return `{"error":` + strconv.Quote(body) + `}`, "" },
-		"stderr":                 func(string) (string, string) { return "", "spawn failed: env API_TOKEN=" + secret },
-		"stderr with body":       func(body string) (string, string) { return "", "invalid request body: " + body + "\n" },
-		"message without values": func(string) (string, string) { return `{"error":"spawn failed"}`, "" },
-	}
-	for command, create := range creates {
-		for name, reply := range replies {
-			t.Run(command+" "+name, func(t *testing.T) {
-				c, r := newTestAppClient(nil)
-				c.Runner = runnerFunc(func(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
-					if bin == "herdr-app" && args[0] == "do" && args[1] == command {
-						stdout, stderr := reply(args[2])
-						return []byte(stdout), []byte(stderr), errors.New("exit status 1")
-					}
-					return r.Run(ctx, bin, args...)
-				})
-				err := create(c)
-				require.Error(t, err)
-				assert.Equal(t, "herdr-app do "+command+": exit status 1 (herdr-app's message is withheld because the request carried env values)", err.Error())
-			})
+}
+
+// failingCreateClient fails command with reply's output and exit status 1.
+func failingCreateClient(command string, reply func(body string) (stdout, stderr string)) *AppClient {
+	c, r := newTestAppClient(nil)
+	c.Runner = runnerFunc(func(ctx context.Context, bin string, args ...string) ([]byte, []byte, error) {
+		if bin == "herdr-app" && args[0] == "do" && args[1] == command {
+			stdout, stderr := reply(args[2])
+			return []byte(stdout), []byte(stderr), errors.New("exit status 1")
 		}
-	}
+		return r.Run(ctx, bin, args...)
+	})
+	return c
 }
 
 // Without env there is nothing to hide: the error keeps herdr-app's message
@@ -551,4 +584,62 @@ func TestAppClientMachineHome(t *testing.T) {
 	c, _ = newTestAppClient(map[string][]string{"hc exec": {""}})
 	_, err = c.MachineHome(context.Background(), "buntu26")
 	require.ErrorContains(t, err, "not an absolute path")
+}
+
+func TestAppClientMachineExecBuildsHCExec(t *testing.T) {
+	c, r := newTestAppClient(map[string][]string{"hc exec": {"listing"}})
+	out, _, err := c.MachineExec(t.Context(), "buntu26", MachineExecRequest{
+		Dir: "src/api", Env: []string{"LC_ALL=C", "TOKEN=s3cret"}, Timeout: 2500 * time.Millisecond,
+		Argv: []string{"git", "status", "--short"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "listing", string(out))
+	assert.Equal(t, [][]string{{"hc", "exec", "--on", "buntu26", "--cwd", "src/api", "--env", "LC_ALL=C", "--env", "TOKEN=s3cret",
+		"--timeout", "3", "--", "git", "status", "--short"}}, r.calls)
+
+	_, _, err = c.MachineExec(t.Context(), "buntu26", MachineExecRequest{Argv: []string{"ls"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"hc", "exec", "--on", "buntu26", "--", "ls"}, r.calls[1], "no Dir, Env or Timeout adds no flags")
+}
+
+// Callers decode hc's own report from stderr and word their own messages, so
+// MachineExec returns output unchanged and keeps env values out of the error.
+func TestAppClientMachineExecFailureKeepsOutputAndHidesEnvValues(t *testing.T) {
+	stderr := []byte(`{"error":{"kind":"spawn_failed","message":"cannot start git: No such file or directory"}}` + "\n")
+	c, _ := newTestAppClient(nil)
+	c.Runner = runnerFunc(func(context.Context, string, ...string) ([]byte, []byte, error) {
+		return []byte("partial"), stderr, errors.New("exit status 4")
+	})
+	out, gotStderr, err := c.MachineExec(t.Context(), "buntu26", MachineExecRequest{Env: []string{"TOKEN=s3cret"}, Argv: []string{"git"}})
+	require.Error(t, err)
+	assert.Equal(t, "partial", string(out))
+	assert.Equal(t, stderr, gotStderr)
+	kind, _ := HCError(gotStderr)
+	assert.Equal(t, "spawn_failed", kind)
+	assert.NotContains(t, err.Error(), "s3cret")
+	assert.Contains(t, err.Error(), "hc exec --on buntu26 --env TOKEN -- git: exit status 4")
+}
+
+func TestAppClientMachineExecTimeoutAndCancellation(t *testing.T) {
+	waitRunner := runnerFunc(func(ctx context.Context, _ string, _ ...string) ([]byte, []byte, error) {
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+			return []byte("done"), nil, nil
+		}
+	})
+	c := &AppClient{CoreBin: "hc", Runner: waitRunner, Timeout: 10 * time.Second}
+	_, _, err := c.MachineExec(t.Context(), "buntu26", MachineExecRequest{Timeout: 20 * time.Millisecond, Argv: []string{"ls"}})
+	require.ErrorIs(t, err, context.DeadlineExceeded, "Timeout bounds the call below the client's default")
+
+	c.Timeout = 20 * time.Millisecond
+	out, _, err := c.MachineExec(t.Context(), "buntu26", MachineExecRequest{Timeout: 5 * time.Second, Argv: []string{"ls"}})
+	require.NoError(t, err, "Timeout replaces a shorter client default")
+	assert.Equal(t, "done", string(out))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _, err = c.MachineExec(ctx, "buntu26", MachineExecRequest{Argv: []string{"ls"}})
+	require.ErrorIs(t, err, context.Canceled)
 }
