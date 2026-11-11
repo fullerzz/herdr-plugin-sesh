@@ -85,6 +85,22 @@ func TestRemoteConfigSessionKeepsPathsForItsMachine(t *testing.T) {
 	assert.Equal(t, "/Users/me/logs", local.WindowConfigs[0].Panes[1].Path)
 }
 
+func TestLocalOnlyConfigSessionsOmitRemoteWorkspaces(t *testing.T) {
+	cfg := config.Config{SessionConfigs: []config.SessionConfig{
+		{Name: "api", Machine: "buntu26", Path: "~/src/api"},
+		{Name: "web", Path: "/src/web"},
+	}}
+	got, err := ConfigSessions{Config: cfg, LocalOnly: true}.List(context.Background())
+	require.NoError(t, err)
+	items := got.Ordered()
+	require.Len(t, items, 1)
+	assert.Equal(t, "web", items[0].Name)
+
+	got, err = ConfigSessions{Config: cfg}.List(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, got.Ordered(), 2, "the zero value keeps remote entries")
+}
+
 func TestRemoteConfigRelativePathsKeepHomeAnchor(t *testing.T) {
 	cfg := config.Config{
 		SessionConfigs: []config.SessionConfig{
@@ -128,9 +144,34 @@ func TestOpenRemoteSpaceStandsInForItsConfiguredWorkspace(t *testing.T) {
 	assert.Equal(t, "buntu26/sp1", items[0].WorkspaceID)
 	assert.True(t, items[0].Configured)
 	assert.False(t, items[1].Configured, "same name on another machine")
-	assert.False(t, items[2].Configured, "local namesakes merge as before")
+	assert.Equal(t, "sp3", items[2].WorkspaceID)
+	assert.True(t, items[2].Configured, "a local open space stands in too")
 	assert.Equal(t, "config", items[3].Source)
 	assert.Equal(t, "docs", items[3].Name)
+}
+
+// A configured local workspace that is already open lists once, as the open
+// space, in the position of whichever source comes first.
+func TestOpenLocalSpaceStandsInForItsConfiguredWorkspaceInEitherOrder(t *testing.T) {
+	for _, order := range [][]string{{"config", "herdr"}, {"herdr", "config"}} {
+		got, err := Merge(context.Background(), []Source{
+			HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{
+				{ID: "sp3", Label: "web", CWD: "/src/web"},
+			}}},
+			staticSource{name: "config", sessions: []model.Session{
+				{Source: "config", Name: "web", Path: "/src/web"},
+				{Source: "config", Name: "docs", Path: "/src/docs"},
+			}},
+		}, order, nil, false, true)
+		require.NoError(t, err, order)
+		items := got.Ordered()
+		require.Len(t, items, 2, order)
+		assert.Equal(t, "sp3", items[0].WorkspaceID, order)
+		assert.Equal(t, "herdr", items[0].Source, order)
+		assert.True(t, items[0].Configured, order)
+		assert.Equal(t, "docs", items[1].Name, order)
+		assert.Len(t, got.Directory, 2, order)
+	}
 }
 
 // Source order is display order only: a configured remote entry listed first
@@ -161,7 +202,8 @@ func TestOpenRemoteSpaceStandsInForItsConfiguredWorkspaceInEitherOrder(t *testin
 		}
 		assert.Equal(t, "buntu26/sp1", api.WorkspaceID, order)
 		assert.True(t, api.Configured, order)
-		assert.Equal(t, order[0], web.Source, "local namesakes keep the first source, %v", order)
+		assert.Equal(t, "sp3", web.WorkspaceID, order)
+		assert.True(t, web.Configured, order)
 		assert.Len(t, got.Directory, 2, order)
 		for key, s := range got.Directory {
 			assert.Equal(t, model.Key(s), key, order)

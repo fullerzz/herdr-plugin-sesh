@@ -60,13 +60,13 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 				}
 				identity := [2]string{sess.Machine, key}
 				if kept, ok := seenName[identity]; ok {
-					// The open remote space stands in for its configured entry,
+					// The open space stands in for its configured entry,
 					// whichever source comes first.
-					if sess.Machine != "" && sess.Source == "config" {
+					if sess.Source == "config" && out.Directory[kept].WorkspaceID != "" {
 						s := out.Directory[kept]
 						s.Configured = true
 						out.Directory[kept] = s
-					} else if sess.Machine != "" && sess.WorkspaceID != "" && out.Directory[kept].Source == "config" {
+					} else if sess.WorkspaceID != "" && out.Directory[kept].Source == "config" {
 						sess.Configured = true
 						seenName[identity] = replace(&out, kept, sess)
 					}

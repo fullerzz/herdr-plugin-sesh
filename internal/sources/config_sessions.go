@@ -13,6 +13,9 @@ import (
 type ConfigSessions struct {
 	Config config.Config
 	Home   string
+	// LocalOnly omits [[workspace]] entries on another machine, for backends
+	// that cannot open a space there.
+	LocalOnly bool
 }
 
 func (ConfigSessions) Name() string { return "config" }
@@ -23,6 +26,9 @@ func (s ConfigSessions) List(context.Context) (model.Sessions, error) {
 		win[w.Name] = w
 	}
 	for _, c := range s.Config.SessionConfigs {
+		if s.LocalOnly && c.Machine != "" {
+			continue
+		}
 		disableStartup := c.DisableStartCommand != nil && *c.DisableStartCommand
 		// A remote workspace's paths are on its machine, so a leading ~ waits
 		// for that machine's home when the space is created.
