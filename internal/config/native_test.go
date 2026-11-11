@@ -292,6 +292,7 @@ func TestNativeFailures(t *testing.T) {
 		"duplicate workspace":    {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\n[[workspace]]\nname = \"x\"\npath = \"/y\"\n", "workspace.name"},
 		"machine with slash":     {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\nmachine = \"buntu26/sp1\"\n", `workspace.machine: workspace "x" has invalid machine name "buntu26/sp1"`},
 		"machine with space":     {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\nmachine = \"my box\"\n", "workspace.machine"},
+		"machine ~user path":     {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"~deploy/app\"\nmachine = \"buntu26\"\n", `workspace.path: workspace "x" on machine "buntu26": path "~deploy/app" names another user's home; use an absolute path`},
 		"machine on rule":        {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\nmachine = \"buntu26\"\n", "machine"},
 		"missing tab ref":        {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"nope\"]\n", "workspace.tabs"},
 		"missing rule tab ref":   {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"nope\"]\n", "rule.tabs"},

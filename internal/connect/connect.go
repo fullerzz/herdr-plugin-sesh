@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
 	"github.com/fullerzz/herdr-plugin-sesh/internal/herdr"
@@ -30,20 +31,12 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	if client == nil {
 		return Result{}, errors.New("herdr client required")
 	}
-	match, ok := Resolve(candidates, target)
-	if !ok {
-		if st, err := os.Stat(target); err == nil && st.IsDir() {
-			name := target
-			if opts.Namer != nil {
-				name = opts.Namer(ctx, target)
-			}
-			match = model.Session{Source: "dir", Name: name, Path: target}
-			ok = true
+	match, dir, ok := ResolveTarget(candidates, target)
+	if dir {
+		match.Source, match.Name = "dir", target
+		if opts.Namer != nil {
+			match.Name = opts.Namer(ctx, target)
 		}
-	}
-	// Only now, after every local session and a local directory at target.
-	if !ok {
-		match, ok = ConfiguredRemote(candidates, target)
 	}
 	if !ok {
 		for _, s := range candidates {
@@ -99,54 +92,63 @@ func Open(ctx context.Context, client herdr.Client, match model.Session, opts Op
 	return Result{Session: match, Created: true}, nil
 }
 
-func Resolve(candidates []model.Session, target string) (model.Session, bool) {
-	for _, s := range candidates {
-		if s.WorkspaceID != "" && s.WorkspaceID == target {
-			return s, true
+// ResolveTarget finds the session a connect or preview target names, in this
+// order: an exact workspace ID on any machine; any local session by name or
+// path; a local directory at the target; the [[workspace]] entry on another
+// machine with that name. For a bare local directory dir is true and only
+// Path is set: the caller names it.
+func ResolveTarget(candidates []model.Session, target string) (s model.Session, dir, ok bool) {
+	for _, c := range candidates {
+		if c.WorkspaceID != "" && c.WorkspaceID == target {
+			return c, false, true
 		}
 	}
 	// Remote spaces resolve only by qualified ID here, so a local name or
 	// path never focuses a space on another machine.
-	for _, s := range candidates {
-		if s.Machine == "" && (s.Name == target || s.Path == target) {
-			return s, true
+	for _, c := range candidates {
+		if c.Machine == "" && (c.Name == target || c.Path == target) {
+			return c, false, true
 		}
 	}
-	return model.Session{}, false
-}
-
-// ConfiguredRemote finds the [[workspace]] entry on another machine that is
-// called name. Its path is a path on that machine, so a target never matches
-// it: a local directory with the same path would otherwise open remotely.
-// Callers try it last, after Resolve and after a local directory at the target.
-func ConfiguredRemote(candidates []model.Session, name string) (model.Session, bool) {
-	for _, s := range candidates {
-		if s.Machine != "" && (s.Source == "config" || s.Configured) && s.Name == name {
-			return s, true
+	if st, err := os.Stat(target); err == nil && st.IsDir() {
+		return model.Session{Path: target}, true, true
+	}
+	// A configured remote workspace's path is a path on that machine, so a
+	// target never matches it: a local directory with the same path would
+	// otherwise open remotely.
+	for _, c := range candidates {
+		if c.Machine != "" && (c.Source == "config" || c.Configured) && c.Name == target {
+			return c, false, true
 		}
 	}
-	return model.Session{}, false
+	return model.Session{}, false, false
 }
 
 // resolveRemoteHome makes a remote session's paths absolute against that
 // machine's home: a leading ~, which herdr-app does not expand, and relative
 // paths, which herdr-app already starts from the home. A split's shell has to
 // enter its path from wherever the pane it splits is. It asks the machine only
-// when a path needs it, and fails before anything is created.
+// when a path needs it, and fails before anything is created. A ~user path is
+// refused: only the connecting user's home is known.
 func resolveRemoteHome(ctx context.Context, client herdr.Client, s model.Session) (model.Session, error) {
+	paths := []string{s.Path}
+	for _, w := range s.WindowConfigs {
+		paths = append(paths, w.Path)
+		for _, p := range w.Panes {
+			paths = append(paths, p.Path)
+		}
+	}
+	for _, p := range paths {
+		if strings.HasPrefix(p, "~") && !config.HasHomePrefix(p) {
+			return s, fmt.Errorf("workspace %q on machine %q: path %q names another user's home; use an absolute path", s.Name, s.Machine, p)
+		}
+	}
 	mc, ok := client.(herdr.MachineClient)
 	if !ok {
 		return s, fmt.Errorf("workspace %q on machine %q: %w", s.Name, s.Machine, herdr.ErrNoMachines)
 	}
 	homeRelative := func(p string) bool { return p != "" && !filepath.IsAbs(p) }
-	needsHome := homeRelative(s.Path)
-	for _, w := range s.WindowConfigs {
-		needsHome = needsHome || homeRelative(w.Path)
-		for _, p := range w.Panes {
-			needsHome = needsHome || homeRelative(p.Path)
-		}
-	}
-	if !needsHome {
+	if !slices.ContainsFunc(paths, homeRelative) {
 		return s, nil
 	}
 	home, err := mc.MachineHome(ctx, s.Machine)

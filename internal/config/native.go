@@ -262,6 +262,9 @@ func (n nativeConfig) validateWorkspaces(fail func(key, format string, args ...a
 		if w.Machine != "" && !machinePattern.MatchString(w.Machine) {
 			return fail("workspace.machine", "workspace %q has invalid machine name %q; use a name from `hc machine ls`", w.Name, w.Machine)
 		}
+		if w.Machine != "" && strings.HasPrefix(w.Path, "~") && !HasHomePrefix(w.Path) {
+			return fail("workspace.path", "workspace %q on machine %q: path %q names another user's home; use an absolute path", w.Name, w.Machine, w.Path)
+		}
 		for _, ref := range w.Tabs {
 			if _, ok := focusedPanes[ref]; !ok {
 				return fail("workspace.tabs", "workspace %q references unknown tab %q", w.Name, ref)

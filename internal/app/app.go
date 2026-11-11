@@ -369,14 +369,8 @@ func (a *App) preview(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	s, ok := connectpkg.Resolve(sessions, target)
-	if !ok {
-		// As in connect: a local directory at target comes before a remote name.
-		if st, err := os.Stat(target); err != nil || !st.IsDir() {
-			s, ok = connectpkg.ConfiguredRemote(sessions, target)
-		}
-	}
-	if !ok {
+	s, dir, ok := connectpkg.ResolveTarget(sessions, target)
+	if dir || !ok {
 		s = model.Session{Name: filepath.Base(target), Path: target}
 	}
 	out, err := preview.Render(ctx, s, cfg.DefaultSessionConfig.PreviewCommand)

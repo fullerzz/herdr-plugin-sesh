@@ -44,21 +44,77 @@ func TestResolveNeverMatchesRemoteByNameOrPath(t *testing.T) {
 	config := model.Session{Source: "config", Name: "api", Path: "/src/api"}
 
 	// A remote space listed first must not shadow a local namesake.
-	got, ok := Resolve([]model.Session{remote, config}, "api")
+	got, _, ok := ResolveTarget([]model.Session{remote, config}, "api")
 	require.True(t, ok)
 	assert.Equal(t, config, got)
-	got, ok = Resolve([]model.Session{remote, config}, "/src/api")
+	got, _, ok = ResolveTarget([]model.Session{remote, config}, "/src/api")
 	require.True(t, ok)
 	assert.Equal(t, config, got)
 
-	_, ok = Resolve([]model.Session{remote}, "/src/api")
+	_, _, ok = ResolveTarget([]model.Session{remote}, "/src/api")
 	assert.False(t, ok, "remote-only path match")
-	_, ok = Resolve([]model.Session{remote}, "api")
+	_, _, ok = ResolveTarget([]model.Session{remote}, "api")
 	assert.False(t, ok, "remote-only name match")
 
-	got, ok = Resolve([]model.Session{config, remote}, remote.WorkspaceID)
+	got, _, ok = ResolveTarget([]model.Session{config, remote}, remote.WorkspaceID)
 	require.True(t, ok)
 	assert.Equal(t, remote, got)
+}
+
+// Local always wins: a configured remote workspace is reached by name only
+// when no local session and no local directory has that name.
+func TestResolveTargetTriesConfiguredRemoteLast(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.Mkdir("web", 0o750))
+	remoteAPI := model.Session{Source: "config", Machine: "buntu26", Name: "api", Path: "/srv/api"}
+	remoteWeb := model.Session{Source: "config", Machine: "buntu26", Name: "web", Path: "/srv/web"}
+	remoteDocs := model.Session{Source: "config", Machine: "buntu26", Name: "docs", Path: "/srv/docs"}
+	open := model.Session{Source: "herdr", Machine: "buntu26", Name: "api", Path: "/srv/api", WorkspaceID: "buntu26/sp1", Configured: true}
+	zoxide := model.Session{Source: "zoxide", Name: "api", Path: "/src/api"}
+	candidates := []model.Session{remoteAPI, remoteWeb, remoteDocs, open, zoxide}
+
+	got, dir, ok := ResolveTarget(candidates, open.WorkspaceID)
+	require.True(t, ok)
+	assert.False(t, dir)
+	assert.Equal(t, open, got, "workspace ID first")
+
+	got, dir, ok = ResolveTarget(candidates, "api")
+	require.True(t, ok)
+	assert.False(t, dir)
+	assert.Equal(t, zoxide, got, "any local session before a configured remote")
+
+	got, dir, ok = ResolveTarget(candidates, "web")
+	require.True(t, ok)
+	assert.True(t, dir, "a local directory before a configured remote")
+	assert.Equal(t, model.Session{Path: "web"}, got)
+
+	got, dir, ok = ResolveTarget(candidates, "docs")
+	require.True(t, ok)
+	assert.False(t, dir)
+	assert.Equal(t, remoteDocs, got, "configured remote last")
+
+	_, _, ok = ResolveTarget(candidates, "/srv/docs")
+	assert.False(t, ok, "a remote workspace's path is never a target")
+}
+
+// Only the connecting user's home on the machine is known, so ~user is not
+// joined under it.
+func TestConnectRemoteOtherUsersHomeFailsBeforeAnything(t *testing.T) {
+	for name, s := range map[string]model.Session{
+		"workspace path": {Source: "config", Machine: "buntu26", Name: "api", Path: "~deploy/app"},
+		"pane path": {Source: "config", Machine: "buntu26", Name: "api", Path: "~/api", WindowConfigs: []model.WindowConfig{{
+			Name: "dev", Panes: []model.PaneConfig{{Name: "root"}, {Name: "web", SplitFrom: "root", Path: "~deploy/web"}},
+		}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &herdr.FakeClient{MachineHomes: map[string]string{"buntu26": "/home/zach"}}
+			_, err := Connect(t.Context(), client, []model.Session{s}, "api", Options{NoFocus: true})
+			require.ErrorContains(t, err, `workspace "api" on machine "buntu26": path "~deploy/`)
+			require.ErrorContains(t, err, "use an absolute path")
+			assert.Empty(t, client.HomeQueries)
+			assert.Empty(t, client.CreatedWorkspaces)
+		})
+	}
 }
 
 func TestConnectLocalDirectoryIgnoresRemoteWithSamePath(t *testing.T) {
