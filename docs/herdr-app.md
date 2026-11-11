@@ -210,7 +210,8 @@ terminals, so they name the remote machine's tools.
   position of whichever source comes first. Selecting it, or connecting by its
   name, switches to that space instead of creating another. Sesh matches the
   open space by machine and name; an open local `[[workspace]]` entry is
-  listed once the same way, by name.
+  listed once the same way, by name, and keeps
+  the `preview` command that entry sets.
 - A local session with the same name wins a bare `connect api`. Use the
   picker, or the open space's qualified ID, to reach the remote one.
 - An unknown or unreachable machine fails with the error from `hc` or

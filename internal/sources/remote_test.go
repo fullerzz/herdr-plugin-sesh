@@ -150,6 +150,32 @@ func TestOpenRemoteSpaceStandsInForItsConfiguredWorkspace(t *testing.T) {
 	assert.Equal(t, "docs", items[3].Name)
 }
 
+// The open space keeps the preview its [[workspace]] entry configures, and a
+// rule's preview does not replace it.
+func TestOpenLocalSpaceKeepsItsConfiguredPreviewInEitherOrder(t *testing.T) {
+	cfg := config.Config{WildcardConfigs: []config.WildcardConfig{{Pattern: "/src/*", PreviewCommand: "printf rule-preview"}}}
+	for _, order := range [][]string{{"config", "herdr"}, {"herdr", "config"}} {
+		got, err := Merge(context.Background(), []Source{
+			HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{
+				{ID: "sp3", Label: "web", CWD: "/src/web"},
+				{ID: "sp4", Label: "docs", CWD: "/src/docs"},
+			}}},
+			staticSource{name: "config", sessions: []model.Session{
+				{Source: "config", Name: "web", Path: "/src/web", PreviewCommand: "printf workspace-preview"},
+				{Source: "config", Name: "docs", Path: "/src/docs"},
+			}},
+		}, order, nil, false, true)
+		require.NoError(t, err, order)
+		ApplyConfig(&got, cfg, "")
+		items := got.Ordered()
+		require.Len(t, items, 2, order)
+		assert.Equal(t, "sp3", items[0].WorkspaceID, order)
+		assert.Equal(t, "printf workspace-preview", items[0].PreviewCommand, order)
+		assert.Equal(t, "sp4", items[1].WorkspaceID, order)
+		assert.Equal(t, "printf rule-preview", items[1].PreviewCommand, "an entry without a preview still takes the rule's")
+	}
+}
+
 // A configured local workspace that is already open lists once, as the open
 // space, in the position of whichever source comes first.
 func TestOpenLocalSpaceStandsInForItsConfiguredWorkspaceInEitherOrder(t *testing.T) {

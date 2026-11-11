@@ -61,13 +61,17 @@ func Merge(ctx context.Context, srcs []Source, order []string, blacklist []strin
 				identity := [2]string{sess.Machine, key}
 				if kept, ok := seenName[identity]; ok {
 					// The open space stands in for its configured entry,
-					// whichever source comes first.
+					// whichever source comes first, and keeps the preview that
+					// entry configures. Nothing else carries over: startup and
+					// tabs apply only when a space is created.
 					if sess.Source == "config" && out.Directory[kept].WorkspaceID != "" {
 						s := out.Directory[kept]
 						s.Configured = true
+						s.PreviewCommand = sess.PreviewCommand
 						out.Directory[kept] = s
 					} else if sess.WorkspaceID != "" && out.Directory[kept].Source == "config" {
 						sess.Configured = true
+						sess.PreviewCommand = out.Directory[kept].PreviewCommand
 						seenName[identity] = replace(&out, kept, sess)
 					}
 					continue
