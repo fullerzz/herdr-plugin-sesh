@@ -530,7 +530,12 @@ func (c *AppClient) PaneSplit(ctx context.Context, r PaneSplitRequest) (Pane, er
 	p := Pane{ID: made.Pane, CWD: r.CWD}
 	if r.CWD != "" {
 		// Apply after login files, which may change directory themselves.
-		command := config.SubstitutePath(" cd -- {}", r.CWD)
+		// Keep paths out of the echoed input, as the former setup line did.
+		var encoded strings.Builder
+		for _, b := range []byte(config.SubstitutePath("cd -- {}", r.CWD)) {
+			fmt.Fprintf(&encoded, `\%03o`, b)
+		}
+		command := ` eval "$(printf '` + encoded.String() + `')"`
 		c.mu.Lock()
 		if c.directoryCommands == nil {
 			c.directoryCommands = make(map[string]string)

@@ -114,3 +114,40 @@ func TestCollectForRemoteTargetRunsNoLocalGit(t *testing.T) {
 	require.NoError(t, err)
 	assert.FileExists(t, log)
 }
+
+func TestPreviewConfiguredRemoteNamePrefersLocalDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+":/usr/bin:/bin")
+	t.Setenv("HERDR_SESH_BACKEND", "herdr")
+	t.Setenv("HERDR_BIN_PATH", "/usr/bin/false")
+	log := filepath.Join(dir, "hc.log")
+	t.Setenv("PREVIEW_HC_LOG", log)
+	//nolint:gosec // executable fixture at the hc process boundary.
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "hc"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PREVIEW_HC_LOG\"\nprintf 'remote-preview\\n'\n"), 0o700))
+	cfg := filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(cfg, []byte(`version = 1
+[workspace_defaults]
+preview = "printf local-preview"
+[[workspace]]
+name = "api"
+machine = "buntu26"
+path = "/remote-only/api"
+`), 0o600))
+	var out, errOut bytes.Buffer
+	a := &App{Out: &out, Err: &errOut}
+	require.NoError(t, a.preview(t.Context(), []string{"--config", cfg, "api"}))
+	assert.Contains(t, out.String(), "/remote-only/api (buntu26)")
+	assert.Contains(t, out.String(), "remote-preview")
+	//nolint:gosec // read only the log created in this test's temporary directory.
+	calls, err := os.ReadFile(log)
+	require.NoError(t, err)
+	assert.Contains(t, string(calls), "--on buntu26 --cwd /remote-only/api")
+	require.NoError(t, os.Remove(log))
+	require.NoError(t, os.Mkdir("api", 0o700))
+	out.Reset()
+	require.NoError(t, a.preview(t.Context(), []string{"--config", cfg, "api"}))
+	assert.Equal(t, "local-preview", out.String())
+	assert.NoFileExists(t, log)
+}

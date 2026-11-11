@@ -329,7 +329,8 @@ func TestAppClientSplitStartsShellInDirectoryThenRunsInNewTerminal(t *testing.T)
 	p, err := c.PaneSplit(context.Background(), PaneSplitRequest{PaneID: "p1", Direction: "down", CWD: "/src/web", Ratio: 0.3})
 	require.NoError(t, err)
 	assertDo(t, r.calls[1], "pane.split", map[string]any{"pane": "p1", "direction": "down"})
-	assert.Equal(t, []string{"hc", "send", "t5", " cd -- /src/web"}, r.calls[2])
+	assert.Equal(t, []string{"hc", "send", "t5"}, r.calls[2][:3])
+	assert.NotContains(t, r.calls[2][3], "/src/web")
 	require.NoError(t, c.PaneRun(context.Background(), p.ID, "npm run dev"))
 	assert.Equal(t, []string{"hc", "send", "t5", "npm run dev"}, r.calls[len(r.calls)-1])
 }
@@ -423,8 +424,13 @@ func TestAppClientWaitForRejectsEchoedDirectorySetup(t *testing.T) {
 	p, err := c.PaneSplit(t.Context(), PaneSplitRequest{PaneID: "p1", Direction: "right", CWD: "/src/listening"})
 	require.NoError(t, err)
 	count := len(r.calls)
-	require.ErrorContains(t, c.PaneWaitOutput(t.Context(), p.ID, "listening", time.Second), "directory setup line")
+	require.ErrorContains(t, c.PaneWaitOutput(t.Context(), p.ID, "printf", time.Second), "directory setup line")
 	assert.Len(t, r.calls, count)
+	r.replies["hc read"] = []string{r.calls[2][3]}
+	require.ErrorIs(t, c.PaneWaitOutput(t.Context(), p.ID, "listening", 20*time.Millisecond), context.DeadlineExceeded)
+	r.replies["hc read"] = []string{r.calls[2][3] + "\nlistening from application"}
+	require.NoError(t, c.PaneWaitOutput(t.Context(), p.ID, "listening", time.Second))
+	r.replies["hc read"] = []string{"ready from application"}
 	require.NoError(t, c.PaneWaitOutput(t.Context(), p.ID, "ready from application", time.Second))
 }
 

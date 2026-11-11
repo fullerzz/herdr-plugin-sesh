@@ -236,11 +236,13 @@ These differences apply when using the app mods or CLI commands with
   own login shell, so shell startup files run twice, and exiting the shell
   leaves you in one without the `env` values. Values are visible in the
   terminal's command line, for example through `hc get` or the process list.
-  For a split with a `path`, Sesh sends a quoted `cd` command after shell
+  For a split with a `path`, Sesh sends an encoded, quoted `cd` command after shell
   startup and before the configured startup command, so a login profile that
-  changes directory cannot override that path. The `cd` line may appear in
-  terminal history; `wait_for` rejects a match contained in that line to avoid
-  counting its echo as readiness. If the directory cannot be entered, the
+  changes directory cannot override that path. Octal encoding keeps the path
+  out of the echoed input, so it cannot satisfy a readiness match. This setup
+  requires sh, bash, zsh, or fish 3.4 or newer, as before. The encoded line may
+  appear in terminal history; `wait_for` rejects a match in that encoded line.
+  If the directory cannot be entered, the
   shell shows the `cd` error and stays in its current directory. Root panes
   of spaces and tabs still start in the app's `folder` before shell startup,
   so their startup files can change that directory. When the app refuses
