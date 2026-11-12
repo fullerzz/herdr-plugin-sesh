@@ -199,6 +199,7 @@ Picker shortcuts, appearance, sorting, and history are documented in
 | Field | Runtime effect |
 | --- | --- |
 | `name` | Required workspace label and connect target. Must be non-empty and unique. |
+| `machine` | Optional hc machine name from `hc machine ls`. Creates the workspace on that machine with the Herdr app; `path` is then a path there; `~` and relative paths start at that machine's home, and `~user/...` paths are rejected. The Herdr TUI backend omits the entry from `list` and the picker. Rules and `workspace_defaults.startup` do not apply. See [remote workspaces](herdr-app.md#create-a-remote-space-from-a-configured-workspace). |
 | `path` | Required workspace path; `~/` is expanded before it is sent to Herdr. Must be non-empty. |
 | `startup` | Startup override; absent or empty uses the rule/default fallback. |
 | `preview` | Preview override; absent or empty uses the rule/default fallback. |

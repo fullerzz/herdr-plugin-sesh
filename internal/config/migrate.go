@@ -225,6 +225,7 @@ func marshalNative(cfg Config) ([]byte, error) {
 	for _, s := range cfg.SessionConfigs {
 		n.Workspaces = append(n.Workspaces, nativeWorkspace{
 			Name:           s.Name,
+			Machine:        s.Machine,
 			Path:           s.Path,
 			Startup:        s.StartupCommand,
 			Preview:        upgradePreview(s.PreviewCommand),

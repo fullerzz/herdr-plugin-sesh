@@ -13,11 +13,13 @@ For one named tab without pane splits, start with the
 
 !!! note "Herdr TUI and Herdr app layouts"
 
-    Both integrations use these definitions to create local workspaces.
+    Both integrations use these definitions to create workspaces.
     The walkthrough's proportions and focus behavior describe Herdr TUI.
     The app splits evenly, ignores `ratio`, and has different focus behavior
     during creation. See [app layout differences](../herdr-app.md#differences-from-the-herdr-plugin).
-    Configured layouts cannot create remote spaces.
+    With the app, a workspace that names a
+    [`machine`](../herdr-app.md#create-a-remote-space-from-a-configured-workspace)
+    builds its layout on that machine.
 
 ## Pane layout walkthrough
 
@@ -137,7 +139,7 @@ may leave a partial workspace; upgrade, then follow [recovery](#reconnecting-and
 | `split` | `"right"` or `"down"`. Required for every pane after the first. |
 | `ratio` | Optional share of the split given to the new pane, from `0.1` to `0.9` in Herdr TUI. Without it, the TUI splits evenly. The app always splits evenly and ignores this field. |
 | `path` | Optional working directory. Without it, the tab path is used; relative paths resolve against the tab path and `~/` is expanded. |
-| `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values cannot contain NUL bytes. Herdr TUI passes values as arguments; the app sends [shell setup commands](../herdr-app.md#differences-from-the-herdr-plugin). Shell startup files can override them. |
+| `env` | Optional environment variables for the pane's shell. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values cannot contain NUL bytes. Both integrations pass values as process arguments; see the [app differences](../herdr-app.md#differences-from-the-herdr-plugin). Shell startup files can override them. |
 | `startup` | Command run in the pane. `{}` is replaced with the pane's shell-quoted working directory. |
 | `wait_for` | Optional readiness check: `{ match = "...", timeout_ms = 15000 }`. Requires `startup`. See [Waiting for a pane to become ready](#waiting-for-a-pane-to-become-ready). |
 | `focus` | Optional `true` to focus this pane once a new workspace's layout is built. See [Choosing the focused pane](#choosing-the-focused-pane). |
@@ -145,13 +147,11 @@ may leave a partial workspace; upgrade, then follow [recovery](#reconnecting-and
 !!! warning "Do not put secrets in pane environment values"
 
     In Herdr TUI, values are passed as `--env KEY=VALUE` arguments. The Herdr
-    app sends octal-encoded setup commands through `hc send`. Octal encoding
-    is reversible. Values in either integration may be visible to local users
-    through process inspection, subject to OS permissions.
-
-    App setup commands may also enter shell history unless the shell ignores
-    commands with a leading space. Error redaction does not prevent these
-    exposures. Load secrets through shell credential tooling instead.
+    app receives them as `KEY=VALUE` arguments to the pane's start command,
+    which `hc get` shows. Values in either integration may be visible to local
+    users through process inspection, subject to OS permissions. Error
+    redaction does not prevent these exposures. Load secrets through shell
+    credential tooling instead.
 
 `split_from` copies neither `path` nor `env`; configure each pane separately.
 The first pane is the root and cannot set `split_from`, `split`, or `ratio`.

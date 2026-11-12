@@ -69,6 +69,11 @@ preview = "cat README.md"
 disable_startup = true
 tabs = ["git"]
 
+[[workspace]]
+name = "api"
+machine = "buntu26"
+path = "~/src/api"
+
 [[rule]]
 path_glob = "~/projects/**"
 startup = "git status"
@@ -98,6 +103,10 @@ tabs = ["git"]
 			Path:                 "~/brain",
 			DisableStartCommand:  &disable,
 			Windows:              []string{"git"},
+		}, {
+			Name:    "api",
+			Machine: "buntu26",
+			Path:    "~/src/api",
 		}},
 		WildcardConfigs: []WildcardConfig{{
 			Pattern:        "~/projects/**",
@@ -107,6 +116,14 @@ tabs = ["git"]
 		}},
 	}
 	assert.Equal(t, want, cfg)
+}
+
+// A ~user tab path is rejected only for a workspace on another machine: on
+// this machine it is an ordinary relative directory name.
+func TestNativeLocalWorkspaceKeepsTildeUserTabPath(t *testing.T) {
+	body := "version = 1\n[[tab]]\nname = \"dev\"\npath = \"~deploy/web\"\n[[workspace]]\nname = \"x\"\npath = \"/srv/api\"\ntabs = [\"dev\"]\n"
+	_, err := loadNative(t, body)
+	require.NoError(t, err)
 }
 
 func TestNativeMinimalFileKeepsDefaults(t *testing.T) {
@@ -281,6 +298,12 @@ func TestNativeFailures(t *testing.T) {
 		"empty workspace name":   {"version = 1\n[[workspace]]\npath = \"/x\"\n", "workspace.name"},
 		"empty workspace path":   {"version = 1\n[[workspace]]\nname = \"x\"\n", "workspace.path"},
 		"duplicate workspace":    {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\n[[workspace]]\nname = \"x\"\npath = \"/y\"\n", "workspace.name"},
+		"machine with slash":     {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\nmachine = \"buntu26/sp1\"\n", `workspace.machine: workspace "x" has invalid machine name "buntu26/sp1"`},
+		"machine with space":     {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\nmachine = \"my box\"\n", "workspace.machine"},
+		"machine ~user path":     {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"~deploy/app\"\nmachine = \"buntu26\"\n", `workspace.path: workspace "x" on machine "buntu26": path "~deploy/app" names another user's home; use an absolute path`},
+		"machine ~user tab path": {"version = 1\n[[tab]]\nname = \"dev\"\npath = \"~deploy/web\"\n[[workspace]]\nname = \"x\"\npath = \"/srv/api\"\nmachine = \"buntu26\"\ntabs = [\"dev\"]\n", `workspace.tabs: workspace "x" on machine "buntu26": tab "dev" path "~deploy/web" names another user's home; use an absolute path`},
+		"machine ~user pane":     {"version = 1\n[[tab]]\nname = \"dev\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nname = \"b\"\nsplit_from = \"a\"\nsplit = \"right\"\npath = \"~deploy/web\"\n[[workspace]]\nname = \"x\"\npath = \"~/src/api\"\nmachine = \"buntu26\"\ntabs = [\"dev\"]\n", `workspace.tabs: workspace "x" on machine "buntu26": tab "dev" pane "b" path "~deploy/web" names another user's home; use an absolute path`},
+		"machine on rule":        {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\nmachine = \"buntu26\"\n", "machine"},
 		"missing tab ref":        {"version = 1\n[[workspace]]\nname = \"x\"\npath = \"/x\"\ntabs = [\"nope\"]\n", "workspace.tabs"},
 		"missing rule tab ref":   {"version = 1\n[[rule]]\npath_glob = \"/x/**\"\ntabs = [\"nope\"]\n", "rule.tabs"},
 		"empty pane name":        {"version = 1\n[[tab]]\nname = \"t\"\n[[tab.pane]]\nname = \"a\"\n[[tab.pane]]\nsplit_from = \"a\"\nsplit = \"right\"\n", "tab.pane.name: must not be empty"},

@@ -97,12 +97,22 @@ func (a *App) loadConfig(path string) (config.Config, error) {
 }
 func (a *App) collect(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
 	hs := sources.HerdrWorkspaces{Client: herdr.NewBackend()}
-	return a.collectFrom(ctx, cfg, target, hs)
+	return a.collectFrom(ctx, cfg, target, hs, false)
 }
 
 func (a *App) collectAllowUnavailableHerdr(ctx context.Context, cfg config.Config, target string) ([]model.Session, error) {
 	hs := sources.HerdrWorkspaces{Client: herdr.NewBackend()}
-	return a.collectFrom(ctx, cfg, target, ignoreSource{hs})
+	return a.collectFrom(ctx, cfg, target, ignoreSource{hs}, false)
+}
+
+// lacksMachines reports a backend that cannot open a space on another
+// machine, such as the Herdr TUI server. list and the picker omit
+// [[workspace]] entries on another machine under it; connect and preview keep
+// them, so a remote name fails with herdr.ErrNoMachines instead of matching
+// nothing.
+func lacksMachines(client herdr.Backend) bool {
+	_, ok := client.(herdr.MachineClient)
+	return !ok
 }
 
 type pickerCollection struct {
@@ -123,7 +133,7 @@ func (a *App) collectPicker(ctx context.Context, cfg config.Config, herdrFallbac
 
 func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, herdrFallback []model.Session, client herdr.Backend) (pickerCollection, error) {
 	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: client}, fallback: herdrFallback}
-	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource)
+	sessions, err := a.collectFrom(ctx, cfg, "", herdrSource, lacksMachines(client))
 	col := pickerCollection{Sessions: sessions, HerdrErr: herdrSource.err}
 	if herdrSource.err == nil {
 		col.HerdrWorkspaces = herdrSource.sessions.Ordered()
@@ -133,13 +143,16 @@ func (a *App) collectPickerWithClient(ctx context.Context, cfg config.Config, he
 	return col, err
 }
 
-func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source) ([]model.Session, error) {
-	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}
+func (a *App) collectFrom(ctx context.Context, cfg config.Config, target string, herdrSource sources.Source, localOnly bool) ([]model.Session, error) {
+	srcs := []sources.Source{herdrSource, sources.ConfigSessions{Config: cfg, LocalOnly: localOnly}, sources.Zoxide{}}
 	if target != "" {
-		srcs = append(srcs, sources.DirectPath{
-			Path:  target,
-			Label: namer.Namer{}.Name(ctx, target, cfg.DirLength),
-		})
+		direct := sources.DirectPath{Path: target}
+		// Naming runs git in the target, so only a local directory is named:
+		// the target may be the name of a workspace on another machine.
+		if st, err := os.Stat(target); err == nil && st.IsDir() {
+			direct.Label = namer.Namer{}.Name(ctx, target, cfg.DirLength)
+		}
+		srcs = append(srcs, direct)
 	}
 	merged, err := sources.Merge(ctx, srcs, cfg.SortOrder, cfg.Blacklist, false, true)
 	if err != nil {
@@ -201,7 +214,8 @@ func (a *App) list(ctx context.Context, args []string) error {
 			return a.printSessions(cached, *jsonOut)
 		}
 	}
-	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: herdr.NewBackend()}}, sources.ConfigSessions{Config: cfg}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
+	client := herdr.NewBackend()
+	ss, err := sources.Merge(ctx, []sources.Source{ignoreSource{sources.HerdrWorkspaces{Client: client}}, sources.ConfigSessions{Config: cfg, LocalOnly: lacksMachines(client)}, sources.Zoxide{}}, cfg.SortOrder, cfg.Blacklist, *blacklisted, *hideDup)
 	if err != nil {
 		return err
 	}
@@ -283,7 +297,7 @@ func (a *App) picker(ctx context.Context, args []string) error {
 	var selected model.Session
 	var ok bool
 	if useFZF || *jsonOut {
-		sessions, err = a.collectAllowUnavailableHerdr(ctx, cfg, "")
+		sessions, err = a.collectFrom(ctx, cfg, "", ignoreSource{sources.HerdrWorkspaces{Client: client}}, lacksMachines(client))
 		if err != nil {
 			return err
 		}
@@ -305,25 +319,12 @@ func (a *App) picker(ctx context.Context, args []string) error {
 		return err
 	}
 	revision := a.historyRevision()
-	res, err := connectpkg.Connect(ctx, backend.client, []model.Session{selected}, pickerTarget(selected), connectpkg.Options{
-		Warnf: a.warnf,
-		Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, backend.cfg.DirLength) },
-	})
+	res, err := connectpkg.Open(ctx, backend.client, selected, connectpkg.Options{Warnf: a.warnf})
 	if err != nil {
 		return err
 	}
 	a.recordWorkspaceSwitch(backend.pickerWorkspaceID, res.Session.WorkspaceID, revision)
 	return nil
-}
-
-func pickerTarget(s model.Session) string {
-	if s.WorkspaceID != "" {
-		return s.WorkspaceID
-	}
-	if s.Path != "" {
-		return s.Path
-	}
-	return s.Name
 }
 
 func (a *App) connect(ctx context.Context, args []string) error {
@@ -379,11 +380,12 @@ func (a *App) preview(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	s, ok := connectpkg.Resolve(sessions, target)
-	if !ok {
+	s, dir, ok := connectpkg.ResolveTarget(sessions, target)
+	if dir || !ok {
 		s = model.Session{Name: filepath.Base(target), Path: target}
 	}
-	out, err := preview.Render(ctx, s, cfg.DefaultSessionConfig.PreviewCommand)
+	machines, _ := herdr.NewBackend().(herdr.MachineClient)
+	out, err := preview.RenderWith(ctx, machines, s, cfg.DefaultSessionConfig.PreviewCommand)
 	if err != nil {
 		return err
 	}

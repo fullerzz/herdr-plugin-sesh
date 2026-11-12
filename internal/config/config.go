@@ -44,7 +44,9 @@ type DefaultSessionConfig struct {
 type SessionConfig struct {
 	DefaultSessionConfig
 
-	Name                string   `toml:"name"`
+	Name string `toml:"name"`
+	// Machine is native-only; the legacy Sesh session schema has no equivalent.
+	Machine             string   `toml:"-"`
 	Path                string   `toml:"path"`
 	DisableStartCommand *bool    `toml:"disable_startup_command"`
 	Windows             []string `toml:"windows"`

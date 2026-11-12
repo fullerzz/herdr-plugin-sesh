@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -316,7 +317,7 @@ func attachDefaults(cfg *Config) {
 	}
 }
 func ExpandHome(p, home string) string {
-	if p == "" {
+	if !HasHomePrefix(p) {
 		return p
 	}
 	if home == "" {
@@ -325,10 +326,12 @@ func ExpandHome(p, home string) string {
 	if p == "~" {
 		return home
 	}
-	if len(p) >= 2 && p[:2] == "~/" {
-		return filepath.Join(home, p[2:])
-	}
-	return p
+	return filepath.Join(home, p[2:])
+}
+
+// HasHomePrefix reports whether ExpandHome would expand p: "~" or "~/...".
+func HasHomePrefix(p string) bool {
+	return p == "~" || strings.HasPrefix(p, "~/")
 }
 func getenvMap() map[string]string {
 	m := map[string]string{}

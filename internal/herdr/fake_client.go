@@ -3,6 +3,8 @@ package herdr
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -29,12 +31,59 @@ type FakeClient struct {
 	ReportedTokens []string
 	// Ops records tab creation, runs, splits, waits, and pane focus in call order.
 	Ops []string
+	// MachineHomes answers MachineHome; a missing machine is unknown.
+	MachineHomes map[string]string
+	HomeQueries  []string
+	// MachineExecReply answers MachineExec; nil returns empty output and no
+	// error. It may be called from several goroutines at once.
+	MachineExecReply func(ctx context.Context, machine string, r MachineExecRequest) (stdout, stderr []byte, err error)
+
+	execMu       sync.Mutex
+	machineExecs []MachineExecCall
+}
+
+// MachineExecCall is one recorded FakeClient.MachineExec call.
+type MachineExecCall struct {
+	Machine string
+	Request MachineExecRequest
+}
+
+var _ MachineClient = (*FakeClient)(nil)
+
+// MachineExec records the call and answers with MachineExecReply. Unlike the
+// rest of FakeClient, it is safe for concurrent use.
+func (f *FakeClient) MachineExec(ctx context.Context, machine string, r MachineExecRequest) (stdout, stderr []byte, err error) {
+	f.execMu.Lock()
+	f.machineExecs = append(f.machineExecs, MachineExecCall{Machine: machine, Request: r})
+	f.execMu.Unlock()
+	if f.MachineExecReply == nil {
+		return nil, nil, nil
+	}
+	return f.MachineExecReply(ctx, machine, r)
+}
+
+// MachineExecCalls returns a copy of the recorded MachineExec calls in call order.
+func (f *FakeClient) MachineExecCalls() []MachineExecCall {
+	f.execMu.Lock()
+	defer f.execMu.Unlock()
+	return slices.Clone(f.machineExecs)
+}
+
+func (f *FakeClient) MachineHome(_ context.Context, machine string) (string, error) {
+	f.HomeQueries = append(f.HomeQueries, machine)
+	if home, ok := f.MachineHomes[machine]; ok {
+		return home, nil
+	}
+	return "", fmt.Errorf("unknown machine %q", machine)
 }
 
 func (f *FakeClient) WorkspaceList(context.Context) ([]Workspace, error) { return f.Workspaces, nil }
 func (f *FakeClient) WorkspaceCreate(_ context.Context, r WorkspaceCreateRequest) (Workspace, error) {
 	f.CreatedWorkspaces = append(f.CreatedWorkspaces, r)
-	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD, ActiveTabID: "initial-tab"}
+	w := Workspace{ID: "new-workspace", Label: r.Label, CWD: r.CWD, ActiveTabID: "initial-tab", Machine: r.Machine}
+	if r.Machine != "" {
+		w.ID = r.Machine + "/" + w.ID
+	}
 	f.Workspaces = append(f.Workspaces, w)
 	// Like Herdr, every new workspace starts with one tab and root pane.
 	f.Panes = append(f.Panes, Pane{ID: "initial-pane", WorkspaceID: w.ID, TabID: w.ActiveTabID, CWD: r.CWD})

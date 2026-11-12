@@ -28,8 +28,11 @@ type Session struct {
 	WindowConfigs         []WindowConfig   `json:"-"`
 	AgentStatus           string           `json:"-"`
 	Worktree              WorktreeRelation `json:"-"`
-	Score                 float64          `json:"score,omitempty"`
-	Attached              bool             `json:"attached,omitempty"`
+	// Configured marks an open space that a [[workspace]] entry also names, so
+	// connecting by that name selects it.
+	Configured bool    `json:"-"`
+	Score      float64 `json:"score,omitempty"`
+	Attached   bool    `json:"attached,omitempty"`
 }
 
 type WindowConfig struct {

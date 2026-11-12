@@ -109,11 +109,41 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 }
 
 // WorkspaceCreateRequest's Env applies only to the initial tab's root pane.
+// A non-empty Machine creates the workspace on that hc machine, and CWD is a
+// path there; only a MachineClient backend supports it.
 type WorkspaceCreateRequest struct {
+	Machine    string
 	CWD, Label string
 	Env        map[string]string
 	Focus      bool
 }
+
+// MachineClient is a backend that can create workspaces on other machines.
+type MachineClient interface {
+	// MachineHome is the home directory on machine.
+	MachineHome(ctx context.Context, machine string) (string, error)
+	// MachineExec runs r.Argv on machine. On failure it returns stdout and
+	// stderr unchanged, so callers can decode HCError(stderr); a deadline or
+	// cancellation matches context.DeadlineExceeded or context.Canceled.
+	MachineExec(ctx context.Context, machine string, r MachineExecRequest) (stdout, stderr []byte, err error)
+}
+
+// MachineExecRequest: Dir is hc's --cwd ("" = the machine's home; hc resolves a
+// relative Dir against that home). Env entries are KEY=VALUE for hc's --env.
+// Timeout > 0 bounds the call and is also passed as hc's --timeout in whole
+// seconds, rounded up, which ends the remote program; 0 uses the client's
+// default.
+type MachineExecRequest struct {
+	Dir     string
+	Env     []string
+	Timeout time.Duration
+	Argv    []string
+}
+
+// ErrNoMachines reports a remote workspace request to a backend without
+// machines, such as the Herdr TUI server.
+var ErrNoMachines = errors.New("this Herdr backend has no machines; remote workspaces need the Herdr app (herdr-app)")
+
 type TabCreateRequest struct {
 	WorkspaceID, CWD, Label string
 	Env                     map[string]string
@@ -259,6 +289,9 @@ func (c *CLIClient) WorkspaceList(ctx context.Context) ([]Workspace, error) {
 	return ws, nil
 }
 func (c *CLIClient) WorkspaceCreate(ctx context.Context, r WorkspaceCreateRequest) (Workspace, error) {
+	if r.Machine != "" {
+		return Workspace{}, fmt.Errorf("workspace %q on machine %q: %w", r.Label, r.Machine, ErrNoMachines)
+	}
 	args := []string{"workspace", "create", "--cwd", r.CWD, "--label", r.Label}
 	args = appendEnvArgs(args, r.Env)
 	if !r.Focus {

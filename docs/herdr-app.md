@@ -9,12 +9,12 @@ this repository opens the herdr-sesh picker over the app window, and the
 `sesh-last` mod switches to the space you were in before. The picker
 lists the app's local and remote spaces alongside configured sessions and
 zoxide directories. Selecting an existing space switches to it. Configured
-sessions and directories can create new local spaces.
+sessions and directories create new local spaces, and a configured workspace
+that names a `machine` creates its space on that machine.
 
 Remote workspace support is available only with the app integration, including
 direct CLI commands targeting the app backend. The Herdr TUI plugin cannot
-list or select the app's remote spaces. Sesh cannot create remote spaces from
-configured sessions.
+list, select, or create remote spaces.
 
 ## Install
 
@@ -125,8 +125,9 @@ hc machine add buntu26
 ```
 
 `hc` owns machine registration and terminal processes. `herdr-app` owns the
-spaces shown in its window. Sesh reads those spaces from `herdr-app ls`;
-registering a machine does not create a remote space through Sesh.
+spaces shown in its window. Sesh reads those spaces from `herdr-app ls`.
+Registering a machine does not create a space; a configured workspace can
+[create one](#create-a-remote-space-from-a-configured-workspace).
 
 Open the picker and search for the machine name or space name. Remote entries
 show the machine before the name, for example `[buntu26] api`. Spaces with
@@ -142,12 +143,23 @@ reported by `herdr-app ls`:
 HERDR_SESH_BACKEND=app herdr-sesh connect buntu26/sp1
 ```
 
-Remote files stay on the remote machine. Sesh displays the space's recorded
-folder and does not inspect it through the local filesystem or Git. Remote
-command and directory previews show space metadata without running local
-commands or reading local files. Pane preview reads the remote terminal
-through `hc read` with its qualified terminal address. Selecting a remote
-space does not apply local session configuration or run startup commands there.
+Remote files stay on the remote machine. Sesh never inspects a remote space's
+folder through the local filesystem or local Git. Its directory preview runs on
+that machine in one `hc exec` call: a portable `ls -A -p -1` listing of the space's
+folder, followed by `git status --short --branch`. Configured preview commands
+name local tools, so they run only for local spaces; in the native picker and
+`herdr-sesh preview`, remote spaces always get this built-in preview. The
+experimental fzf picker shows a remote space's name, machine, and path only.
+When the folder is not a Git repository or the machine has no Git, the
+preview shows only the listing. When the Git status cannot be
+read for another reason, such as a Git that cannot run or a repository Git
+refuses, the listing ends with one line saying why. The preview has 3 seconds
+in total. If the listing itself fails, or the call fails or does not finish in
+time, for example because the machine disconnects or the folder is
+unreachable, the preview shows the space's metadata and one line explaining
+why. A remote space without a recorded folder shows its metadata only. Pane preview reads the remote terminal through `hc read` with
+its qualified terminal address. Selecting an existing remote space does not
+apply local session configuration or run startup commands there.
 
 For CLI previews, select the app backend and use the qualified workspace ID:
 
@@ -156,10 +168,58 @@ HERDR_SESH_BACKEND=app herdr-sesh preview buntu26/sp1
 ```
 
 Bare names and paths resolve locally, including the fallback that previews a
-local directory; they do not select a remote namesake.
+local directory; they do not select a remote namesake. The one exception is a
+[configured remote workspace](#create-a-remote-space-from-a-configured-workspace),
+which its name selects when no local session has that name and no local
+directory is at that target. Its path never selects it.
 
-Configured sessions, zoxide directories, and directory entries still create
-local spaces. Creating remote spaces from configured sessions is not supported.
+## Create a remote space from a configured workspace
+
+Add `machine` to a native `[[workspace]]` entry, using a name from
+`hc machine ls`. Its `path` is then a path on that machine:
+
+```toml
+[[workspace]]
+name = "api"
+machine = "buntu26"
+path = "~/src/api"
+tabs = ["dev"]
+```
+
+The picker lists it as `[buntu26] api`. Selecting it, or running
+`HERDR_SESH_BACKEND=app herdr-sesh connect api`, creates the space on
+`buntu26` and builds its configured tabs, panes, `env` values, startup
+commands, and `wait_for` checks there. Startup commands run in the remote
+terminals, so they name the remote machine's tools.
+
+- A leading `~` in the workspace, tab, or pane `path` is the remote home, and
+  a relative workspace `path` starts there too. Sesh asks the machine for
+  `$HOME` with one `hc exec` call before it creates the space; a workspace
+  whose paths are all absolute skips the call. Relative tab and pane paths
+  resolve against the workspace path as usual. `~user/...` paths are rejected
+  when the config loads, in the workspace `path` and in the paths of the tabs
+  and panes it uses, so use an absolute path for another user's home.
+- Sesh does not check the path locally, inspect it with Git, or add it to
+  zoxide. `[[rule]]` entries and `workspace_defaults.startup` match local
+  paths, so they do not apply to remote workspaces.
+- `connect` and `preview` take the workspace's name, not its path: a path
+  target is always a local path. A target is first checked as a local
+  directory, and one that exists is named with local Git, so a local
+  directory called like the workspace wins.
+- Once the space is open, it is listed once, as the open space, in the
+  position of whichever source comes first. Selecting it, or connecting by its
+  name, switches to that space instead of creating another. Sesh matches the
+  open space by machine and name; an open local `[[workspace]]` entry is
+  listed once the same way, by name, and keeps
+  the `preview` command that entry sets.
+- A local session with the same name wins a bare `connect api`. Use the
+  picker, or the open space's qualified ID, to reach the remote one.
+- An unknown or unreachable machine fails with the error from `hc` or
+  herdr-app, and nothing is created.
+- The Herdr TUI backend has no machines, so `list` and the picker omit
+  `[[workspace]]` entries that set `machine`. Connecting to one by its name
+  there fails with an error that names the Herdr app, and previewing it shows
+  its metadata and one line saying remote previews need the Herdr app.
 
 ## Differences from the Herdr plugin
 
@@ -175,12 +235,29 @@ These differences apply when using the app mods or CLI commands with
   `$XDG_STATE_HOME/herdr-sesh/herdr-app/` (default `~/.local/state`).
   Closing a space outside the picker leaves its ID in history.
 - Layout splits ignore `ratio`; the app splits evenly.
-- The app can't set a new terminal's directory or environment, so herdr-sesh
-  types the pane's `cd` and `export` commands into it, octal-encoded behind
-  `eval` so the echo shows no paths or values. This needs a shell that runs
-  `eval "$(printf '\ooo')"`: sh, bash, zsh, or fish 3.4 and newer. A
-  `wait_for` match that appears in that echoed line is rejected, as one in the
-  startup command is.
+- herdr-sesh starts a pane with `env` by passing the app a `/bin/sh` command
+  that exports the values and starts your `$SHELL` as a login shell. Environment
+  values are not typed into the terminal. The values are set before the login
+  shell starts, so its startup files run after them, and a value a startup file
+  exports wins. When the root
+  pane of a new space or tab sets `env`, the app runs that command inside its
+  own login shell, so shell startup files run twice, and exiting the shell
+  leaves you in one without the `env` values. Values are visible in the
+  terminal's command line, for example through `hc get` or the process list.
+  For a split with a `path`, Sesh sends an encoded, quoted `cd` command after shell
+  startup and before the configured startup command, so a login profile that
+  changes directory cannot override that path. Octal encoding keeps the path
+  out of the echoed input, so it cannot satisfy a readiness match. This setup
+  requires sh, bash, zsh, or fish 3.4 or newer, as before. The encoded line may
+  appear in terminal history; `wait_for` rejects a match in that encoded line.
+  If the directory cannot be entered, the
+  shell shows the `cd` error and stays in its current directory. Root panes
+  of spaces and tabs still start in the app's `folder` before shell startup,
+  so their startup files can change that directory. When the app refuses
+  to create a pane that sets `env`, the error names the command and shows the
+  app's message, but never the request. If the message contains one of the
+  `env` values, as written or JSON-escaped, Sesh withholds it and shows only
+  the exit status; remove `env` to see that message.
 - In the shown tab, a split gives focus back to the pane that had it. In a tab
   that isn't shown, the last split pane keeps focus.
 - The app focuses everything it creates. For `connect --no-focus`,

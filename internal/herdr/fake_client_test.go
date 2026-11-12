@@ -3,6 +3,7 @@ package herdr
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,4 +52,38 @@ func TestFakeClientFocusesTheRequestedCreatedTab(t *testing.T) {
 		assert.Equal(t, tab.ID, workspaces[0].ActiveTabID)
 		assert.Equal(t, tab.CWD, workspaces[0].ForegroundCWD)
 	}
+}
+
+// Run with -race: preview may run remote commands from concurrent renders.
+func TestFakeClientMachineExecScriptsRepliesAndRecordsCalls(t *testing.T) {
+	f := &FakeClient{MachineExecReply: func(_ context.Context, machine string, r MachineExecRequest) ([]byte, []byte, error) {
+		return []byte(machine + ":" + r.Argv[0]), nil, nil
+	}}
+	var wg sync.WaitGroup
+	outs := make(chan string, 4)
+	for i := range 4 {
+		wg.Go(func() {
+			out, _, err := f.MachineExec(t.Context(), "buntu26", MachineExecRequest{Dir: "src", Argv: []string{fmt.Sprint(i)}})
+			if err != nil {
+				out = []byte(err.Error())
+			}
+			outs <- string(out)
+		})
+	}
+	wg.Wait()
+	close(outs)
+	var got []string
+	for out := range outs {
+		got = append(got, out)
+	}
+	assert.ElementsMatch(t, []string{"buntu26:0", "buntu26:1", "buntu26:2", "buntu26:3"}, got)
+	calls := f.MachineExecCalls()
+	require.Len(t, calls, 4)
+	for _, call := range calls {
+		assert.Equal(t, "buntu26", call.Machine)
+		assert.Equal(t, "src", call.Request.Dir)
+	}
+
+	_, _, err := (&FakeClient{}).MachineExec(t.Context(), "buntu26", MachineExecRequest{Argv: []string{"ls"}})
+	require.NoError(t, err, "an unscripted MachineExec succeeds with empty output")
 }
