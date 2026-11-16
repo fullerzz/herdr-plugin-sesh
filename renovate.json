@@ -15,7 +15,9 @@
   "internalChecksFilter": "strict",
   "pruneStaleBranches": true,
   "osvVulnerabilityAlerts": true,
-  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "dependencyDashboard": {
+    "osvVulnerabilitySummary": "all"
+  },
   "packageRules": [
     {
       "matchManagers": [
