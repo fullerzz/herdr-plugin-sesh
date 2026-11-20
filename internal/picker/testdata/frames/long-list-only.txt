@@ -1,0 +1,19 @@
+
+  ╭─ herdr / sesh ─────────────────────────────────────────────────────────────── 30 workspaces ─╮
+  │ Sesh> Filter workspaces                                                                      │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ WORKSPACES ───────────────────────────────────────────────────────────────────────── 16/30 ─╮
+  │     [herdr]   workspace-04                                                                   │
+  │     [herdr]   workspace-05                                                                   │
+  │     [herdr]   workspace-06                                                                   ┃
+  │     [herdr]   workspace-07                                                                   ┃
+  │     [herdr]   workspace-08                                                                   ┃
+  │     [herdr]   workspace-09                                                                   ┃
+  │     [herdr]   workspace-10                                                                   ┃
+  │     [herdr]   workspace-11                                                                   │
+  │     [herdr]   workspace-12                                                                   │
+  │     [herdr]   workspace-13                                                                   │
+  │     [herdr]   workspace-14                                                                   │
+  │     [herdr]   workspace-15                                                                   │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+  enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit         last: None recorded

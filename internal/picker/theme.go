@@ -62,9 +62,6 @@ func rebuildPickerStyles() {
 	emptyStyle = lipgloss.NewStyle().
 		Foreground(amberColor)
 
-	moreStyle = lipgloss.NewStyle().
-		Foreground(mutedColor)
-
 	helpStyle = lipgloss.NewStyle().
 		Foreground(mutedColor)
 }

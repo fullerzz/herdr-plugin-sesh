@@ -155,7 +155,7 @@ func (m teaModel) updateSettings(msg tea.Msg) (teaModel, tea.Cmd, bool) {
 	m.agentSpinner = spinner.New(spinner.WithSpinner(agentStatusSpinner))
 	m.smearActive = false
 	m.focusSmearActive = false
-	m.divider.active = false
+	m.pointer.dividerActive = false
 	m.settingsBusy = true
 	open := m.backend.OpenSettings
 	return m, func() tea.Msg { editor, err := open(); return settingsOpenedMsg{model: editor, err: err} }, true
@@ -169,7 +169,10 @@ func (m teaModel) resumePicker() (teaModel, tea.Cmd) {
 		cmds = append(cmds, next.input.Focus())
 	}
 	if next.backend != nil {
-		cmds = append(cmds, scheduleStatusRefreshFor(next.refreshGeneration), next.agentSpinner.Tick)
+		cmds = append(cmds, scheduleStatusRefreshFor(next.refreshGeneration))
+		if !next.reduceMotion {
+			cmds = append(cmds, next.agentSpinner.Tick)
+		}
 	}
 	return next, tea.Batch(cmds...)
 }
