@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"bloomfx.dev/bloom"
+	"bloomfx.dev/bloom/anim"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -184,6 +186,7 @@ type ReloadResult struct {
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
 	uitheme.DetectHostAppearance()
 	configureHerdrTheme(opts.HerdrThemeInherit)
+	configureMotion()
 	var popts []tea.ProgramOption
 	if opts.Output != nil {
 		popts = append(popts, tea.WithOutput(opts.Output))
@@ -200,6 +203,7 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 }
 
 type teaModel struct {
+	ui                *bloom.Root
 	backend           Backend
 	settings          *settings.Model
 	settingsBusy      bool
@@ -229,7 +233,7 @@ type teaModel struct {
 	preview              string
 	previewLoading       bool
 	previewWidth         int
-	draggingPreview      bool
+	divider              *dividerDrag
 	previewKey           string
 	previewParentContext context.Context
 	previewContext       context.Context
@@ -256,6 +260,10 @@ type teaModel struct {
 	cancelWorkspaceClose    context.CancelFunc
 	quitAfterWorkspaceClose bool
 	closeError              string
+	// toastText outlives closeError so the toast keeps its text while hiding.
+	toast     anim.Presence
+	toastText string
+	shimmer   anim.Sequence
 }
 
 type previewMsg struct {
@@ -336,8 +344,11 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	if opts.CyclePreviewModeKey != nil {
 		cyclePreviewModeKey = *opts.CyclePreviewModeKey
 	}
-	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
+		ui:                    bloom.New(),
+		toast:                 anim.NewPresence(),
+		shimmer:               anim.NewLoop(shimmerPeriod),
+		divider:               &dividerDrag{},
 		backend:               opts.Backend,
 		list:                  list,
 		input:                 input,
@@ -359,7 +370,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		herdrWorkspaces:       workspaceSessionsByID(opts.HerdrWorkspaces),
 		workspaceCloseContext: closeContext,
 		previewParentContext:  closeContext,
-		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
+		reduceMotion:          reduceMotionRequested(),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
 	if current, ok := list.Current(); ok && !m.hidePreview {
@@ -368,8 +379,19 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	return m
 }
 
+// configureMotion applies HERDR_SESH_REDUCE_MOTION to bloom's animations.
+// Motion is process-wide in bloom, so it is set both ways on every run.
+func configureMotion() {
+	anim.SetMotion(!reduceMotionRequested())
+}
+
+func reduceMotionRequested() bool {
+	value := os.Getenv("HERDR_SESH_REDUCE_MOTION")
+	return value == "1" || strings.EqualFold(value, "true")
+}
+
 func (m teaModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus()}
+	cmds := []tea.Cmd{m.input.Focus(), m.ui.Init()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
 		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview), previewLoadingCommand(m.previewContext, m.previewRequestID))
 	}
@@ -443,8 +465,45 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 	}
 }
 
-//nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
+//nolint:ireturn // Bubble Tea's Model interface requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var uiCmd tea.Cmd
+	if _, mouse := msg.(tea.MouseMsg); !mouse || m.settings == nil {
+		// The root's last frame is the picker, not settings, so its handlers
+		// must not see clicks made in settings.
+		uiCmd = m.ui.Update(msg)
+	}
+	animCmd := anim.Update(msg, &m.toast, &m.shimmer)
+	if _, ok := msg.(anim.FrameMsg); ok {
+		// Animation frames only redraw; the picker's catch-all would refilter on each one.
+		return m, tea.Batch(uiCmd, animCmd)
+	}
+	next, cmd := m.update(msg)
+	if picker, ok := next.(teaModel); ok {
+		var syncCmd tea.Cmd
+		picker, syncCmd = picker.syncToast()
+		next, cmd = picker, tea.Batch(cmd, syncCmd)
+	}
+	return next, tea.Batch(cmd, uiCmd, animCmd)
+}
+
+// syncToast shows the toast while closeError is set, so every path that sets
+// or clears the error drives it.
+func (m teaModel) syncToast() (teaModel, tea.Cmd) {
+	switch {
+	case m.closeError != "":
+		m.toastText = m.closeError
+		if !m.toast.Shown() {
+			return m, m.toast.Show()
+		}
+	case m.toast.Shown():
+		return m, m.toast.Hide()
+	}
+	return m, nil
+}
+
+//nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
+func (m teaModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next, cmd, handled := m.updateSettings(msg); handled {
 		return next, cmd
 	}
@@ -527,6 +586,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if loading, ok := msg.(previewLoadingMsg); ok {
 		if loading.requestID == m.previewRequestID && m.cancelPreview != nil && m.previewContext.Err() == nil {
 			m.previewLoading = true
+			return m, m.shimmer.Loop()
 		}
 		return m, nil
 	}
@@ -595,7 +655,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
 		m.height = size.Height
-		m.draggingPreview = false
+		m.divider.active = false
 		return m, nil
 	}
 	if clicked, ok := msg.(workspaceClickedMsg); ok {
@@ -620,8 +680,11 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if mouse, ok := msg.(tea.MouseMsg); ok {
-		return m.resizePreview(mouse), nil
+	if _, ok := msg.(tea.MouseMsg); ok {
+		if m.divider.moved {
+			m.previewWidth, m.divider.moved = m.divider.width, false
+		}
+		return m, nil
 	}
 	if _, ok := msg.(tea.PasteMsg); ok {
 		return m.updateInput(msg)
@@ -821,73 +884,31 @@ func (m teaModel) View() tea.View {
 		}
 		return m.settings.View()
 	}
-	width := m.contentWidth()
-	listWidth, previewWidth := m.previewLayout()
-	lines := m.headerLines(width)
-	listTop := lipgloss.Height(strings.Join(lines, "\n")) + previewTitleRows
-	visibleRows := m.previewBodyLines()
-	var workspaces workspaceListView
+	width := m.contentWidth() + horizontalPadding*2
+	view := m.ui.View(width, 0, bloom.Overlay(m.pickerTree(), m.pickerLayers(width)...))
+	view.AltScreen = true
+	// The wheel moves the selection from Update, which needs reports even
+	// when no node has a handler.
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
+}
 
-	if m.hidePreview {
-		visibleRows = m.listOnlyBodyLines()
-		workspaces = m.listView(width, visibleRows)
-		lines = append(lines, sectionStyle.Render("WORKSPACES"))
-		lines = append(lines, strings.Split(strings.TrimSuffix(workspaces.content, "\n"), "\n")...)
-	} else if previewWidth > 0 {
-		workspaces = m.listView(listWidth, visibleRows)
-		list := sectionStyle.Render("WORKSPACES") + "\n" + workspaces.content
-		preview := m.previewView(previewWidth, visibleRows)
-		lines = append(lines, strings.Split(joinPanels(list, preview, listWidth, previewWidth), "\n")...)
-	} else {
-		var previewLines int
-		visibleRows, previewLines = m.stackedBodyLines()
-		workspaces = m.listView(listWidth, visibleRows)
-		lines = append(lines, sectionStyle.Render("WORKSPACES"))
-		lines = append(lines, strings.Split(strings.TrimSuffix(workspaces.content, "\n"), "\n")...)
-		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
+func (m teaModel) footerText() string {
+	if m.hidePreview && m.closingWorkspaceID != "" {
+		status := "Closing workspace..."
+		if m.quitAfterWorkspaceClose {
+			status = "Cancelling workspace close..."
+		}
+		return emptyStyle.Render(status)
+	}
+	if m.settingsBusy {
+		return helpStyle.Render("Loading settings…")
 	}
 	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
 	if m.backend != nil {
 		help = m.settingsKey() + " settings · " + help
 	}
-	footer := helpStyle.Render(help)
-	if m.settingsBusy {
-		footer = helpStyle.Render("Loading settings…")
-	}
-	if m.closeError != "" {
-		footer = emptyStyle.Render(m.closeError)
-	} else if m.hidePreview && m.closingWorkspaceID != "" {
-		status := "Closing workspace..."
-		if m.quitAfterWorkspaceClose {
-			status = "Cancelling workspace close..."
-		}
-		footer = emptyStyle.Render(status)
-	}
-	lines = append(lines,
-		horizontalRule(width),
-		m.footerLine(footer, width),
-		"",
-	)
-	for i, line := range lines {
-		if line != "" {
-			lines[i] = fitLine(line, width)
-		}
-	}
-	m.renderFocusSmear(lines, width)
-	framed := make([]string, len(lines))
-	for i, line := range lines {
-		if line == "" {
-			continue
-		}
-		framed[i] = strings.Repeat(" ", horizontalPadding) + line + strings.Repeat(" ", horizontalPadding)
-	}
-	view := tea.NewView(strings.Join(framed, "\n"))
-	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
-	if m.closingWorkspaceID == "" && !m.settingsBusy {
-		view.OnMouse = m.workspaceMouseHandler(listWidth, listTop, workspaces.keys)
-	}
-	return view
+	return helpStyle.Render(help)
 }
 
 func herdrWorkspaceIDs(items []sessionmodel.Session) []string {
@@ -1025,9 +1046,11 @@ func workspaceSessionsByID(items []sessionmodel.Session) map[string]sessionmodel
 	return workspaces
 }
 
+// workspaceListView holds the list's lines and, for each, the key of the
+// workspace it shows, or "" for a line that is not a workspace.
 type workspaceListView struct {
-	content string
-	keys    []string
+	lines []string
+	keys  []string
 }
 
 func (m teaModel) listView(width, visibleRows int) workspaceListView {
@@ -1064,14 +1087,10 @@ func (m teaModel) listView(width, visibleRows int) workspaceListView {
 	if len(lines) > visibleRows {
 		lines = lines[:visibleRows]
 	}
-	var physicalKeys []string
 	for i := range lines {
 		lines[i] = fitLine(lines[i], width)
-		for range lipgloss.Height(lines[i]) {
-			physicalKeys = append(physicalKeys, keys[i])
-		}
 	}
-	return workspaceListView{content: strings.Join(lines, "\n") + "\n", keys: physicalKeys}
+	return workspaceListView{lines: lines, keys: keys[:len(lines)]}
 }
 
 func (m teaModel) previewBodyLines() int {
@@ -1170,7 +1189,7 @@ func (m teaModel) lastWorkspaceCompactText() string {
 // row) intact and fits the last-workspace status into the remaining width,
 // compacting or dropping it rather than truncating the help.
 func (m teaModel) footerLine(footer string, width int) string {
-	if m.closeError != "" || m.hideLastWorkspace {
+	if m.hideLastWorkspace {
 		return fitLine(footer, width)
 	}
 	available := width - lipgloss.Width(footer) - 2
@@ -1192,8 +1211,6 @@ func (m teaModel) previewView(width, maxLines int) string {
 		if m.quitAfterWorkspaceClose {
 			text = "Cancelling workspace close..."
 		}
-	} else if m.previewLoading {
-		text = "Loading preview..."
 	} else if text == "" && m.cancelPreview == nil {
 		text = "No preview available"
 	}
@@ -1242,6 +1259,7 @@ func (m teaModel) receivePreview(preview previewMsg) (teaModel, tea.Cmd) {
 	}
 	m.preview = preview.text
 	m.previewLoading = false
+	m.shimmer.Stop()
 	if m.cancelPreview != nil {
 		m.cancelPreview()
 		m.cancelPreview = nil
@@ -1288,6 +1306,7 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 
 func (m teaModel) cancelActivePreview() teaModel {
 	m.previewLoading = false
+	m.shimmer.Stop()
 	if m.cancelPreview != nil {
 		m.cancelPreview()
 		m.cancelPreview = nil
@@ -1534,54 +1553,6 @@ func (m teaModel) previewLayout() (int, int) {
 	}
 	previewWidth = min(max(previewWidth, minPreviewWidth), width-minListWidth-3)
 	return width - previewWidth - 3, previewWidth
-}
-
-func (m teaModel) resizePreview(msg tea.MouseMsg) teaModel {
-	listWidth, previewWidth := m.previewLayout()
-	if previewWidth == 0 {
-		m.draggingPreview = false
-		return m
-	}
-	switch mouse := msg.(type) {
-	case tea.MouseClickMsg:
-		// joinPanels places the divider after the list and one space.
-		listTop := lipgloss.Height(strings.Join(m.headerLines(m.contentWidth()), "\n")) + previewTitleRows
-		m.draggingPreview = mouse.Button == tea.MouseLeft &&
-			mouse.X == horizontalPadding+listWidth+1 &&
-			mouse.Y >= listTop-previewTitleRows &&
-			mouse.Y < listTop+m.previewBodyLines()
-	case tea.MouseMotionMsg:
-		if mouse.Button != tea.MouseLeft {
-			m.draggingPreview = false
-		}
-		if m.draggingPreview {
-			width := m.contentWidth()
-			m.previewWidth = min(max(width+horizontalPadding-mouse.X-2, minPreviewWidth), width-minListWidth-3)
-		}
-	case tea.MouseReleaseMsg:
-		m.draggingPreview = false
-	}
-	return m
-}
-
-func (m teaModel) workspaceMouseHandler(width, top int, keys []string) func(tea.MouseMsg) tea.Cmd {
-	// OnMouse belongs to the last flushed frame; keys describe its physical rows.
-	height := m.height
-	return func(msg tea.MouseMsg) tea.Cmd {
-		click, ok := msg.(tea.MouseClickMsg)
-		if !ok || click.Button != tea.MouseLeft {
-			return nil
-		}
-		row := click.Y - top
-		if click.X < horizontalPadding || click.X >= horizontalPadding+width || row < 0 || row >= len(keys) || height > 0 && click.Y >= height {
-			return nil
-		}
-		key := keys[row]
-		if key == "" {
-			return nil
-		}
-		return func() tea.Msg { return workspaceClickedMsg{key: key} }
-	}
 }
 
 func fixedVisualLines(text string, width, count int) string {
@@ -1881,25 +1852,6 @@ func fitPlain(text string, width int) string {
 	}
 	text = ansi.Truncate(text, width, "…")
 	return text + strings.Repeat(" ", maxInt(0, width-lipgloss.Width(text)))
-}
-
-func joinPanels(left, right string, leftWidth, rightWidth int) string {
-	leftLines := strings.Split(strings.TrimSuffix(left, "\n"), "\n")
-	rightLines := strings.Split(strings.TrimSuffix(right, "\n"), "\n")
-	height := max(len(leftLines), len(rightLines))
-	lines := make([]string, height)
-	divider := ruleStyle.Render("│")
-	for i := range height {
-		var leftLine, rightLine string
-		if i < len(leftLines) {
-			leftLine = leftLines[i]
-		}
-		if i < len(rightLines) {
-			rightLine = rightLines[i]
-		}
-		lines[i] = fitLine(leftLine, leftWidth) + " " + divider + " " + fitLine(rightLine, rightWidth)
-	}
-	return strings.Join(lines, "\n")
 }
 
 func listWindow(total, selected, height int) (start, end int, moreAbove, moreBelow bool) {

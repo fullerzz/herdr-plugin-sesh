@@ -1,0 +1,27 @@
+
+  herdr / sesh                                                                                            3 workspaces
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Sesh> Filter workspaces
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  WORKSPACES                                                    │ PREVIEW [ctrl+o] · api · working
+    ⢄ [herdr]   api                 /src/api                    │ Closing workspace...
+      [zoxide]  web                 /src/web                    │
+      [config]  dots                /src/dots                   │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+                                                                │
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit                  LAST WORKSPACE · None recorded

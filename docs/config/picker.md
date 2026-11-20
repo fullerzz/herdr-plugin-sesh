@@ -148,7 +148,7 @@ Set these environment variables in the environment inherited by Herdr.
 | `gooey` | Slower block cursor with a long shaded trail and eased movement. |
 | `ghost` | Soft diamond cursor with a dotted, low-contrast trail. |
 
-Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) for instantaneous movement without trails.
+Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) for instantaneous movement without trails. Error toasts then appear without sliding in, and the loading placeholder does not shimmer.
 
 Herdr agent indicators are amber animated spinner (working), red `◉` (blocked),
 green `✓` (idle), and teal `●` (done). Unknown states have no indicator.
