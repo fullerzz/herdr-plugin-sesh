@@ -96,7 +96,7 @@ the [Herdr app setup](docs/herdr-app.md#install).
 
 - [Herdr](https://herdr.dev/docs/installation/) 0.8.2 or newer
 - Linux or macOS
-- Git and Go 1.26.4 or newer for Herdr's source-based plugin installation
+- Git and Go 1.27.3 or newer for Herdr's source-based plugin installation
 - Optional: `zoxide` for directory history and `eza` for the default preview
 - Optional: `fzf` and `bat` for the experimental fzf picker
 

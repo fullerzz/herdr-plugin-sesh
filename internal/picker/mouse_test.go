@@ -198,7 +198,7 @@ func TestTeaModelIgnoresStaleWorkspaceClick(t *testing.T) {
 				require.NoError(t, err)
 				m.settings = &editor
 			}
-			updated, _ := m.Update(click())
+			updated, _ := m.Update(previewResult(click))
 			assert.False(t, updated.(teaModel).chosen)
 		})
 	}
@@ -286,6 +286,6 @@ func TestTeaModelDividerFollowsMultilinePrompt(t *testing.T) {
 		drag bool
 	}{{top - 1, false}, {top, true}, {bottom, true}} {
 		updated, _ := m.Update(tea.MouseClickMsg{X: 64, Y: tc.y, Button: tea.MouseLeft})
-		assert.Equal(t, tc.drag, updated.(teaModel).draggingPreview, "screen row %d", tc.y)
+		assert.Equal(t, tc.drag, updated.(teaModel).divider.active, "screen row %d", tc.y)
 	}
 }

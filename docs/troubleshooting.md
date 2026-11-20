@@ -100,7 +100,8 @@ to use source labels. The default `eza` preview has its own icon flag; customize
 the preview command separately if its glyphs are missing.
 
 Set `HERDR_SESH_REDUCE_MOTION=1` in the environment inherited by Herdr to disable
-the cursor trail. See [cursor settings](config/picker.md#cursor-and-status-indicators).
+the cursor trail and the picker's other animations, such as the error toast and
+the loading placeholder. See [cursor settings](config/picker.md#cursor-and-status-indicators).
 
 ## Previous workspace is unexpected
 
