@@ -1,12 +1,16 @@
 package picker
 
 import (
+	"fmt"
+
 	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"bloomfx.dev/bloom"
 
 	"bloomfx.dev/bloom/anim"
 	tea "charm.land/bubbletea/v2"
@@ -28,13 +32,41 @@ func TestPickerFramesMatchGolden(t *testing.T) {
 		{Name: "web", Source: "zoxide", Path: "/src/web"},
 		{Name: "dots", Source: "config", Path: "/src/dots"},
 	}
+	many := make([]model.Session, 30)
+	for i := range many {
+		many[i] = model.Session{Name: fmt.Sprintf("workspace-%02d", i), Source: "herdr", WorkspaceID: fmt.Sprintf("w%d", i)}
+	}
+	longPreview := func(m *teaModel) {
+		lines := make([]string, 40)
+		for i := range lines {
+			lines[i] = fmt.Sprintf("preview line %02d", i)
+		}
+		m.preview = strings.Join(lines, "\n")
+	}
 	for _, tc := range []struct {
 		name   string
 		width  int
 		height int
 		opts   DisplayOptions
+		items  []model.Session
 		setup  func(*teaModel)
 	}{
+		{name: "long list top", width: 120, height: 20, items: many, setup: func(m *teaModel) { m.listFocused = true }},
+		{name: "long list middle", width: 120, height: 20, items: many, setup: func(m *teaModel) {
+			m.listFocused = true
+			m.list.Selected = 15
+		}},
+		{name: "long list end", width: 120, height: 20, items: many, setup: func(m *teaModel) {
+			m.listFocused = true
+			m.list.Selected = 29
+		}},
+		{name: "long list stacked", width: 80, height: 20, items: many, setup: func(m *teaModel) { m.list.Selected = 15 }},
+		{name: "long list only", width: 100, height: 20, items: many, opts: DisplayOptions{HidePreview: true}, setup: func(m *teaModel) { m.list.Selected = 15 }},
+		{name: "long preview split", width: 120, height: 20, setup: longPreview},
+		{name: "long preview stacked", width: 80, height: 20, setup: longPreview},
+		{name: "short split", width: 120, height: 10, items: many},
+		{name: "short stacked", width: 80, height: 10, items: many},
+		{name: "short list only", width: 100, height: 10, items: many, opts: DisplayOptions{HidePreview: true}},
 		{name: "split preview", width: 120, height: 28},
 		{name: "stacked preview", width: 70, height: 28},
 		{name: "list only", width: 100, height: 28, opts: DisplayOptions{HidePreview: true}},
@@ -54,6 +86,8 @@ func TestPickerFramesMatchGolden(t *testing.T) {
 			m.focusSmearDirection = 1
 			m.focusSmearActive = true
 		}},
+		{name: "loading split", width: 120, height: 20, setup: func(m *teaModel) { m.previewLoading = true }},
+		{name: "loading stacked", width: 80, height: 20, setup: func(m *teaModel) { m.previewLoading = true }},
 		{name: "closing", width: 120, height: 28, setup: func(m *teaModel) {
 			m.closingWorkspaceID = "w1"
 			m.previewKey = ""
@@ -63,7 +97,11 @@ func TestPickerFramesMatchGolden(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTeaModel(sessions, Options{DisplayOptions: tc.opts})
+			items := sessions
+			if tc.items != nil {
+				items = tc.items
+			}
+			m := newTeaModel(items, Options{DisplayOptions: tc.opts})
 			t.Cleanup(func() { m.cancelActivePreview() })
 			m.width, m.height = tc.width, tc.height
 			m.preview = "line one\nline two"
@@ -91,8 +129,9 @@ func TestMultilinePromptKeepsFramePadding(t *testing.T) {
 
 	lines := strippedLines(m.View().Content)
 
-	assert.Equal(t, "  Choose a workspace", lines[3])
-	assert.True(t, strings.HasPrefix(lines[4], "  Sesh>"), "second prompt line: %q", lines[4])
+	assert.True(t, strings.HasPrefix(lines[2], "  │ Choose a workspace "), "first prompt line: %q", lines[2])
+	assert.True(t, strings.HasPrefix(lines[3], "  │ Sesh>"), "second prompt line: %q", lines[3])
+	assert.NotContains(t, lines[3], "…", "the first prompt line does not count against the second")
 }
 
 func TestPreviewShowsSkeletonWhileLoading(t *testing.T) {
@@ -151,7 +190,7 @@ func TestRowClickPassesThroughLayers(t *testing.T) {
 		setup func(*teaModel)
 		x, y  int
 	}{
-		{name: "focus smear", x: 3, y: 7, setup: func(m *teaModel) {
+		{name: "focus smear", x: 5, y: 6, setup: func(m *teaModel) {
 			m.input.SetValue("w")
 			m.listFocused = true
 			m.focusSmearStart = m.inputCursorColumn()
@@ -159,12 +198,6 @@ func TestRowClickPassesThroughLayers(t *testing.T) {
 			m.focusSmearStep = 2
 			m.focusSmearDirection = 1
 			m.focusSmearActive = true
-		}},
-		{name: "toast", x: 100, y: 6, setup: func(m *teaModel) {
-			m.closeError = "Failed to close workspace: boom"
-			m.toastText = m.closeError
-			m.toast.Show()
-			m.toast.Advance(time.Now().Add(time.Hour))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -175,9 +208,38 @@ func TestRowClickPassesThroughLayers(t *testing.T) {
 			hit := m.View().OnMouse(tea.MouseClickMsg{X: tc.x, Y: tc.y, Button: tea.MouseLeft})
 
 			require.NotNil(t, hit)
-			assert.Equal(t, workspaceClickedMsg{key: model.Key(items[tc.y-6])}, previewResult(hit))
+			assert.Equal(t, workspaceClickedMsg{key: model.Key(items[tc.y-listFirstRowIndex])}, previewResult(hit))
 		})
 	}
+}
+
+func TestToastTakesClicksOnItself(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
+	m.width, m.height = 120, 12
+	m.closeError = "Failed to close workspace: boom"
+	m.toastText = m.closeError
+	m.toast.Show()
+	m.toast.Advance(time.Now().Add(time.Hour))
+	view := m.View()
+	row := 6
+	// The toast's top border covers the end of the second row.
+	require.Contains(t, strippedLines(view.Content)[row], "web")
+	require.Contains(t, strippedLines(view.Content)[row], "╭")
+
+	onToast := view.OnMouse(tea.MouseClickMsg{X: 100, Y: row, Button: tea.MouseLeft})
+	beside := view.OnMouse(tea.MouseClickMsg{X: 5, Y: row, Button: tea.MouseLeft})
+	view.OnMouse(tea.MouseWheelMsg{X: 100, Y: row, Button: tea.MouseWheelDown})
+
+	if onToast != nil {
+		assert.NotEqual(t, workspaceClickedMsg{key: model.Key(items[1])}, previewResult(onToast))
+	}
+	require.NotNil(t, beside)
+	assert.Equal(t, workspaceClickedMsg{key: model.Key(items[1])}, previewResult(beside))
+	assert.Equal(t, 1, m.pointer.wheel)
 }
 
 func TestReduceMotionShowsToastWithoutAnimating(t *testing.T) {
@@ -272,6 +334,208 @@ func TestSettingsReloadKeepsTerminalColors(t *testing.T) {
 	assert.Equal(t, want, loadingLine(reloaded))
 }
 
+func TestWheelOverHeaderMovesSelection(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	m.listFocused = true
+	m.View()
+
+	updated, _ := m.Update(tea.MouseWheelMsg{X: 20, Y: 1, Button: tea.MouseWheelDown})
+
+	assert.Equal(t, 1, updated.(teaModel).list.Selected)
+}
+
+func TestScrollbarClickScrollsListAndSelection(t *testing.T) {
+	items := make([]model.Session, 30)
+	for i := range items {
+		items[i] = model.Session{Name: fmt.Sprintf("workspace-%02d", i)}
+	}
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height = 120, 12
+	lines := strippedLines(m.View().Content)
+	// The scrollbar is on the list box's right border, just inside the
+	// right padding.
+	scrollbarX := m.contentWidth() + horizontalPadding - 1
+	require.Equal(t, "┃", ansi.Cut(lines[listFirstRowIndex], scrollbarX, scrollbarX+1))
+
+	updated, _ := m.Update(tea.MouseClickMsg{X: scrollbarX, Y: m.height - 4, Button: tea.MouseLeft})
+	m = updated.(teaModel)
+
+	require.Positive(t, m.listOffset)
+	view := ansi.Strip(m.View().Content)
+	assert.Contains(t, view, "┃   [session] "+items[m.list.Selected].Name, "the rail marks the new selection")
+	assert.NotContains(t, view, "workspace-00")
+	assert.True(t, m.listFocused)
+	assert.False(t, m.smearActive, "no trail across the jump")
+}
+
+func TestWheelInSideMarginMovesSelection(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	m.listFocused = true
+	m.View()
+
+	updated, _ := m.Update(tea.MouseWheelMsg{X: 0, Y: 7, Button: tea.MouseWheelDown})
+
+	assert.Equal(t, 1, updated.(teaModel).list.Selected)
+}
+
+func TestShortStackedPaneKeepsWorkspaceRow(t *testing.T) {
+	for _, height := range []int{10, 11, 12} {
+		m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+		m.cancelActivePreview()
+		m.width, m.height = 80, height
+		view := ansi.Strip(m.View().Content)
+		assert.Contains(t, view, "[session] api", "height %d", height)
+		if height == 11 {
+			// Too short for a preview line: drop the pane rather than show a bare title.
+			assert.NotContains(t, view, "PREVIEW", "height %d", height)
+		}
+	}
+}
+
+func TestWheelOverPreviewScrollsPreview(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 16, true
+	m.listFocused = true
+	m.input.Blur()
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("preview line %02d", i)
+	}
+	long := strings.Join(lines, "\n")
+	deliver := func(m teaModel) teaModel {
+		updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: long})
+		return updated.(teaModel)
+	}
+	wheel := func(m teaModel, x, y int) teaModel {
+		m.View()
+		updated, _ := m.Update(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown})
+		return updated.(teaModel)
+	}
+	m = deliver(m)
+	require.Contains(t, ansi.Strip(m.View().Content), "preview line 00")
+
+	m = wheel(m, 100, 8)
+	assert.NotContains(t, ansi.Strip(m.View().Content), "preview line 00")
+	// The preview title and its scrollbar take the wheel too.
+	m = wheel(m, 100, 5)
+	m = wheel(m, m.contentWidth()+horizontalPadding-1, 8)
+	require.Equal(t, 0, m.list.Selected, "the wheel over the preview leaves the selection")
+
+	m = deliver(m)
+	assert.NotContains(t, ansi.Strip(m.View().Content), "preview line 00", "a refresh of the same preview keeps its scroll")
+
+	// Scrolling the old text while the next preview loads does not carry over.
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	require.Equal(t, 1, m.list.Selected)
+	m = wheel(m, 100, 8)
+	m = deliver(m)
+	assert.Contains(t, ansi.Strip(m.View().Content), "preview line 00", "another workspace starts at the top")
+
+	m = wheel(m, 100, 8)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	m = deliver(updated.(teaModel))
+	assert.Contains(t, ansi.Strip(m.View().Content), "preview line 00", "another preview mode starts at the top")
+
+	// The frame on screen can predate the next workspace's text; its wheel
+	// scrolls the old text, so it leaves the new text at the top.
+	m.View()
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = deliver(updated.(teaModel))
+	updated, _ = m.Update(tea.MouseWheelMsg{X: 100, Y: 8, Button: tea.MouseWheelDown})
+	m = updated.(teaModel)
+	assert.Contains(t, ansi.Strip(m.View().Content), "preview line 00", "a wheel over the old text leaves the new at the top")
+}
+
+func TestScrollbarIgnoredAfterFilterChanges(t *testing.T) {
+	items := make([]model.Session, 30)
+	for i := range items {
+		items[i] = model.Session{Name: fmt.Sprintf("workspace-%02d", i)}
+	}
+	for _, tc := range []struct{ name, query string }{
+		{name: "other matches", query: "workspace-2"},
+		{name: "no matches", query: "zzz"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height, m.reduceMotion = 120, 12, true
+			// The frame on screen is drawn before the filter changes.
+			m.View()
+			m.input.SetValue(tc.query)
+			m = m.filter(tc.query)
+			selected := m.list.Selected
+
+			updated, _ := m.Update(tea.MouseClickMsg{X: m.contentWidth() + horizontalPadding - 1, Y: m.height - 4, Button: tea.MouseLeft})
+			m = updated.(teaModel)
+
+			assert.Zero(t, m.listOffset)
+			assert.Equal(t, selected, m.list.Selected)
+			assert.False(t, m.listFocused, "the filter keeps the focus")
+		})
+	}
+}
+
+func TestDividerGripAsksForPointerMotion(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		width  int
+		hidden bool
+		want   tea.MouseMode
+	}{
+		{name: "split", width: 120, want: tea.MouseModeAllMotion},
+		{name: "stacked", width: 80, want: tea.MouseModeCellMotion},
+		{name: "hidden", width: 120, hidden: true, want: tea.MouseModeCellMotion},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel([]model.Session{{Name: "api"}}, Options{DisplayOptions: DisplayOptions{HidePreview: tc.hidden}})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height = tc.width, 20
+
+			assert.Equal(t, tc.want, m.View().MouseMode)
+		})
+	}
+}
+
+func TestMouseScrollIgnoredWhileWorkspaceCloses(t *testing.T) {
+	items := make([]model.Session, 30)
+	for i := range items {
+		items[i] = model.Session{Name: fmt.Sprintf("workspace-%02d", i), WorkspaceID: fmt.Sprintf("w%d", i)}
+	}
+	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 12, true
+	m.listFocused = true
+	// The frame on screen is still the one drawn before the close started,
+	// so its handlers are the ones that run.
+	m.View()
+	m.closingWorkspaceID = "w0"
+	scrollbarX := m.contentWidth() + horizontalPadding - 1
+
+	for _, msg := range []tea.Msg{
+		tea.MouseWheelMsg{X: 20, Y: 7, Button: tea.MouseWheelUp},
+		tea.MouseClickMsg{X: scrollbarX, Y: m.height - 4, Button: tea.MouseLeft},
+		tea.MouseReleaseMsg{X: scrollbarX, Y: m.height - 4, Button: tea.MouseLeft},
+	} {
+		updated, _ := m.Update(msg)
+		m = updated.(teaModel)
+	}
+	require.Equal(t, 0, m.list.Selected)
+	require.Zero(t, m.listOffset)
+
+	m.closingWorkspaceID = ""
+	m.View()
+	updated, _ := m.Update(tea.MouseWheelMsg{X: 20, Y: 7, Button: tea.MouseWheelDown})
+
+	assert.Equal(t, 1, updated.(teaModel).list.Selected, "no wheel step left over from the close")
+}
+
 func strippedLines(s string) []string {
 	lines := strings.Split(ansi.Strip(s), "\n")
 	for i, line := range lines {
@@ -283,6 +547,379 @@ func strippedLines(s string) []string {
 	return lines
 }
 
-func listText(v workspaceListView) string {
-	return strings.Join(v.lines, "\n")
+// renderedPreview draws the preview pane alone, title included, in a
+// width×rows pane, without styles.
+func renderedPreview(m teaModel, width, rows int) string {
+	return ansi.Strip(bloom.Render(width, rows, m.previewBox(width)))
+}
+
+// renderedList draws the workspace list alone in a width×rows pane.
+func renderedList(m teaModel, width, rows int) string {
+	return bloom.Render(width, rows, m.listBody(width))
+}
+
+// Screen rows of the picker with a one-line prompt.
+const (
+	filterLineIndex   = 2
+	listFirstRowIndex = 5
+)
+
+// fgSequence is the SGR parameters that draw text in c.
+func fgSequence(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
+func TestFocusedBoxBorderIsLit(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height = 120, 20
+	lit := fgSequence(skyColor)
+	borders := func(m teaModel) (filter, list string) {
+		lines := strings.Split(m.View().Content, "\n")
+		return lines[filterLineIndex-1], lines[listFirstRowIndex-1]
+	}
+
+	filter, list := borders(m)
+	assert.Contains(t, filter, lit, "the filter has the focus")
+	assert.NotContains(t, list, lit)
+
+	m.listFocused = true
+	filter, list = borders(m)
+	assert.NotContains(t, filter, lit)
+	assert.Contains(t, list, lit, "the list has the focus")
+}
+
+func TestClosingWorkspaceTurnsItsBoxRed(t *testing.T) {
+	for _, hidden := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hide preview %t", hidden), func(t *testing.T) {
+			m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{DisplayOptions: DisplayOptions{HidePreview: hidden}})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height = 120, 20
+			red := fgSequence(redColor)
+			require.NotContains(t, m.View().Content, red)
+
+			m.closingWorkspaceID = "w1"
+			assert.Contains(t, strings.Split(m.View().Content, "\n")[listFirstRowIndex-1], red)
+		})
+	}
+}
+
+func TestPreviewFadesInTextForAnotherWorkspaceOnly(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, false
+	settle := func() { m.previewIn.Advance(time.Now().Add(time.Hour)) }
+	deliver := func(text string) {
+		updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: text})
+		m = updated.(teaModel)
+	}
+
+	deliver("first text")
+	require.True(t, m.previewIn.Animating(), "new text fades in")
+	assert.Contains(t, renderedPreview(m, 60, 6), "first text", "the fade keeps the glyphs")
+
+	settle()
+	deliver("refreshed text")
+	assert.False(t, m.previewIn.Animating(), "a refresh of the same workspace does not fade again")
+
+	m.panePreview = !m.panePreview
+	deliver("another mode")
+	assert.True(t, m.previewIn.Animating(), "another preview mode fades in")
+
+	settle()
+	m.reduceMotion = true
+	m.panePreview = !m.panePreview
+	deliver("still")
+	assert.False(t, m.previewIn.Animating(), "reduced motion shows text at once")
+}
+
+func TestWorkspaceCountRollsWhenTheFilterChangesIt(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, false
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	m = updated.(teaModel)
+	require.True(t, m.countRoll.Animating())
+	assert.Equal(t, "2 workspaces", m.countFrom)
+
+	m.countRoll.Advance(time.Now().Add(time.Hour))
+	require.Contains(t, strings.Split(ansi.Strip(m.View().Content), "\n")[filterLineIndex-1], "1/2 workspaces")
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	assert.False(t, m.countRoll.Animating(), "the count did not change")
+}
+
+// TestEffectsChangeTheFrameMidway draws each effect partway through and
+// checks it changes what is on screen, not only the model's state.
+func TestEffectsChangeTheFrameMidway(t *testing.T) {
+	press := func(key tea.KeyPressMsg) func(*teaModel) {
+		return func(m *teaModel) {
+			updated, _ := m.Update(key)
+			*m = updated.(teaModel)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		before func(*teaModel)
+		start  func(*teaModel)
+		value  func(*teaModel) *anim.Value
+		midway time.Duration
+		// glyphs reports whether the effect moves or changes glyphs, not
+		// only their colors.
+		glyphs bool
+	}{
+		{name: "preview fade", start: func(m *teaModel) {
+			updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: "plain preview text"})
+			*m = updated.(teaModel)
+		}, value: func(m *teaModel) *anim.Value { return &m.previewIn }, midway: previewInDuration / 2},
+		// The first key adds the "13/" in front, which has no digits to roll
+		// from; the next one turns 13 over to 10, which shows by halfway.
+		{name: "count roll", before: press(tea.KeyPressMsg{Code: 'w', Text: "w"}), start: press(tea.KeyPressMsg{Code: '0', Text: "0"}),
+			value: func(m *teaModel) *anim.Value { return &m.countRoll }, midway: countRollDuration / 4, glyphs: true},
+		// A quarter of the way in, the wobble is at its widest.
+		{name: "shake", start: press(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}),
+			value: func(m *teaModel) *anim.Value { return &m.shake }, midway: refusedShakeDuration / 4, glyphs: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			items := make([]model.Session, 14)
+			items[0] = model.Session{Name: "api"}
+			for i := range 13 {
+				items[i+1] = model.Session{Name: fmt.Sprintf("w%02d", i)}
+			}
+			m := newTeaModel(items, Options{})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height, m.reduceMotion = 120, 20, false
+			if tc.before != nil {
+				tc.before(&m)
+			}
+			m.countRoll.Advance(time.Now().Add(time.Hour))
+			start := time.Now()
+			tc.start(&m)
+			v := tc.value(&m)
+			require.True(t, v.Animating())
+
+			v.Advance(start.Add(tc.midway))
+			midway := m.View().Content
+			v.Advance(start.Add(time.Hour))
+			settled := m.View().Content
+
+			if tc.glyphs {
+				settled, midway = ansi.Strip(settled), ansi.Strip(midway)
+			}
+			assert.NotEqual(t, settled, midway)
+		})
+	}
+}
+
+func TestPreviewShownMatchesTheLayout(t *testing.T) {
+	for _, prompt := range []string{"", "Choose a workspace\nSesh> "} {
+		for _, width := range []int{80, 120} {
+			for height := 6; height <= 24; height++ {
+				m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{DisplayOptions: DisplayOptions{Prompt: prompt}})
+				m.width, m.height = width, height
+				_, shown := bloom.Solve(width, height, m.pickerTree()).Rect(previewBoxID)
+				assert.Equal(t, shown, m.previewShown(), "%dx%d, prompt %q", width, height, prompt)
+				m.cancelActivePreview()
+			}
+		}
+	}
+}
+
+func TestCollapsedPreviewMovesCloseStatusToTheFooter(t *testing.T) {
+	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", WorkspaceID: "w1"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height = 80, 11
+	require.False(t, m.previewShown(), "the stacked preview collapses at this height")
+	m.closingWorkspaceID = "w1"
+
+	view := m.View().Content
+	assert.Contains(t, ansi.Strip(view), "Closing workspace...")
+	assert.Contains(t, strings.Split(view, "\n")[listFirstRowIndex-1], fgSequence(redColor), "the list's border turns red")
+
+	m.quitAfterWorkspaceClose = true
+	assert.Contains(t, ansi.Strip(m.View().Content), "Cancelling workspace close...")
+}
+
+func shortPaneItems() []model.Session {
+	return []model.Session{
+		{Source: "herdr", Name: "workspace-00", WorkspaceID: "w0"},
+		{Source: "herdr", Name: "workspace-01", WorkspaceID: "w1"},
+	}
+}
+
+func TestShortPaneKeepsWorkspaceRowAndCloseStatus(t *testing.T) {
+	for _, tc := range []struct {
+		width, height int
+		hide          bool
+	}{
+		{120, 7, false}, {120, 8, false}, {80, 7, false}, {80, 8, false}, {100, 7, true}, {100, 8, true},
+	} {
+		t.Run(fmt.Sprintf("%dx%d hide=%t", tc.width, tc.height, tc.hide), func(t *testing.T) {
+			m := newTeaModel(shortPaneItems(), Options{DisplayOptions: DisplayOptions{HidePreview: tc.hide}, Backend: &fakeBackend{}})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height, m.reduceMotion = tc.width, tc.height, true
+
+			assert.Contains(t, ansi.Strip(m.View().Content), "[herdr]   workspace-00")
+
+			updated, closing := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+			m = updated.(teaModel)
+			require.NotNil(t, closing)
+			require.Equal(t, "w0", m.closingWorkspaceID)
+			assert.Contains(t, ansi.Strip(m.View().Content), "Closing workspace...")
+		})
+	}
+}
+
+func TestOneRowListKeepsItsRightBorder(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		width int
+		hide  bool
+	}{
+		{"stacked", 80, false}, {"split", 120, false}, {"list only", 100, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTeaModel(shortPaneItems(), Options{DisplayOptions: DisplayOptions{HidePreview: tc.hide}})
+			t.Cleanup(func() { m.cancelActivePreview() })
+			m.width, m.height = tc.width, 9
+			lines := strippedLines(m.View().Content)
+			right := ansi.StringWidth(strings.SplitN(lines[listFirstRowIndex-1], "╮", 2)[0])
+
+			assert.Contains(t, lines[listFirstRowIndex], "workspace-00")
+			assert.Equal(t, "│", ansi.Cut(lines[listFirstRowIndex], right, right+1))
+		})
+	}
+}
+
+func TestDividerIgnoresMotionAfterLostRelease(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	listWidth, _ := m.previewLayout()
+	grip := horizontalPadding + listWidth + 2
+	send := func(msg tea.MouseMsg) {
+		m.View().OnMouse(msg)
+		updated, _ := m.Update(msg)
+		m = updated.(teaModel)
+	}
+
+	send(tea.MouseClickMsg{X: grip, Y: 8, Button: tea.MouseLeft})
+	send(tea.MouseMotionMsg{X: grip - 10, Y: 8, Button: tea.MouseLeft})
+	_, held := m.previewLayout()
+	send(tea.MouseMotionMsg{X: grip - 25, Y: 8})
+	_, afterLost := m.previewLayout()
+	send(tea.MouseMotionMsg{X: grip - 5, Y: 8})
+	_, later := m.previewLayout()
+
+	assert.Equal(t, held, afterLost)
+	assert.Equal(t, held, later)
+	assert.False(t, m.pointer.dividerActive)
+}
+
+func TestDividerDragWhileSettingsLoadIsDropped(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{Backend: &fakeBackend{}})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	listWidth, before := m.previewLayout()
+	grip := horizontalPadding + listWidth + 2
+	send := func(msg tea.MouseMsg) {
+		m.View().OnMouse(msg)
+		updated, _ := m.Update(msg)
+		m = updated.(teaModel)
+	}
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyF2})
+	m = updated.(teaModel)
+	require.True(t, m.settingsBusy)
+
+	send(tea.MouseClickMsg{X: grip, Y: 8, Button: tea.MouseLeft})
+	send(tea.MouseMotionMsg{X: grip - 15, Y: 8, Button: tea.MouseLeft})
+	send(tea.MouseReleaseMsg{X: grip - 15, Y: 8, Button: tea.MouseLeft})
+	updated, _ = m.Update(settingsOpenedMsg{err: fmt.Errorf("boom")})
+	m = updated.(teaModel)
+	require.False(t, m.settingsBusy)
+	send(tea.MouseClickMsg{X: 20, Y: filterLineIndex, Button: tea.MouseLeft})
+	send(tea.MouseReleaseMsg{X: 20, Y: filterLineIndex, Button: tea.MouseLeft})
+
+	_, after := m.previewLayout()
+	assert.Equal(t, before, after)
+}
+
+func TestLoadingPlaceholderShowsWhileWorkspaceCloses(t *testing.T) {
+	items := []model.Session{
+		{Source: "herdr", Name: "api", WorkspaceID: "w1"},
+		{Source: "herdr", Name: "web", WorkspaceID: "w2"},
+	}
+	m := newTeaModel(items, Options{Backend: &fakeBackend{}})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: "API PREVIEW TEXT"})
+	m = updated.(teaModel)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	m = updated.(teaModel)
+	require.Equal(t, "w1", m.closingWorkspaceID)
+	for range 2 { // focus the list, then select web
+		updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = updated.(teaModel)
+	}
+	require.Equal(t, 1, m.list.Selected)
+	updated, _ = m.Update(previewLoadingMsg{requestID: m.previewRequestID})
+	m = updated.(teaModel)
+	require.True(t, m.previewLoading)
+
+	view := ansi.Strip(m.View().Content)
+	assert.NotContains(t, view, "API PREVIEW TEXT")
+	assert.Contains(t, view, "█")
+}
+
+func TestWheelOverPreviewBorderScrollsPreview(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{120, 18}, {80, 23}} {
+		for _, region := range []string{"title", "scrollbar", "left border"} {
+			t.Run(fmt.Sprintf("%dx%d %s", size.width, size.height, region), func(t *testing.T) {
+				m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+				t.Cleanup(func() { m.cancelActivePreview() })
+				m.width, m.height, m.reduceMotion = size.width, size.height, true
+				lines := make([]string, 40)
+				for i := range lines {
+					lines[i] = fmt.Sprintf("preview line %02d", i)
+				}
+				updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: strings.Join(lines, "\n")})
+				m = updated.(teaModel)
+				view := m.View()
+				box, ok := m.ui.Frame().Rect(previewBoxID)
+				require.True(t, ok)
+				require.Contains(t, ansi.Strip(view.Content), lines[0])
+				x, y := box.Min.X+4, box.Min.Y
+				switch region {
+				case "scrollbar":
+					x, y = box.Max.X-1, box.Min.Y+1
+				case "left border":
+					x, y = box.Min.X, box.Min.Y+1
+				}
+
+				wheel := tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown}
+				view.OnMouse(wheel)
+				updated, _ = m.Update(wheel)
+				m = updated.(teaModel)
+
+				assert.NotContains(t, ansi.Strip(m.View().Content), lines[0])
+				assert.Equal(t, 0, m.list.Selected)
+			})
+		}
+	}
+}
+
+func TestReduceMotionStillsAgentSpinner(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
+	m := newTeaModel([]model.Session{{Name: "api", Source: "herdr", WorkspaceID: "w1", AgentStatus: "working"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height = 120, 12
+	before := strippedLines(m.View().Content)[listFirstRowIndex]
+
+	updated, next := m.Update(m.agentSpinner.Tick())
+	m = updated.(teaModel)
+
+	assert.Equal(t, before, strippedLines(m.View().Content)[listFirstRowIndex])
+	assert.Nil(t, next)
 }

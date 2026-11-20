@@ -1,0 +1,19 @@
+
+  ╭─ herdr / sesh ─────────────────────────────────────────────────────────────────────────────────── 30 workspaces ─╮
+  │ Sesh> Filter workspaces                                                                                          │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ WORKSPACES ──────────────────────────────────────── 30/30 ─╮ ╭─ PREVIEW [ctrl+o] · workspace-29 ────────────────╮
+  │     [herdr]   workspace-18                                  │ │ line one                                         │
+  │     [herdr]   workspace-19                                  │ │ line two                                         │
+  │     [herdr]   workspace-20                                  │ │                                                  │
+  │     [herdr]   workspace-21                                  │ │                                                  │
+  │     [herdr]   workspace-22                                  │ │                                                  │
+  │     [herdr]   workspace-23                                  │ │                                                  │
+  │     [herdr]   workspace-24                                  │⋮│                                                  │
+  │     [herdr]   workspace-25                                  ┃ │                                                  │
+  │     [herdr]   workspace-26                                  ┃ │                                                  │
+  │     [herdr]   workspace-27                                  ┃ │                                                  │
+  │     [herdr]   workspace-28                                  ┃ │                                                  │
+  │ ┃   [herdr]   workspace-29                                  ┃ │                                                  │
+  ╰─────────────────────────────────────────────────────────────╯ ╰──────────────────────────────────────────────────╯
+  enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit                  LAST WORKSPACE · None recorded

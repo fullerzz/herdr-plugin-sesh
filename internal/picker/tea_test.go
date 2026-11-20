@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"bloomfx.dev/bloom"
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/spinner"
 	"github.com/stretchr/testify/assert"
@@ -58,20 +59,20 @@ func TestTeaModelDragsPreviewDivider(t *testing.T) {
 	m.list.Selected = 1
 	m.preview = strings.Repeat("preview ", 30)
 	previewID := m.previewRequestID
-	require.Equal(t, tea.MouseModeCellMotion, m.View().MouseMode)
+	require.Equal(t, tea.MouseModeAllMotion, m.View().MouseMode)
 	for _, step := range []struct {
 		name string
 		msg  tea.Msg
 		x    int
 	}{
-		{"press", tea.MouseClickMsg{X: 64, Y: 5, Button: tea.MouseLeft}, 64},
+		{"press", tea.MouseClickMsg{X: 65, Y: 5, Button: tea.MouseLeft}, 65},
 		{"widen", tea.MouseMotionMsg{X: 54, Y: 6, Button: tea.MouseLeft}, 54},
-		{"minimum list", tea.MouseMotionMsg{X: 0, Y: 0, Button: tea.MouseLeft}, 39},
-		{"minimum preview", tea.MouseMotionMsg{X: 200, Y: 40, Button: tea.MouseLeft}, 80},
+		{"minimum list", tea.MouseMotionMsg{X: 0, Y: 0, Button: tea.MouseLeft}, 40},
+		{"minimum preview", tea.MouseMotionMsg{X: 200, Y: 40, Button: tea.MouseLeft}, 81},
 		{"drag back", tea.MouseMotionMsg{X: 54, Y: 6, Button: tea.MouseLeft}, 54},
 		{"release outside", tea.MouseReleaseMsg{X: 54, Y: 40, Button: tea.MouseLeft}, 54},
 		{"motion after release", tea.MouseMotionMsg{X: 70, Y: 6, Button: tea.MouseLeft}, 54},
-		{"terminal shrinks", tea.WindowSizeMsg{Width: 92, Height: 28}, 39},
+		{"terminal shrinks", tea.WindowSizeMsg{Width: 92, Height: 28}, 40},
 		{"terminal expands", tea.WindowSizeMsg{Width: 120, Height: 28}, 54},
 	} {
 		t.Run(step.name, func(t *testing.T) {
@@ -82,8 +83,16 @@ func TestTeaModelDragsPreviewDivider(t *testing.T) {
 			require.Equal(t, 1, m.list.Selected)
 			require.Empty(t, m.input.Value())
 			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-			for y := 5; y < 5+previewTitleRows+m.previewBodyLines(); y++ {
-				require.Equal(t, "│", ansi.Cut(lines[y], step.x, step.x+1))
+			// The divider follows the list box's right border, from its top
+			// corner down to its bottom one, above the footer.
+			top, bottom := filterLineIndex+2, len(lines)-3
+			for y := top; y <= bottom; y++ {
+				border := map[int]string{top: "╮", bottom: "╯"}[y]
+				if border == "" {
+					border = "│"
+				}
+				require.Equal(t, border, ansi.Cut(lines[y], step.x-1, step.x), "row %d", y)
+				require.Contains(t, []string{" ", "⋮"}, ansi.Cut(lines[y], step.x, step.x+1), "row %d", y)
 				width := lipgloss.Width(lines[y])
 				require.Equal(t, m.width, width)
 			}
@@ -99,21 +108,21 @@ func TestTeaModelIgnoresMouseOutsidePreviewDivider(t *testing.T) {
 		click  tea.MouseClickMsg
 		after  tea.Msg
 	}{
-		{name: "list", width: 120, click: tea.MouseClickMsg{X: 63, Y: 6, Button: tea.MouseLeft}},
-		{name: "preview", width: 120, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseLeft}},
-		{name: "header", width: 120, click: tea.MouseClickMsg{X: 64, Y: 4, Button: tea.MouseLeft}},
-		{name: "footer", width: 120, click: tea.MouseClickMsg{X: 64, Y: 25, Button: tea.MouseLeft}},
-		{name: "right button", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseRight}},
-		{name: "hidden", width: 120, hidden: true, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}},
-		{name: "stacked", width: 80, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}},
-		{name: "resize cancels drag", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}, after: tea.WindowSizeMsg{Width: 120, Height: 28}},
-		{name: "buttonless motion cancels drag", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}, after: tea.MouseMotionMsg{X: 64, Y: 6}},
+		{name: "list border", width: 120, click: tea.MouseClickMsg{X: 64, Y: 6, Button: tea.MouseLeft}},
+		{name: "preview border", width: 120, click: tea.MouseClickMsg{X: 66, Y: 6, Button: tea.MouseLeft}},
+		{name: "filter", width: 120, click: tea.MouseClickMsg{X: 65, Y: 3, Button: tea.MouseLeft}},
+		{name: "footer", width: 120, click: tea.MouseClickMsg{X: 65, Y: 26, Button: tea.MouseLeft}},
+		{name: "right button", width: 120, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseRight}},
+		{name: "hidden", width: 120, hidden: true, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseLeft}},
+		{name: "stacked", width: 80, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseLeft}},
+		{name: "resize cancels drag", width: 120, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseLeft}, after: tea.WindowSizeMsg{Width: 120, Height: 28}},
+		{name: "buttonless motion cancels drag", width: 120, click: tea.MouseClickMsg{X: 65, Y: 6, Button: tea.MouseLeft}, after: tea.MouseMotionMsg{X: 65, Y: 6}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTeaModel(nil, Options{DisplayOptions: DisplayOptions{HidePreview: tc.hidden}})
 			m.width, m.height = tc.width, 28
 			before := m.View()
-			require.Equal(t, tea.MouseModeCellMotion, before.MouseMode)
+			require.NotEqual(t, tea.MouseModeNone, before.MouseMode)
 			updated, _ := m.Update(tc.click)
 			m = updated.(teaModel)
 			if tc.after != nil {
@@ -141,16 +150,16 @@ func TestTeaModelClickChoosesVisibleWorkspace(t *testing.T) {
 		query         string
 		x, y, want    int
 	}{
-		{name: "first row", width: 120, height: 28, x: 2, y: 6, want: 0},
-		{name: "split", width: 120, height: 28, x: 62, y: 8, want: 2},
-		{name: "stacked", width: 80, height: 28, x: 77, y: 8, want: 2},
-		{name: "hidden preview", width: 120, height: 28, hidden: true, x: 117, y: 8, want: 2},
-		{name: "resized preview", width: 120, height: 28, previewWidth: 70, x: 44, y: 7, want: 1},
-		{name: "filtered", width: 120, height: 28, query: "workspace-1", x: 20, y: 7, want: 11},
-		{name: "scrolled", width: 120, height: 16, selected: 10, x: 20, y: 8, want: 7},
+		{name: "first row", width: 120, height: 28, x: 4, y: 5, want: 0},
+		{name: "split", width: 120, height: 28, x: 63, y: 7, want: 2},
+		{name: "stacked", width: 80, height: 28, x: 76, y: 7, want: 2},
+		{name: "hidden preview", width: 120, height: 28, hidden: true, x: 116, y: 7, want: 2},
+		{name: "resized preview", width: 120, height: 28, previewWidth: 70, x: 45, y: 6, want: 1},
+		{name: "filtered", width: 120, height: 28, query: "workspace-1", x: 20, y: 6, want: 11},
+		{name: "scrolled", width: 120, height: 16, selected: 10, x: 20, y: 8, want: 6},
 		{name: "last window", width: 120, height: 16, selected: 23, x: 20, y: 12, want: 23},
-		{name: "one visible row", width: 120, height: 10, hidden: true, selected: 10, x: 20, y: 6, want: 10},
-		{name: "two visible rows", width: 120, height: 11, hidden: true, selected: 23, x: 20, y: 7, want: 23},
+		{name: "one visible row", width: 120, height: 9, hidden: true, selected: 10, x: 20, y: 5, want: 10},
+		{name: "two visible rows", width: 120, height: 10, hidden: true, selected: 23, x: 20, y: 6, want: 23},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: tc.hidden}})
@@ -159,7 +168,7 @@ func TestTeaModelClickChoosesVisibleWorkspace(t *testing.T) {
 			m.list.Filter(tc.query)
 			m.list.Selected = tc.selected
 			previewContext := m.previewContext
-			require.Equal(t, tea.MouseModeCellMotion, m.View().MouseMode)
+			require.NotEqual(t, tea.MouseModeNone, m.View().MouseMode)
 			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 			require.Contains(t, lines[tc.y], items[tc.want].Name)
 
@@ -190,21 +199,21 @@ func TestTeaModelIgnoresClicksOutsideWorkspaceRows(t *testing.T) {
 		empty         bool
 		hidden        bool
 	}{
-		{name: "left padding", width: 120, height: 28, x: 1, y: 6},
-		{name: "list gap", width: 120, height: 28, x: 63, y: 6},
-		{name: "divider", width: 120, height: 28, x: 64, y: 6},
-		{name: "preview", width: 120, height: 28, x: 66, y: 6},
-		{name: "header", width: 120, height: 28, x: 20, y: 5},
-		{name: "filter", width: 120, height: 28, x: 20, y: 3},
+		{name: "left padding", width: 120, height: 28, x: 1, y: 5},
+		{name: "list border", width: 120, height: 28, x: 2, y: 5},
+		{name: "list padding", width: 120, height: 28, x: 3, y: 5},
+		{name: "list right border", width: 120, height: 28, x: 64, y: 5},
+		{name: "divider", width: 120, height: 28, x: 65, y: 5},
+		{name: "preview", width: 120, height: 28, x: 68, y: 5},
+		{name: "list title", width: 120, height: 28, x: 20, y: 4},
+		{name: "filter", width: 120, height: 28, x: 20, y: 2},
 		{name: "footer", width: 120, height: 28, x: 20, y: 26},
 		{name: "empty space", width: 120, height: 28, x: 20, y: 9},
-		{name: "empty results", width: 120, height: 28, x: 20, y: 6, empty: true},
-		{name: "stacked preview", width: 80, height: 28, x: 20, y: 18},
-		{name: "right button", width: 120, height: 28, x: 20, y: 6, button: tea.MouseRight},
-		{name: "middle button", width: 120, height: 28, x: 20, y: 6, button: tea.MouseMiddle},
-		{name: "more above", width: 120, height: 11, x: 20, y: 6, selected: 2, hidden: true},
-		{name: "more below", width: 120, height: 11, x: 20, y: 7, hidden: true},
-		{name: "close in progress", width: 120, height: 28, x: 20, y: 7, closing: true},
+		{name: "empty results", width: 120, height: 28, x: 20, y: 5, empty: true},
+		{name: "stacked preview", width: 80, height: 28, x: 20, y: 20},
+		{name: "right button", width: 120, height: 28, x: 20, y: 5, button: tea.MouseRight},
+		{name: "middle button", width: 120, height: 28, x: 20, y: 5, button: tea.MouseMiddle},
+		{name: "close in progress", width: 120, height: 28, x: 20, y: 6, closing: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTeaModel([]model.Session{
@@ -246,8 +255,8 @@ func TestTeaModelChoosesWorkspaceFromMouseInput(t *testing.T) {
 	}
 	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
 	m.width, m.height = 120, 28
-	// SGR mouse coordinates are one-based: column 20, row 8 is the second workspace.
-	m, _ = runMouseInput(t, m, "\x1b[<0;20;8M")
+	// SGR mouse coordinates are one-based: column 20, row 7 is the second workspace.
+	m, _ = runMouseInput(t, m, "\x1b[<0;20;7M")
 	require.True(t, m.chosen)
 	assert.Equal(t, items[1], m.choice)
 }
@@ -315,6 +324,7 @@ func TestTeaModelCtrlKDeletesAfterFilterCursor(t *testing.T) {
 }
 
 func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	var closed string
 	m := newTeaModel([]model.Session{
 		{Source: "herdr", Name: "api-close", WorkspaceID: "w1"},
@@ -332,8 +342,9 @@ func TestTeaModelCtrlXClosesSelectedHerdrWorkspace(t *testing.T) {
 	require.NotNil(t, cmd)
 	updated, enterCmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(teaModel)
-	require.Nil(t, enterCmd)
+	require.False(t, quits(enterCmd))
 	require.False(t, m.chosen)
+	require.True(t, m.shake.Animating(), "enter is refused while the close runs")
 	m.list.Move(1)
 	m, _ = m.refreshPreview()
 	updated, _ = m.Update(cmd())
@@ -398,7 +409,7 @@ func TestTeaModelDoesNotQuitWhileWorkspaceCloseIsPending(t *testing.T) {
 			updated, cmd := m.Update(tt.key)
 			m = updated.(teaModel)
 
-			require.Nil(t, cmd)
+			require.False(t, quits(cmd))
 			require.False(t, m.chosen)
 			assert.Equal(t, "w1", m.closingWorkspaceID)
 		})
@@ -594,6 +605,7 @@ func TestTeaModelCtrlXRefreshesPreviewWhenCloseFails(t *testing.T) {
 }
 
 func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	called := false
 	m := newTeaModel([]model.Session{{Source: "config", Name: "api"}}, Options{Backend: &fakeBackend{closeWorkspace: func(context.Context, string) error {
 		called = true
@@ -601,9 +613,10 @@ func TestTeaModelCtrlXIgnoresNonHerdrSession(t *testing.T) {
 	}}})
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	_ = updated.(teaModel)
-	require.Nil(t, cmd)
+	m = updated.(teaModel)
+	require.False(t, quits(cmd))
 	assert.False(t, called)
+	assert.True(t, m.shake.Animating(), "the list shakes: there is nothing to close")
 }
 
 func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
@@ -611,22 +624,22 @@ func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "work"})
 	m = updated.(teaModel)
-	require.NotContains(t, ansi.Strip(listText(m.listView(40, 2))), "┃")
+	require.NotContains(t, ansi.Strip(renderedList(m, 40, 2)), "┃")
 
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
 	require.False(t, m.input.Focused(), "filter remained focused after moving into the list")
 	require.Equal(t, 0, m.list.Selected)
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-	startColumn := visualColumn(lines[3], "┃")
-	wantStartColumn := horizontalPadding + lipgloss.Width(defaultPrompt+"work")
+	startColumn := visualColumn(lines[filterLineIndex], "┃")
+	wantStartColumn := horizontalPadding + smearInset + lipgloss.Width(defaultPrompt+"work")
 	require.Equal(t, wantStartColumn, startColumn)
 
 	updated, _ = m.Update(smearTickMsg{})
 	m = updated.(teaModel)
 	lines = strings.Split(ansi.Strip(m.View().Content), "\n")
-	nextColumn := visualColumn(lines[4], "┃")
-	require.GreaterOrEqual(t, nextColumn, horizontalPadding)
+	nextColumn := visualColumn(lines[filterLineIndex+1], "┃")
+	require.GreaterOrEqual(t, nextColumn, horizontalPadding+smearInset)
 	require.Less(t, nextColumn, startColumn)
 
 	for range 10 {
@@ -635,7 +648,7 @@ func TestTeaModelDownTransfersCursorFromFilterToList(t *testing.T) {
 	}
 	view := ansi.Strip(m.View().Content)
 	require.Equal(t, 1, strings.Count(view, "┃"))
-	assert.Contains(t, ansi.Strip(listText(m.listView(40, 2))), "┃")
+	assert.Contains(t, ansi.Strip(renderedList(m, 40, 2)), "┃")
 }
 
 func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
@@ -655,7 +668,7 @@ func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
 	require.False(t, m.input.Focused(), "filter refocused before the reverse smear completed")
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 	startColumn := visualColumn(lines[listFirstRowIndex], "┃")
-	require.Equal(t, horizontalPadding, startColumn)
+	require.Equal(t, horizontalPadding+smearInset, startColumn)
 
 	updated, _ = m.Update(smearTickMsg{})
 	m = updated.(teaModel)
@@ -668,7 +681,7 @@ func TestTeaModelUpTransfersCursorFromListToFilter(t *testing.T) {
 		m = updated.(teaModel)
 	}
 	require.True(t, m.input.Focused())
-	assert.NotContains(t, ansi.Strip(listText(m.listView(40, 2))), "┃")
+	assert.NotContains(t, ansi.Strip(renderedList(m, 40, 2)), "┃")
 }
 
 func TestTeaModelRightTransfersCursorFromListToFilter(t *testing.T) {
@@ -797,6 +810,7 @@ func TestTeaModelGooeyReverseTransferEasesOut(t *testing.T) {
 }
 
 func TestTeaModelSmearPresets(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	tests := []struct {
 		name          string
 		head          string
@@ -831,12 +845,12 @@ func TestTeaModelSmearPresets(t *testing.T) {
 				updated, _ = m.Update(smearTickMsg{})
 				m = updated.(teaModel)
 			}
-			require.Contains(t, ansi.Strip(listText(m.listView(40, 6))), tt.head)
+			require.Contains(t, ansi.Strip(renderedList(m, 40, 6)), tt.head)
 			for range len(items) - 1 {
 				updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 				m = updated.(teaModel)
 			}
-			rowView := ansi.Strip(listText(m.listView(40, 6)))
+			rowView := ansi.Strip(renderedList(m, 40, 6))
 			trailCells := 0
 			for _, glyph := range rowView {
 				if strings.ContainsRune(tt.rowTrail, glyph) {
@@ -858,7 +872,7 @@ func TestTeaModelSmearsRapidSelectionMoves(t *testing.T) {
 		m = updated.(teaModel)
 	}
 
-	lines := strings.Split(strings.TrimSuffix(ansi.Strip(listText(m.listView(40, 3))), "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(ansi.Strip(renderedList(m, 40, 3)), "\n"), "\n")
 	for i, want := range []string{"╷ ", "│ ", "┃ "} {
 		require.True(t, strings.HasPrefix(lines[i], want))
 	}
@@ -875,7 +889,7 @@ func TestTeaModelSmearRetracts(t *testing.T) {
 	m.input.Blur()
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(teaModel)
-	require.True(t, strings.HasPrefix(ansi.Strip(listText(m.listView(40, 2))), "╷ "))
+	require.True(t, strings.HasPrefix(ansi.Strip(renderedList(m, 40, 2)), "╷ "))
 
 	msg := cmd()
 	batch, ok := msg.(tea.BatchMsg)
@@ -891,7 +905,7 @@ func TestTeaModelSmearRetracts(t *testing.T) {
 		tickHandled = true
 	}
 	require.True(t, tickHandled, "move batch did not contain an animation tick")
-	assert.False(t, strings.HasPrefix(ansi.Strip(listText(m.listView(40, 2))), "╷ "))
+	assert.False(t, strings.HasPrefix(ansi.Strip(renderedList(m, 40, 2)), "╷ "))
 }
 
 func TestTeaModelCapsSmearSettleTime(t *testing.T) {
@@ -931,7 +945,7 @@ func TestTeaModelQueryChangeClearsSmear(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'w', Text: "workspace"})
 	m = updated.(teaModel)
 
-	view := ansi.Strip(listText(m.listView(40, 4)))
+	view := ansi.Strip(renderedList(m, 40, 4))
 	require.NotContains(t, view, "╵ ")
 	assert.NotContains(t, view, "│ ")
 }
@@ -947,7 +961,7 @@ func TestTeaModelReducedMotionSkipsSmear(t *testing.T) {
 	current, ok := m.list.Current()
 	require.True(t, ok)
 	require.Equal(t, "web", current.Name)
-	view := ansi.Strip(listText(m.listView(40, 2)))
+	view := ansi.Strip(renderedList(m, 40, 2))
 	require.NotContains(t, view, "╷ ")
 	assert.NotContains(t, view, "│ ")
 }
@@ -1054,7 +1068,7 @@ func TestListViewKeepsWorktreeBranchWhenParentIsOffScreen(t *testing.T) {
 	}, Options{})
 	m.list.Selected = 1
 
-	view := ansi.Strip(listText(m.listView(80, 1)))
+	view := ansi.Strip(renderedList(m, 80, 1))
 	assert.Contains(t, view, "└─ child")
 }
 
@@ -1225,7 +1239,7 @@ func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
 		{Source: "herdr", Name: "feature", WorkspaceID: "w-child", Worktree: model.WorktreeRelation{Linked: true, ParentWorkspaceID: "w-parent"}},
 	}
 	m := newTeaModel(items, Options{DisplayOptions: DisplayOptions{ShowIcons: true, DisableWorktreeIconReplacement: true}})
-	withIcons := listText(m.listView(80, 2))
+	withIcons := renderedList(m, 80, 2)
 	plain := ansi.Strip(withIcons)
 	require.Contains(t, plain, herdrSourceIcon+" herdr")
 	require.Contains(t, plain, "└─ feature")
@@ -1233,7 +1247,7 @@ func TestChildWorktreeIconReplacementCanBeDisabled(t *testing.T) {
 	require.Contains(t, withIcons, "38;2;187;154;247")
 
 	m = newTeaModel(items, Options{DisplayOptions: DisplayOptions{DisableWorktreeIconReplacement: true}})
-	withoutIcons := ansi.Strip(listText(m.listView(80, 2)))
+	withoutIcons := ansi.Strip(renderedList(m, 80, 2))
 	require.Contains(t, withoutIcons, "[herdr]")
 	assert.NotContains(t, withoutIcons, "↳")
 }
@@ -1261,12 +1275,13 @@ func TestRowUsesAgentStatusIndicators(t *testing.T) {
 }
 
 func TestTeaModelAnimatesWorkingAgentStatusIndicator(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	m := newTeaModel([]model.Session{{Source: "herdr", Name: "api", AgentStatus: "working"}}, Options{})
-	before := ansi.Strip(listText(m.listView(80, 1)))
+	before := ansi.Strip(renderedList(m, 80, 1))
 
 	updated, cmd := m.Update(spinner.TickMsg{})
 	m = updated.(teaModel)
-	after := ansi.Strip(listText(m.listView(80, 1)))
+	after := ansi.Strip(renderedList(m, 80, 1))
 
 	require.Contains(t, before, "⢄")
 	require.Contains(t, after, "⢂")
@@ -1274,6 +1289,7 @@ func TestTeaModelAnimatesWorkingAgentStatusIndicator(t *testing.T) {
 }
 
 func TestTeaModelStartsAgentStatusSpinner(t *testing.T) {
+	t.Setenv("HERDR_SESH_REDUCE_MOTION", "")
 	m := newTeaModel(nil, Options{Backend: &fakeBackend{refreshAgentStatuses: func() (map[string]string, error) { return nil, nil }}})
 	batch, ok := m.Init()().(tea.BatchMsg)
 	require.True(t, ok)
@@ -1420,7 +1436,7 @@ func TestPreviewLoadingDelayResetsAndStops(t *testing.T) {
 		m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
 		defer func() { m.cancelActivePreview() }()
 		assert.False(t, m.previewLoading)
-		assert.NotContains(t, m.previewView(80, 5), "No preview available")
+		assert.NotContains(t, renderedPreview(m, 80, 6), "No preview available")
 		m.preview = "last completed preview"
 		result := make(chan tea.Msg, 1)
 		ctx, id := m.previewContext, m.previewRequestID
@@ -1444,7 +1460,7 @@ func TestPreviewLoadingDelayResetsAndStops(t *testing.T) {
 		time.Sleep(499 * time.Millisecond)
 		updated, _ := m.Update(previewLoadingMsg{requestID: id})
 		m = updated.(teaModel)
-		assert.Contains(t, m.previewView(80, 5), "last completed preview")
+		assert.Contains(t, renderedPreview(m, 80, 6), "last completed preview")
 		select {
 		case <-result:
 			t.Fatal("replacement timer did not reset the delay")
@@ -1457,7 +1473,7 @@ func TestPreviewLoadingDelayResetsAndStops(t *testing.T) {
 		assert.True(t, m.previewLoading)
 		m.list.Move(-1)
 		m, cmd = m.refreshPreview()
-		assert.Contains(t, m.previewView(80, 5), "last completed preview")
+		assert.Contains(t, renderedPreview(m, 80, 6), "last completed preview")
 		batch = cmd().(tea.BatchMsg)
 		nextTimerCmd := batch[1]
 		go func() { result <- nextTimerCmd() }()
@@ -1469,7 +1485,7 @@ func TestPreviewLoadingDelayResetsAndStops(t *testing.T) {
 		for _, msg := range []tea.Msg{loading, previewLoadingMsg{requestID: completedID}} {
 			updated, _ = m.Update(msg)
 			m = updated.(teaModel)
-			assert.Contains(t, m.previewView(80, 5), "new preview")
+			assert.Contains(t, renderedPreview(m, 80, 6), "new preview")
 			assert.False(t, m.previewLoading)
 		}
 	})
@@ -1855,27 +1871,30 @@ func TestTeaModelAgentStatusRefreshKeepsNonAgentSortOrder(t *testing.T) {
 	}
 }
 
-func TestPreviewViewUsesConstantHeight(t *testing.T) {
+func TestPreviewScrollsInsteadOfTruncating(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "api"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
 	m.preview = "one line"
-	short := m.previewView(40, 4)
+	short := renderedPreview(m, 40, 5)
 	m.preview = strings.Repeat("wrapped preview content ", 20)
-	long := m.previewView(40, 4)
+	long := renderedPreview(m, 40, 5)
+
 	require.Equal(t, lipgloss.Height(long), lipgloss.Height(short))
-	require.Equal(t, 4+previewTitleRows, lipgloss.Height(short))
-	require.Contains(t, long, "...")
-	assert.NotContains(t, ansi.Strip(long), "+-")
+	require.Equal(t, 5, lipgloss.Height(short))
+	assert.NotContains(t, long, "...")
+	assert.NotContains(t, long, "+-")
+	assert.Contains(t, long, "┃", "a scrollbar shows the preview runs on")
+	assert.NotContains(t, short, "┃")
 }
 
 func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
-	items := make([]model.Session, 30)
+	items := make([]model.Session, 40)
 	for i := range items {
 		items[i] = model.Session{Name: "workspace"}
 	}
 	m := newTeaModel(items, Options{})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated.(teaModel)
-	require.Greater(t, m.previewBodyLines(), defaultVisibleRows)
 	view := ansi.Strip(m.View().Content)
 	require.Equal(t, 40, lipgloss.Height(view))
 	lines := strings.Split(view, "\n")
@@ -1883,6 +1902,15 @@ func TestTeaModelUsesAvailableWindowHeight(t *testing.T) {
 	require.Contains(t, lines[1], "herdr / sesh")
 	require.Equal(t, 120, maxLineWidth(view))
 	assert.Empty(t, strings.TrimSpace(lines[len(lines)-1]))
+	rows := 0
+	for _, line := range lines {
+		if fields := strings.Fields(line); len(fields) > 2 && fields[1] == "[session]" {
+			rows++
+		}
+	}
+	// Window chrome is eight rows, counting the list box's border; the list
+	// takes the rest.
+	assert.Equal(t, 40-8, rows)
 }
 
 func TestSelectedRowUsesRailAndPreservesSourceColor(t *testing.T) {
@@ -1904,7 +1932,7 @@ func TestListViewHighlightsCaseInsensitiveQueryMatches(t *testing.T) {
 	}}, Options{})
 	m.list.Filter("api")
 
-	got := listText(m.listView(80, 1))
+	got := m.listRow(0, 80)
 	want := lipgloss.NewStyle().Foreground(violetColor).Bold(true).Render("API")
 	assert.Equal(t, 2, strings.Count(got, want))
 }
@@ -1913,7 +1941,7 @@ func TestListViewPreservesUnicodeWhenHighlightingFoldedMatch(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "workspace-Ⱥ", Path: "/tmp/workspace-Ⱥ"}}, Options{})
 	m.list.Filter("ⱥ")
 
-	got := listText(m.listView(80, 1))
+	got := m.listRow(0, 80)
 	want := matchStyle.Render("Ⱥ")
 	require.True(t, utf8.ValidString(got))
 	assert.Equal(t, 2, strings.Count(got, want))
@@ -1928,7 +1956,10 @@ func TestTeaModelStacksPreviewAtNarrowWidth(t *testing.T) {
 	require.Equal(t, 28, lipgloss.Height(view))
 	require.Contains(t, view, "WORKSPACES")
 	require.Contains(t, view, "PREVIEW [ctrl+o] · api · blocked")
-	assert.NotContains(t, view, "│")
+	assert.NotContains(t, view, "⋮", "no divider between side-by-side panes")
+	for _, line := range strings.Split(view, "\n") {
+		assert.False(t, strings.Contains(line, "WORKSPACES") && strings.Contains(line, "PREVIEW"), "the preview is below the list: %q", line)
+	}
 }
 
 func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
@@ -1948,7 +1979,7 @@ func TestTeaModelHidePreviewUsesAllAvailableSpace(t *testing.T) {
 			view := ansi.Strip(m.View().Content)
 
 			require.NotContains(t, view, "PREVIEW")
-			require.NotContains(t, view, "│")
+			require.NotContains(t, view, "⋮", "no divider without a preview")
 			require.Equal(t, 28, lipgloss.Height(view))
 			require.Equal(t, width, maxLineWidth(view))
 			if width == 70 {
@@ -2002,7 +2033,7 @@ func TestTeaModelSplitsPreviewAtTerminalThreshold(t *testing.T) {
 func TestTeaModelHeaderShowsFilteredCountWhenAllRowsMatch(t *testing.T) {
 	m := newTeaModel([]model.Session{{Name: "workspace-api"}, {Name: "workspace-web"}}, Options{})
 	m.list.Filter("workspace")
-	assert.Contains(t, ansi.Strip(m.header(80)), "2/2 workspaces")
+	assert.Equal(t, "2/2 workspaces", m.countText())
 }
 
 func TestTeaModelCyclesHerdrWorkspaceSortModes(t *testing.T) {
@@ -2179,7 +2210,7 @@ func TestTeaModelFilterDoesNotInjectWorktreeParent(t *testing.T) {
 	m.list.Filter("feature")
 
 	require.Equal(t, []string{"feature"}, sessionNames(m.list.Filtered))
-	rowText := ansi.Strip(listText(m.listView(80, 1)))
+	rowText := ansi.Strip(renderedList(m, 80, 1))
 	require.Contains(t, rowText, "[↳ herdr]")
 	require.Contains(t, rowText, "feature")
 	require.Contains(t, rowText, "/tmp/feature")
@@ -2199,24 +2230,30 @@ func TestTeaModelSearchRailDoesNotTruncateAtWindowEdge(t *testing.T) {
 	}
 }
 
-func TestListViewUsesDirectionalOverflowMarkers(t *testing.T) {
+func TestListShowsScrollbarWhenRowsOverflow(t *testing.T) {
 	items := make([]model.Session, 20)
 	for i := range items {
-		items[i] = model.Session{Name: "workspace"}
+		items[i] = model.Session{Name: fmt.Sprintf("workspace-%02d", i)}
 	}
 	m := newTeaModel(items, Options{})
 	m.list.Selected = 10
-	view := ansi.Strip(listText(m.listView(60, 6)))
-	require.Contains(t, view, "↑ 7 more")
-	require.Contains(t, view, "↓ 9 more")
-	assert.NotContains(t, view, "...")
+
+	view := ansi.Strip(bloom.Render(60, 7, m.listBox(60)))
+
+	require.Contains(t, view, "workspace-10")
+	assert.Contains(t, view, "┃")
+	assert.NotContains(t, view, "more")
+
+	m.list.All, m.list.Filtered = items[:3], items[:3]
+	m.list.Selected = 0
+	assert.NotContains(t, ansi.Strip(bloom.Render(60, 7, m.listBox(60))), "┃", "everything fits")
 }
 
 func TestListViewKeepsSelectionVisibleWithTwoRows(t *testing.T) {
 	items := []model.Session{{Name: "workspace-0"}, {Name: "workspace-1"}, {Name: "workspace-2"}, {Name: "workspace-3"}, {Name: "workspace-4"}}
 	m := newTeaModel(items, Options{})
 	m.list.Selected = 2
-	assert.Contains(t, ansi.Strip(listText(m.listView(60, 2))), "workspace-2")
+	assert.Contains(t, ansi.Strip(renderedList(m, 60, 2)), "workspace-2")
 }
 
 func maxLineWidth(s string) int {
@@ -2251,12 +2288,12 @@ func TestTeaModelHidePath(t *testing.T) {
 		listWidth, previewWidth := m.previewLayout()
 		if hide {
 			assert.Equal(t, 100, previewWidth)
-			assert.NotContains(t, ansi.Strip(listText(m.listView(listWidth, 1))), "/unique/path")
+			assert.NotContains(t, ansi.Strip(renderedList(m, listWidth, 1)), "/unique/path")
 		} else {
 			assert.Equal(t, maxPreviewWidth, previewWidth)
-			assert.Contains(t, ansi.Strip(listText(m.listView(listWidth, 1))), "/unique/path")
+			assert.Contains(t, ansi.Strip(renderedList(m, listWidth, 1)), "/unique/path")
 		}
-		assert.Contains(t, ansi.Strip(listText(m.listView(listWidth, 1))), "workspace")
+		assert.Contains(t, ansi.Strip(renderedList(m, listWidth, 1)), "workspace")
 		assert.Equal(t, m.contentWidth(), listWidth+3+previewWidth)
 		m.previewWidth = 70
 		_, previewWidth = m.previewLayout()
@@ -2269,7 +2306,7 @@ func TestTeaModelHidePath(t *testing.T) {
 		_, previewWidth = m.previewLayout()
 		assert.Zero(t, previewWidth)
 		if hide {
-			assert.NotContains(t, ansi.Strip(listText(m.listView(m.contentWidth(), 1))), "/unique/path")
+			assert.NotContains(t, ansi.Strip(renderedList(m, m.contentWidth(), 1)), "/unique/path")
 		}
 	}
 }
