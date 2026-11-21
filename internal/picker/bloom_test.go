@@ -453,6 +453,48 @@ func TestWheelOverPreviewScrollsPreview(t *testing.T) {
 	assert.Contains(t, ansi.Strip(m.View().Content), "preview line 00", "a wheel over the old text leaves the new at the top")
 }
 
+// bloom's viewport passes a wheel step outward when it can't move that way;
+// the preview box must take it, so the selection stays.
+func TestWheelAtPreviewEdgeLeavesSelection(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}, {Name: "dots"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 16, true
+	m.listFocused = true
+	m.input.Blur()
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(teaModel)
+	require.Equal(t, 1, m.list.Selected)
+	deliver := func(m teaModel, text string) teaModel {
+		updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: text})
+		return updated.(teaModel)
+	}
+	wheel := func(m teaModel, button tea.MouseButton) teaModel {
+		m.View()
+		updated, _ := m.Update(tea.MouseWheelMsg{X: 100, Y: 8, Button: button})
+		return updated.(teaModel)
+	}
+
+	m = deliver(m, "line one\nline two")
+	m = wheel(m, tea.MouseWheelDown)
+	assert.Equal(t, 1, m.list.Selected, "wheel down over a preview whose text all fits")
+	m = wheel(m, tea.MouseWheelUp)
+	assert.Equal(t, 1, m.list.Selected, "wheel up over a preview whose text all fits")
+
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("preview line %02d", i)
+	}
+	m = deliver(m, strings.Join(lines, "\n"))
+	m = wheel(m, tea.MouseWheelUp)
+	assert.Equal(t, 1, m.list.Selected, "a preview at its top")
+	for range 20 {
+		m = wheel(m, tea.MouseWheelDown)
+	}
+	require.Contains(t, ansi.Strip(m.View().Content), "preview line 39")
+	m = wheel(m, tea.MouseWheelDown)
+	assert.Equal(t, 1, m.list.Selected, "a preview at its bottom")
+}
+
 func TestScrollbarIgnoredAfterFilterChanges(t *testing.T) {
 	items := make([]model.Session, 30)
 	for i := range items {
