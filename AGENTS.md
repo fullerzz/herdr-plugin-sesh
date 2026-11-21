@@ -34,6 +34,8 @@ Use idiomatic Go formatting and short, lowercase package names. Keep command orc
 
 Tool versions belong in `mise.toml`; update that file when adding or changing shared developer tooling.
 
+`internal/picker/` renders the native picker with bloom (`bloomfx.dev/bloom`). Before changing it, read https://bloomfx.dev/llms.txt and fetch only the linked `.md` pages you need (`xh --ignore-stdin`); do not load `llms-full.txt` whole. bloom is pre-1.0 and its site documents the latest release. When the site and code disagree, trust `go doc` for the version pinned in `go.mod`.
+
 ## Testing Guidelines
 
 Tests use Go's standard `testing` package and live beside the code as `*_test.go`. Name tests as `Test<Behavior>` and keep file fixtures in `testdata/`. New behavior should include the smallest focused regression test.
