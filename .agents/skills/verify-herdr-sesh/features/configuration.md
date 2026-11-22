@@ -12,7 +12,8 @@ Users locate, validate, edit or migrate their Sesh configuration.
 ## How to get to it (user POV)
 
 Run `config path`, `config validate`, `config edit`, or `config migrate PATH`.
-The native picker also opens settings with F2; Herdr TUI provides
+The native picker opens settings with F2 by default. When preview cycling uses
+F2, the footer shows Ctrl+, for settings. Herdr TUI provides
 `herdr plugin action invoke fullerzz.sesh.open-settings`.
 
 ## Driving it with verify.py

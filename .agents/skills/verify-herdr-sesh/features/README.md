@@ -8,7 +8,7 @@ Launch and doctor via [SKILL.md](../SKILL.md). The maintained journeys are:
 | [Picker](picker.md) | Private fixture + PTY | Actual filtering, cancellation, terminal recovery |
 | [Configuration](configuration.md) | Private config | Lookup, validation, editing and migration persistence |
 | [Previews](previews.md) | Private fixture; remote host for remote cases | Content from the correct filesystem and useful failure output |
-| [Workspace lifecycle](workspaces.md) | Explicit live host | Create/select, layout startup, history and cleanup |
+| [Workspace lifecycle](workspaces.md) | Private fixture for machine rejection; explicit live host for success | Backend rejection, create/select, layout startup, history and cleanup |
 
 The seed has `verify-alpha` (README.md) and `verify-beta` (empty), no existing
 workspaces, no remote machine, and no legacy file. Each absent precondition must
