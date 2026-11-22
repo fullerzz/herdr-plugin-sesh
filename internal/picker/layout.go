@@ -415,7 +415,7 @@ func (m teaModel) previewBody(width int) bloom.FlexNode {
 	viewport := bloom.Child(bloom.Viewport(view.buffer(text)).Wrap(bloom.WrapWords).At(view.pos).OnScroll(view.scrollFor(view.shown)).ID(previewID))
 	if m.previewIn.Animating() {
 		// New text fades in a row at a time from the top, keeping its glyphs.
-		viewport = bloom.Transition(m.previewIn.Float(), viewport, fx.Stagger{Effect: fx.Reverse{Effect: fx.Dim{Amount: 1}}, From: bloom.Top})
+		viewport = bloom.Transition(m.previewIn.Float(), viewport, fx.Stagger{Effect: fx.Reverse{Effect: previewFade{}}, From: bloom.Top})
 	}
 	return bloom.Column(bloom.Fill(viewport))
 }
@@ -497,5 +497,5 @@ func (m teaModel) toastLayer(width, height int) bloom.LayerNode {
 		Size(toastWidth, toastHeight).
 		Anchor(bloom.End, bloom.End).
 		Offset(-horizontalPadding, -toastFooterOffset).
-		Presence(m.toast, fx.Slide{From: bloom.Right}, fx.Fade{})
+		Presence(m.toast, fx.Slide{From: bloom.Right}, paletteDistinct{Effect: fx.Fade{}})
 }
