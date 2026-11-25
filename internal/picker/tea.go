@@ -218,6 +218,7 @@ type teaModel struct {
 	focusSmearFrame     int
 	focusSmearStep      int
 	focusSmearSteps     int
+	focusSmearInputRow  int
 	focusSmearDirection int
 	focusSmearActive    bool
 	reduceMotion        bool
@@ -708,6 +709,9 @@ func (m teaModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = size.Width
 		m.height = size.Height
 		m.pointer.dividerActive = false
+		if m.focusSmearActive {
+			m.focusSmearInputRow, _ = m.smearEnds()
+		}
 		return m, nil
 	}
 	if clicked, ok := msg.(workspaceClickedMsg); ok {
@@ -908,6 +912,9 @@ func (m teaModel) updateInput(msg tea.Msg) (teaModel, tea.Cmd) {
 	if smearing {
 		m.input.Blur()
 		m.focusSmearStart = m.inputCursorColumn()
+		// The edit can change the filter's height, as when a multiline
+		// placeholder goes, which moves the input's cursor line.
+		m.focusSmearInputRow, _ = m.smearEnds()
 	}
 	m = m.filter(m.input.Value())
 	m, previewCmd := m.refreshPreview()
@@ -1344,7 +1351,7 @@ func (m teaModel) focusList() (teaModel, tea.Cmd) {
 	}
 	m.focusSmearFrame = 0
 	m.focusSmearStep = 0
-	m.focusSmearSteps = m.focusSmearDistance()
+	m = m.measureFocusSmear()
 	m.focusSmearDirection = 1
 	m.focusSmearActive = true
 	return m, m.smearTick()
@@ -1359,18 +1366,20 @@ func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
 	}
 	m.focusSmearStart = m.inputCursorColumn()
 	m.focusSmearFrame = 0
-	m.focusSmearSteps = m.focusSmearDistance()
+	m = m.measureFocusSmear()
 	m.focusSmearStep = m.focusSmearSteps
 	m.focusSmearDirection = -1
 	m.focusSmearActive = true
 	return m, m.smearTick()
 }
 
-// focusSmearDistance is how many rows the smear travels, from the input's
-// cursor line down to the selected row.
-func (m teaModel) focusSmearDistance() int {
+// measureFocusSmear solves the layout once as the smear starts, rather than
+// on every frame, for the row it starts from, the input's cursor line, and
+// how many rows it travels down to the selected row.
+func (m teaModel) measureFocusSmear() teaModel {
 	inputRow, selectedRow := m.smearEnds()
-	return maxInt(1, selectedRow-inputRow)
+	m.focusSmearInputRow, m.focusSmearSteps = inputRow, maxInt(1, selectedRow-inputRow)
+	return m
 }
 
 // smearEnds solves the layout for the screen rows of the input's cursor line

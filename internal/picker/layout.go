@@ -359,30 +359,43 @@ func (m teaModel) dragDivider(e on.Event) tea.Cmd {
 // it, and over the border, the title and the scrollbar the box scrolls it
 // too, so the wheel never moves the selection there. The border turns red
 // while a workspace closes.
-func (m teaModel) previewBox(width int) bloom.BoxNode {
+func (m teaModel) previewBox(width int) routed {
 	style := panel(false)
 	if m.closingWorkspaceID != "" {
 		style = closingPanel()
 	}
-	// Padded both sides: preview text fills its lines, where list rows end
-	// in a path cut short.
-	return bloom.Box(style.Padding(0, 1), m.previewBody(width-panelInset-1)).ID(previewBoxID).
-		Edge(bloom.Top, bloom.Start, edgeTitle(m.previewTitle(), width)).
-		Edge(bloom.Right, bloom.Stretch, bloom.ScrollbarOf(previewID)).
-		On(on.Scroll(m.scrollPreview(m.previewScroll.scrollFor(m.previewScroll.shown))))
+	return routed(func(frame func() *bloom.Frame) bloom.Child {
+		// Padded both sides: preview text fills its lines, where list rows
+		// end in a path cut short.
+		return bloom.Box(style.Padding(0, 1), m.previewBody(width-panelInset-1)).ID(previewBoxID).
+			Edge(bloom.Top, bloom.Start, edgeTitle(m.previewTitle(), width)).
+			Edge(bloom.Right, bloom.Stretch, bloom.ScrollbarOf(previewID)).
+			On(on.Scroll(m.previewWheel(frame)))
+	})
 }
+
+// routed builds its child as it is laid out, given the frame its mouse
+// handlers find events in. That frame can be older than the last one drawn,
+// which m.ui.Frame returns, as an event reaches the view it arrived on.
+type routed func(frame func() *bloom.Frame) bloom.Child
+
+func (r routed) View() string { return r(func() *bloom.Frame { return nil }).View() }
+
+//nolint:ireturn // bloom.Layouter returns a Child.
+func (r routed) Layout(ctx bloom.Context) bloom.Child { return r(ctx.Frame) }
 
 // previewWheelStep is how many rows a wheel step scrolls the preview from
 // its border, as bloom's viewport scrolls under the wheel.
 const previewWheelStep = 3
 
-// scrollPreview scrolls the preview viewport from the last frame drawn by
-// the wheel steps over the box around it, through scroll, which drops the
-// steps once another workspace's text is on screen. With no viewport, a
-// status or a placeholder, the wheel does nothing.
-func (m teaModel) scrollPreview(scroll func(bloom.ViewportPos) tea.Cmd) func(int, int) tea.Cmd {
+// previewWheel scrolls the preview viewport of frame, the frame the wheel
+// steps were found in, by the steps over the box around it. It drops the
+// steps once another workspace's text is on screen: see scrollFor. With no
+// viewport, a status or a placeholder, the wheel does nothing.
+func (m teaModel) previewWheel(frame func() *bloom.Frame) func(int, int) tea.Cmd {
+	scroll := m.previewScroll.scrollFor(m.previewScroll.shown)
 	return func(_, dy int) tea.Cmd {
-		view, ok := m.ui.Frame().Viewport(previewID)
+		view, ok := frame().Viewport(previewID)
 		if !ok || dy == 0 {
 			return nil
 		}
@@ -465,18 +478,17 @@ func (m teaModel) smearLayer() (bloom.LayerNode, bool) {
 	width := m.contentWidth()
 	lines := make([]string, m.focusSmearSteps+1)
 	m.renderFocusSmear(lines, width)
-	inputRow, _ := m.smearEnds()
 	return bloom.Layer(bloom.Text(strings.Join(lines, "\n"))).
 		Transparent().
 		Anchor(bloom.Start, bloom.Start).
-		Offset(horizontalPadding+smearInset, inputRow), true
+		Offset(horizontalPadding+smearInset, m.focusSmearInputRow), true
 }
 
 // toastLayer anchors the toast above the footer. In a pane too short for the
 // whole message it is cut to the rows above the footer, keeping the start of
 // the message, which says what failed. A click on the toast stops there, so
-// it never chooses the row the toast covers; the wheel still moves the
-// selection.
+// it never chooses the row the toast covers. The wheel does what it would
+// do beneath the toast: see toastMouse.
 func (m teaModel) toastLayer(width, height int) bloom.LayerNode {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(amberColor).Padding(0, 1)
 	textStyle := lipgloss.NewStyle().Foreground(amberColor)
@@ -489,13 +501,35 @@ func (m teaModel) toastLayer(width, height int) bloom.LayerNode {
 			toastHeight = max(available, box.GetVerticalFrameSize()+1)
 		}
 	}
-	handlers := []on.Handler{on.Mouse(func(on.Event) tea.Cmd { return nil })}
-	if m.selectable() {
-		handlers = append(handlers, on.Scroll(m.scrollWheel))
-	}
-	return bloom.Layer(bloom.Box(box, text).On(handlers...)).
+	toast := routed(func(frame func() *bloom.Frame) bloom.Child {
+		return bloom.Box(box, text).On(m.toastMouse(frame))
+	})
+	return bloom.Layer(toast).
 		Size(toastWidth, toastHeight).
 		Anchor(bloom.End, bloom.End).
 		Offset(-horizontalPadding, -toastFooterOffset).
 		Presence(m.toast, fx.Slide{From: bloom.Right}, paletteDistinct{Effect: fx.Fade{}})
+}
+
+// toastMouse takes every mouse event over the toast, and sends the wheel to
+// the panel beneath it, as bloom passes events only to the nodes a node is
+// in, not to the base beneath a layer: over the preview box it scrolls the
+// preview, and elsewhere it moves the selection. Both are judged by frame,
+// the frame the wheel was found in, so a wheel over an older frame does what
+// that frame showed beneath the toast.
+func (m teaModel) toastMouse(frame func() *bloom.Frame) on.Handler {
+	preview := m.previewWheel(frame)
+	return on.Mouse(func(e on.Event) tea.Cmd {
+		if _, ok := e.Msg.(tea.MouseWheelMsg); !ok {
+			return nil
+		}
+		wheel := m.scrollWheel
+		if box, ok := frame().Rect(previewBoxID); ok && e.Screen.In(box) {
+			wheel = preview
+		} else if !m.selectable() {
+			return nil
+		}
+		cmd, _ := on.Scroll(wheel).Handle(e)
+		return cmd
+	})
 }

@@ -81,7 +81,7 @@ func TestPickerFramesMatchGolden(t *testing.T) {
 			m.list.Selected = 1
 			m.listFocused = true
 			m.focusSmearStart = m.inputCursorColumn()
-			m.focusSmearSteps = m.focusSmearDistance()
+			*m = m.measureFocusSmear()
 			m.focusSmearStep = 2
 			m.focusSmearDirection = 1
 			m.focusSmearActive = true
@@ -120,6 +120,29 @@ func TestPickerFramesMatchGolden(t *testing.T) {
 			assert.Equal(t, string(want), got)
 		})
 	}
+}
+
+// Typing with the list focused starts the smear before the edit lands; a
+// multiline placeholder then goes and the filter shrinks under it.
+func TestFocusSmearFollowsTheFilterAfterAnEdit(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{DisplayOptions: DisplayOptions{
+		HidePreview: true,
+		Placeholder: "Filter\nworkspaces",
+	}})
+	m.width, m.height, m.reduceMotion = 120, 20, false
+	m.listFocused = true
+	m.input.Blur()
+	require.Equal(t, 2, m.filterRows(), "the placeholder must take two rows")
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	m = updated.(teaModel)
+	require.True(t, m.focusSmearActive)
+	require.Equal(t, 1, m.filterRows(), "the edit must drop the placeholder")
+	m.View()
+	input, ok := m.ui.Frame().Rect(inputID)
+	require.True(t, ok)
+
+	assert.Equal(t, input.Max.Y-1, m.focusSmearInputRow, "the smear starts from the input's cursor line")
 }
 
 func TestMultilinePromptKeepsFramePadding(t *testing.T) {
@@ -194,7 +217,7 @@ func TestRowClickPassesThroughLayers(t *testing.T) {
 			m.input.SetValue("w")
 			m.listFocused = true
 			m.focusSmearStart = m.inputCursorColumn()
-			m.focusSmearSteps = m.focusSmearDistance()
+			*m = m.measureFocusSmear()
 			m.focusSmearStep = 2
 			m.focusSmearDirection = 1
 			m.focusSmearActive = true
@@ -240,6 +263,96 @@ func TestToastTakesClicksOnItself(t *testing.T) {
 	require.NotNil(t, beside)
 	assert.Equal(t, workspaceClickedMsg{key: model.Key(items[1])}, previewResult(beside))
 	assert.Equal(t, 1, m.pointer.wheel)
+}
+
+func TestWheelOverToastOnPreviewScrollsPreview(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	m.listFocused = true
+	m.input.Blur()
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("preview line %02d", i)
+	}
+	deliver := func(m teaModel) teaModel {
+		updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: strings.Join(lines, "\n")})
+		return updated.(teaModel)
+	}
+	m = deliver(m)
+	m.closeError = "Failed to close workspace: boom"
+	m.toastText = m.closeError
+	m.toast.Show()
+	m.toast.Advance(time.Now().Add(time.Hour))
+	screen := strippedLines(m.View().Content)
+	require.Contains(t, strings.Join(screen, "\n"), lines[0])
+	x, y := -1, -1
+	for row, line := range screen {
+		if i := strings.Index(line, "boom"); i >= 0 {
+			x, y = ansi.StringWidth(line[:i]), row
+		}
+	}
+	require.GreaterOrEqual(t, y, 0, "the toast must be on screen")
+	box, ok := m.ui.Frame().Rect(previewBoxID)
+	require.True(t, ok)
+	require.True(t, x >= box.Min.X && x < box.Max.X && y >= box.Min.Y && y < box.Max.Y, "the toast must cover the preview")
+
+	wheel := tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown}
+
+	updated, _ := m.Update(wheel)
+	m = updated.(teaModel)
+
+	assert.Equal(t, 0, m.list.Selected, "the wheel over the toast on the preview leaves the selection")
+	assert.NotContains(t, ansi.Strip(m.View().Content), lines[0], "the wheel scrolls the preview beneath the toast")
+
+	// The frame on screen can predate the next workspace's text; its wheel
+	// scrolls the old text, so it leaves the new text at the top.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = deliver(updated.(teaModel))
+	require.Equal(t, 1, m.list.Selected)
+	updated, _ = m.Update(wheel)
+	m = updated.(teaModel)
+	assert.Contains(t, ansi.Strip(m.View().Content), lines[0], "a wheel over the old text leaves the new at the top")
+}
+
+// A wheel can arrive for a frame older than the last one drawn, such as
+// after the divider moves; the toast routes it by the frame it was found in.
+func TestToastWheelUsesTheFrameItWasFoundIn(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("preview line %02d", i)
+	}
+	updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: strings.Join(lines, "\n")})
+	m = updated.(teaModel)
+	m.closeError = "Failed to close workspace: boom"
+	m.toastText = m.closeError
+	m.toast.Show()
+	m.toast.Advance(time.Now().Add(time.Hour))
+	old := m.View()
+	before, ok := m.ui.Frame().Rect(previewBoxID)
+	require.True(t, ok)
+	x, y := before.Min.X+1, -1
+	for row, line := range strippedLines(old.Content) {
+		if i := strings.Index(line, "Failed"); i >= 0 {
+			require.Greater(t, x, ansi.StringWidth(line[:i])-2, "the toast must cover the preview's left edge")
+			y = row
+		}
+	}
+	require.GreaterOrEqual(t, y, 0, "the toast must be on screen")
+
+	m.previewWidth = minPreviewWidth
+	m.View()
+	after, ok := m.ui.Frame().Rect(previewBoxID)
+	require.True(t, ok)
+	require.Greater(t, after.Min.X, x, "the narrower preview must leave the point over the list")
+
+	old.OnMouse(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown})
+
+	assert.Zero(t, m.pointer.wheel, "the wheel over the old frame's preview leaves the selection")
+	assert.NotContains(t, ansi.Strip(m.View().Content), lines[0], "the wheel scrolls the preview the old frame showed")
 }
 
 func TestReduceMotionShowsToastWithoutAnimating(t *testing.T) {

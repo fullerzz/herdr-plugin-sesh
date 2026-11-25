@@ -35,9 +35,10 @@ workspace. Mouse selection also works with stacked or hidden previews.
 Mouse capture is enabled in every native picker layout. The wheel follows the
 up/down controls, except over the preview box, where it scrolls the preview.
 When the list has more workspaces than fit and shows at least two rows, a
-scrollbar appears on its right border; click or drag it to scroll the list. Scrolling this way focuses the list and
-keeps the selection on a visible row. To select text for copying, use your
-terminal's mouse override (often Shift-drag).
+scrollbar appears on its right border; click or drag it to scroll the list.
+Scrolling this way focuses the list and keeps the selection on a visible row.
+To select text for copying, use your terminal's mouse override (often
+Shift-drag).
 
 !!! warning "Closing a workspace"
 
@@ -62,8 +63,8 @@ For side-by-side previews, drag the column between the list and preview boxes,
 marked `⋮`, with the left mouse button.
 Both panels keep a minimum width; the chosen width resets when the picker closes.
 Narrow terminals stack the preview below the list. A preview longer than its
-box shows a scrollbar on the box's right border; scroll it with the wheel. These controls apply to the
-native picker, not fzf.
+box shows a scrollbar on the box's right border; scroll it with the wheel.
+These controls apply to the native picker, not fzf.
 
 ## Herdr actions
 
