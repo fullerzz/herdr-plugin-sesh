@@ -1065,6 +1065,51 @@ func TestWheelOverPreviewBorderScrollsPreview(t *testing.T) {
 	}
 }
 
+// A terminal can send several wheel events before the screen is redrawn;
+// each steps on from the last, not from the frame they all reach.
+func TestWheelStepsOverPreviewBorderAddUp(t *testing.T) {
+	m := newTeaModel([]model.Session{{Name: "api"}, {Name: "web"}}, Options{})
+	t.Cleanup(func() { m.cancelActivePreview() })
+	m.width, m.height, m.reduceMotion = 120, 20, true
+	m.listFocused = true
+	m.input.Blur()
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("preview line %02d", i)
+	}
+	deliver := func(m teaModel) teaModel {
+		updated, _ := m.Update(previewMsg{key: m.previewKey, requestID: m.previewRequestID, text: strings.Join(lines, "\n")})
+		return updated.(teaModel)
+	}
+	key := func(m teaModel, code rune) teaModel {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: code})
+		return deliver(updated.(teaModel))
+	}
+	m = deliver(m)
+	painted := m.View()
+	box, ok := m.ui.Frame().Rect(previewBoxID)
+	require.True(t, ok)
+	wheel := tea.MouseWheelMsg{X: box.Min.X + 4, Y: box.Min.Y, Button: tea.MouseWheelDown}
+	top := func(m teaModel) string { return strippedLines(m.View().Content)[box.Min.Y+1] }
+
+	painted.OnMouse(wheel)
+	m.View()
+	painted.OnMouse(wheel)
+
+	assert.Contains(t, top(m), lines[2*previewWheelStep], "both steps scroll the preview")
+
+	// The frame drawn last may show another workspace's preview, scrolled
+	// elsewhere; a step for this one then goes from the frame it reached.
+	painted = m.View()
+	m = key(m, tea.KeyDown)
+	m.View().OnMouse(wheel)
+	m.View()
+	m = key(m, tea.KeyUp)
+	painted.OnMouse(wheel)
+
+	assert.Contains(t, top(m), lines[3*previewWheelStep], "the step goes from where the frame it reached had the preview")
+}
+
 func TestReduceMotionStillsAgentSpinner(t *testing.T) {
 	t.Setenv("HERDR_SESH_REDUCE_MOTION", "1")
 	m := newTeaModel([]model.Session{{Name: "api", Source: "herdr", WorkspaceID: "w1", AgentStatus: "working"}}, Options{})

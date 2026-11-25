@@ -951,6 +951,7 @@ func (m teaModel) View() tea.View {
 	}
 	width := m.contentWidth() + horizontalPadding*2
 	view := m.ui.View(width, m.windowHeight(), bloom.Overlay(m.pickerTree(), m.pickerLayers(width)...))
+	m.previewScroll.drawn = m.previewScroll.shown
 	view.AltScreen = true
 	// The wheel moves the selection from Update, which needs reports even
 	// when no node has a handler. Bloom asks for all motion while the

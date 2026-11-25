@@ -393,11 +393,19 @@ const previewWheelStep = 3
 // steps once another workspace's text is on screen: see scrollFor. With no
 // viewport, a status or a placeholder, the wheel does nothing.
 func (m teaModel) previewWheel(frame func() *bloom.Frame) func(int, int) tea.Cmd {
-	scroll := m.previewScroll.scrollFor(m.previewScroll.shown)
+	v, shown := m.previewScroll, m.previewScroll.shown
+	scroll := v.scrollFor(shown)
 	return func(_, dy int) tea.Cmd {
 		view, ok := frame().Viewport(previewID)
 		if !ok || dy == 0 {
 			return nil
+		}
+		// Step from the frame drawn last while it shows the same text, as
+		// bloom's viewport does: a terminal can send several wheel events
+		// before the screen is redrawn, and each would otherwise step from
+		// where frame had the preview.
+		if last, ok := m.ui.Frame().Viewport(previewID); ok && v.drawn == shown {
+			view = last
 		}
 		return scroll(view.Down(dy * previewWheelStep))
 	}
@@ -457,6 +465,7 @@ type previewViewport struct {
 	buf   *bloom.Buffer
 	pos   bloom.ViewportPos
 	shown string // the workspace and mode whose text pos scrolls
+	drawn string // the shown of the last frame View drew
 }
 
 func (v *previewViewport) buffer(text string) *bloom.Buffer {
