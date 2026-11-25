@@ -169,3 +169,7 @@ release $tag:
 # Run all checks for code changes
 check: lint fmt-check test test-release-ref
     @echo "{{ BOLD + GREEN + BG_BLACK }} All checks passed!{{ NORMAL }}"
+
+# Record both picker integrations on one fresh Lume clone (or choose tui or app)
+record-picker-demo $surface='both' $revision='HEAD':
+    demo/picker/record.sh "$surface" "$revision"

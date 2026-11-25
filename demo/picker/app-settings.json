@@ -1,0 +1,8 @@
+{
+  "appearance": "dark",
+  "theme": "catppuccin",
+  "font": "MonoLisaCode",
+  "font_weight": 300,
+  "font_weight_bold": 600,
+  "font_size": 15.0
+}

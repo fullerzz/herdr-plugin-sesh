@@ -1,0 +1,17 @@
+version = 1
+
+[list]
+cache = false
+source_order = ["herdr", "config", "zoxide"]
+
+[picker]
+show_icons = true
+herdr_theme_inherit = true
+preview_mode = "command"
+
+[workspace_defaults]
+preview = "/Users/lume/picker-demo/preview.sh {}"
+
+[[workspace]]
+name = "design-system"
+path = "~/projects/design-system"
