@@ -49,7 +49,7 @@ export default class Sesh extends View {
         // Closing a popup hands the keyboard back to whatever had it before the popup, so
         // this popup closes before the dialog opens; the other order leaves the picker deaf.
         closeSelf();
-        openOverlay({ kind: "dialog", modal: true, width: 0.7, height: 0.75,
+        openOverlay({ kind: "dialog", modal: true, width: 0.805, height: 0.8625,
           layout: { type: "block", content: { terminal: address } } });
       } catch (e) {
         notify({ title: "Sesh picker didn't start", body: String(e?.message ?? e), level: "error" });
