@@ -14,7 +14,7 @@ go_bin=$(mise which go)
 (cd "$stage/source" && "$go_bin" build -trimpath -ldflags "-s -w -X github.com/fullerzz/herdr-plugin-sesh/internal/app.Version=${revision:0:7}" -o "$stage/picker-demo/plugin/bin/herdr-sesh" ./cmd/herdr-sesh)
 # Ship the prebuilt arm64 executable. All runtime hooks and actions are original.
 awk '/^\[\[/{skip=($0=="[[build]]")} !skip' "$stage/source/herdr-plugin.toml" > "$stage/picker-demo/plugin/herdr-plugin.toml"
-cp "$root"/demo/picker/{ghostty.conf,herdr.toml,sesh.toml,seed.sh,scene.sh,clear-banners.sh,actions.sh,frame.swift,launch.sh,preview.sh,check-routes.sh} "$stage/picker-demo/"
+cp "$root"/demo/picker/{ghostty.conf,herdr.toml,sesh.toml,zoxide-projects.txt,seed.sh,scene.sh,clear-banners.sh,actions.sh,frame.swift,launch.sh,preview.sh,check-routes.sh} "$stage/picker-demo/"
 COPYFILE_DISABLE=1 tar -czf "$stage/demo.tar.gz" -C "$stage" picker-demo
 lume get "$vm" -f json | jq -e '.[0] | .status == "stopped" and (.sharedDirectories | length == 0)' >/dev/null
 # Keep macOS banners at the right edge outside the recorded rectangle.

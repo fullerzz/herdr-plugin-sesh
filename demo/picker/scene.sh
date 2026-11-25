@@ -37,10 +37,11 @@ herdr workspace focus "$web" >/dev/null
 web_pane=$(herdr pane list --workspace "$web" | jq -er '.result.panes[0].pane_id')
 herdr pane run "$web_pane" 'git status --short --branch'
 ./plugin/bin/herdr-sesh list --json > catalog.json
-jq -e 'map([.name,.source,.path]) | sort == ([
+jq -e --rawfile projects zoxide-projects.txt '
+  ($projects | split("\n") | map(select(length > 0) | [., "zoxide", ("/Users/lume/projects/" + .)])) as $zoxide |
+  map([.name,.source,.path]) | sort == ([
   ["atlas-web","herdr","/Users/lume/projects/atlas-web"],
   ["atlas-api","herdr","/Users/lume/projects/atlas-api"],
   ["route-cache","herdr","/Users/lume/projects/route-cache"],
-  ["design-system","config","/Users/lume/projects/design-system"],
-  ["release-notes","zoxide","/Users/lume/projects/release-notes"]
-] | sort)' catalog.json >/dev/null
+  ["design-system","config","/Users/lume/projects/design-system"]
+] + $zoxide | sort)' catalog.json >/dev/null

@@ -14,17 +14,19 @@ expect() {
 pointer() {
     cua-driver call "$1" "$(jq -c --argjson args "$2" '.+$args+{delivery_mode:"foreground"}' <<<"$target")" >/dev/null
 }
+total=$(jq length app-catalog.json)
+cua-driver call set_agent_cursor_enabled "$(jq -c '{session,enabled:false}' <<<"$target")" >/dev/null
 sleep 0.7
 herdr-app "do" mod.open '{"name":"sesh"}' >/dev/null
 for ((i=0; i<30; i++)); do
     if picker=$(hc ls --label sesh=picker --json | jq -er '.terminals[]|select(.state=="live")|.address'); then break; fi
     sleep 0.1
 done
-expect '5 workspaces'
+expect "$total workspaces"
 expect 'route-cache'
 sleep 2
 for letter in a t l a s; do hc keys "$picker" "$letter" >/dev/null; sleep 0.12; done
-expect '2/5 workspaces'
+expect " 2/$total workspaces"
 hc keys "$picker" ctrl+j ctrl+j >/dev/null
 expect 'PREVIEW [ctrl+o] · atlas-api'
 sleep 1
@@ -41,7 +43,7 @@ for ((i=0; i<3; i++)); do
 done
 [[ "$view" != *"list     projects"* && "$view" == *'PANE [ctrl+o] · atlas-api'* ]]
 sleep 1
-pointer drag '{"from_x":717,"from_y":441,"to_x":587,"to_y":441,"duration_ms":800,"steps":24}'
+pointer drag '{"from_x":769,"from_y":446,"to_x":587,"to_y":446,"duration_ms":800,"steps":24}'
 expect 'response matches contract'
 sleep 1.6
 hc keys "$picker" enter >/dev/null

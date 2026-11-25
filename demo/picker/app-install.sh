@@ -13,7 +13,6 @@ ln -sfn "$HOME/Applications/Herdr.app/Contents/MacOS/Herdr" ~/.local/bin/herdr-a
 ln -sfn "$HOME/picker-demo/plugin/bin/herdr-sesh" ~/.local/bin/herdr-sesh
 ln -sfn "$PWD/herdr-app/mods/sesh" ~/.config/herdr-app/mods/sesh
 cp ../sesh.toml ~/.config/herdr-sesh/config.toml
-install -m 644 MonoLisaCodeUpright.ttf ~/Library/Fonts/
 install -m 644 app-theme.json ~/.config/herdr-app/themes/catppuccin.json
 install -m 644 app-settings.json ~/.config/herdr-app/settings.json
 # Expand HOME when the guest login shell reads its profile.

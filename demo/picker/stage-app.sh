@@ -16,7 +16,6 @@ ditto -c -k --keepParent "$app" "$stage/desktop/app.zip"
 ditto -c -k --keepParent "$core" "$stage/desktop/core.zip"
 git archive "$revision" herdr-app/mods/sesh | tar -xf - -C "$stage/desktop"
 cp "$root/demo/picker/"{app-theme.json,app-settings.json,app-install.sh,app-actions.sh,app-scene.sh} "$stage/desktop/"
-cp "${HERDR_DEMO_FONT:-$HOME/Library/Fonts/MonoLisaCodeUpright.ttf}" "$stage/desktop/MonoLisaCodeUpright.ttf"
 COPYFILE_DISABLE=1 tar -czf "$stage/files.tgz" -C "$stage" desktop
 "$root/demo/picker/transfer.sh" "$vm" "$stage/files.tgz" picker-demo/desktop picker-demo
 lume ssh "$vm" 'bash ~/picker-demo/desktop/app-install.sh && bash ~/picker-demo/desktop/app-scene.sh'
