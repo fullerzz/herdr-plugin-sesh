@@ -7,7 +7,7 @@ icon: lucide/panels-top-left
 A [Sesh](https://github.com/joshmedeski/sesh)-inspired workspace picker and session manager for
 [Herdr](https://herdr.dev/).
 
-![Herdr Sesh picker demo](assets/picker-demo-42.gif){ loading=lazy width=700 }
+![Filtering workspaces and inspecting a live pane in the Herdr TUI picker](assets/picker-demo.gif){ loading=lazy width=700 }
 
 `herdr-sesh` combines running Herdr workspaces, configured sessions, and
 zoxide history in one searchable overlay. Selecting an item focuses its
@@ -19,6 +19,8 @@ tabs, and pane layouts.
 This repository provides a **herdr-tui plugin** for Herdr's terminal UI and
 **herdr-app mods** for the desktop app. Both use the same `herdr-sesh` binary
 and native TOML configuration.
+
+[Watch the desktop mod demo](herdr-app.md#desktop-picker-demo).
 
 | Capability | Herdr TUI plugin | Herdr app mods |
 | --- | --- | --- |

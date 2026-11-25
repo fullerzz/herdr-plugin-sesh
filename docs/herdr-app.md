@@ -16,6 +16,14 @@ Remote workspace support is available only with the app integration, including
 direct CLI commands targeting the app backend. The Herdr TUI plugin cannot
 list, select, or create remote spaces.
 
+## Desktop picker demo
+
+The Sesh mod opens over the current space. This recording filters the list to
+two Atlas spaces, inspects the live terminal in `atlas-api`, widens the
+preview, and switches to that space.
+
+![Filtering spaces and switching to atlas-api in the Herdr desktop app](assets/picker-demo-app.gif){ loading=lazy width=700 }
+
 ## Install
 
 1. Put `herdr-sesh` on your `PATH`, for example by building this checkout and

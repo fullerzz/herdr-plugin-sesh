@@ -18,13 +18,16 @@ zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command and
 tabs.
 
-![Herdr Sesh picker demo](docs/assets/picker-demo-42.gif)
+![Filtering workspaces and inspecting a live pane in the Herdr TUI picker](docs/assets/picker-demo.gif)
 
 ## Choose your Herdr integration
 
 This repository provides a **herdr-tui plugin** for Herdr's terminal UI and
 **herdr-app mods** for the desktop app. Both use the same `herdr-sesh` binary
 and native TOML configuration.
+
+[Watch the desktop mod demo](docs/herdr-app.md#desktop-picker-demo) or
+[re-record either integration](demo/picker/README.md).
 
 | Capability | Herdr TUI plugin | Herdr app mods |
 | --- | --- | --- |
