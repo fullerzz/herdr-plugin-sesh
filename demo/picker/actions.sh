@@ -39,16 +39,19 @@ expect 'Route checks'
 if [[ "$mode" == full ]]; then sleep 1.4; fi
 # These window-local pixels are calibrated to the fixed font, frame and sidebar.
 cua-driver call get_window_state "$(jq -c '.+{max_image_dimension:0,screenshot_out_file:"/tmp/sesh-picker-before.png"}' <<<"$target")" >/dev/null
+before=$(read_pane)
+[[ "$before" == *'Route checks'* && "$before" != *'30 checks passed'* ]]
 pointer drag '{"from_x":1374,"from_y":228,"to_x":1374,"to_y":676,"duration_ms":850,"steps":32}'
 expect '30 checks passed'
 if [[ "$mode" == full ]]; then sleep 1.8; fi
-expect '30 checks passed'
+after=$(read_pane)
+[[ "$after" != *'Route checks'* && "$after" == *'30 checks passed'* ]]
 pointer drag '{"from_x":854,"from_y":458,"to_x":710,"to_y":458,"duration_ms":800,"steps":24}'
 expect 'response matches contract'
 if [[ "$mode" == full ]]; then sleep 2; fi
 herdr pane send-keys "$picker" enter
 for ((i=0; i<20; i++)); do
-    focused=$(herdr workspace list | jq -er '.result.workspaces[]|select(.focused)|.label')
+    focused=$(herdr workspace list | jq -er '.result.workspaces[]|select(.focused)|.label') || focused=
     [[ "$focused" == atlas-api ]] && break
     sleep 0.1
 done

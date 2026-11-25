@@ -20,7 +20,7 @@ Review the contact sheet and play the GIF at 700 pixels wide. During the scroll,
 
 The prepared local template is sufficient for routine takes. To rebuild it on a different Mac:
 
-1. Install Lume and the host export tools with `brew install lume ffmpeg jq`. Run `mise install` in this repository for Go, just, and uv. Allow disk space for the macOS restore and spare recording clones. [Lume quickstart](https://cua.ai/docs/lume/quickstart)
+1. On the recording Mac, install the optional VM and capture tools with `brew install lume ffmpeg jq`. These tools are only needed to record demos. Run `mise install` in this repository for Go, just, and uv. Allow disk space for the macOS restore and spare recording clones. [Lume quickstart](https://cua.ai/docs/lume/quickstart)
 2. Create `sesh-demo-base` using the Tahoe unattended preset, a 1600×1000 display, 4 CPUs, 8 GiB RAM and a 64 GiB disk. Use the local `lume` user, automatic login, SSH, NAT and zero shared folders. Keep the guest signed out of Apple services. Complete first login in the guest viewer. The template used here ran macOS 26.6.2 (25G83).
 
    ```sh

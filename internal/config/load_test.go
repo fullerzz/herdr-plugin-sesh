@@ -10,6 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadPickerDemoConfig(t *testing.T) {
+	path := filepath.Join("..", "..", "demo", "picker", "sesh.toml")
+	_, _, err := Load(LoadOptions{Path: path, StrictLegacy: true})
+	require.NoError(t, err)
+}
+
 func TestLoadMissingExplicitPathIncludesPath(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.toml")
 	_, _, err := Load(LoadOptions{Warn: io.Discard, Path: p})

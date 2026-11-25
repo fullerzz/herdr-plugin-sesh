@@ -12,7 +12,7 @@ lume clone sesh-demo-base "$vm"
 # The clone belongs to this run. Keep its disk available for inspection.
 stop_clone() {
     if lume get "$vm" -f json | jq -e '.[0].status=="running"' >/dev/null; then
-        lume shutdown "$vm"
+        lume stop "$vm"
     fi
 }
 trap stop_clone EXIT

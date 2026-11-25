@@ -9,6 +9,7 @@ expect() {
         sleep 0.1
     done
     echo "Desktop picker did not show $1" >&2
+    hc read "$picker" >&2
     return 1
 }
 pointer() {
@@ -48,7 +49,7 @@ expect 'response matches contract'
 sleep 1.6
 hc keys "$picker" enter >/dev/null
 for ((i=0; i<30; i++)); do
-    focused=$(herdr-app ls | jq -er '.spaces[]|select(.active)|.name')
+    focused=$(herdr-app ls | jq -er '.spaces[]|select(.active)|.name') || focused=
     [[ "$focused" == atlas-api ]] && break
     sleep 0.1
 done
