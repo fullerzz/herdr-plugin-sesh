@@ -4,7 +4,8 @@ Users locate, validate, edit or migrate their Sesh configuration.
 
 ## Sub-features
 
-- `config-path`: identify the file actually selected.
+- `config-path`: show the resolved config file. With no configured path or
+  existing candidate, it prints the native destination without creating it.
 - `config-validate`: accept valid native TOML; reject invalid values.
 - `config-save`: review and persist settings through the editor.
 - `config-migrate`: preserve legacy input while creating native configuration.
@@ -26,7 +27,20 @@ uv run --frozen python "$VERIFY" cli "$EVIDENCE" valid config validate
 script -q "$EVIDENCE/settings.terminal.txt" uv run --frozen python "$VERIFY" tui "$EVIDENCE" settings config edit
 ```
 
-Require `path.stdout` to name `runtime/config.toml`. For editor proof, capture
+Require `path.stdout` to name `runtime/config.toml`.
+
+The helper always sets `HERDR_SESH_CONFIG`, so run the fallback outside it.
+Use an empty home and no Sesh or plugin variables:
+
+```sh
+mkdir "$EVIDENCE/runtime/empty-home"
+(cd "$EVIDENCE/runtime" && env -i HOME="$EVIDENCE/runtime/empty-home" PATH=/usr/bin:/bin "$EVIDENCE/herdr-sesh" config path > "$EVIDENCE/fallback.stdout" 2> "$EVIDENCE/fallback.stderr"; echo $? > "$EVIDENCE/fallback.exit")
+```
+
+Require exit 0 and `empty-home/.config/herdr-sesh/config.toml` in stdout.
+That file must not exist afterwards, and `empty-home` must stay empty.
+
+For editor proof, capture
 the screen, change one visible setting, use the displayed review/save controls,
 confirm, and reopen the editor. Capture the config diff and run validation again;
 the persisted value and reopened control must agree. Cancel a second edit and
