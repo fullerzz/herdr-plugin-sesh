@@ -93,13 +93,19 @@ func Open(ctx context.Context, client herdr.Client, match model.Session, opts Op
 }
 
 // ResolveTarget finds the session a connect or preview target names, in this
-// order: an exact workspace ID on any machine; any local session by name or
-// path; a local directory at the target; the [[workspace]] entry on another
+// order: an exact workspace ID on any machine; an open local workspace by
+// configured root; any local session by name or path; a local directory at
+// the target; the [[workspace]] entry on another
 // machine with that name. For a bare local directory dir is true and only
 // Path is set: the caller names it.
 func ResolveTarget(candidates []model.Session, target string) (s model.Session, dir, ok bool) {
 	for _, c := range candidates {
 		if c.WorkspaceID != "" && c.WorkspaceID == target {
+			return c, false, true
+		}
+	}
+	for _, c := range candidates {
+		if c.Machine == "" && c.ConfiguredPath != "" && c.ConfiguredPath == target {
 			return c, false, true
 		}
 	}

@@ -30,9 +30,10 @@ type Session struct {
 	Worktree              WorktreeRelation `json:"-"`
 	// Configured marks an open space that a [[workspace]] entry also names, so
 	// connecting by that name selects it.
-	Configured bool    `json:"-"`
-	Score      float64 `json:"score,omitempty"`
-	Attached   bool    `json:"attached,omitempty"`
+	Configured     bool    `json:"-"`
+	ConfiguredPath string  `json:"-"` // Configured root for lookup when Path follows the active terminal.
+	Score          float64 `json:"score,omitempty"`
+	Attached       bool    `json:"attached,omitempty"`
 }
 
 type WindowConfig struct {

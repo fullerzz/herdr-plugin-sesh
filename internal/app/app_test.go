@@ -803,6 +803,48 @@ func TestPreviewCommandUsesExplicitConfig(t *testing.T) {
 	assert.Contains(t, out.String(), targetDir)
 }
 
+func TestPreviewConfiguredRootAfterTerminalChangesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "project")
+	subdir := filepath.Join(root, "subdir")
+	require.NoError(t, os.MkdirAll(subdir, 0o700))
+	cfg := filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(cfg, fmt.Appendf(nil, `version = 1
+[list]
+source_order = ["config", "herdr", "zoxide", "dir"]
+[workspace_defaults]
+preview = "printf DEFAULT"
+[[workspace]]
+name = "project"
+path = %q
+preview = "printf CONFIGURED"
+`, root), 0o600))
+
+	bin := t.TempDir()
+	for name, reply := range map[string]string{
+		"herdr-app": fmt.Sprintf(`{"spaces":[{"id":"sp1","name":"project","folder":%q,"tabs":[{"id":"tb1","active":true,"terminals":[{"terminal":"t1"}]}]}]}`, root),
+		"hc":        fmt.Sprintf(`{"terminals":[{"address":"t1","cwd":%q,"foreground":{"cwd":%q}}]}`, root, subdir),
+		"zoxide":    "",
+	} {
+		//nolint:gosec // executable fixtures for the app and core listings.
+		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\ncat <<'JSON'\n"+reply+"\nJSON\n"), 0o700))
+	}
+	t.Setenv("PATH", bin+":/usr/bin:/bin")
+	t.Setenv("HERDR_SESH_BACKEND", "app")
+	var out bytes.Buffer
+	a := &App{Out: &out, Err: &bytes.Buffer{}}
+	require.NoError(t, a.Run(t.Context(), []string{"preview", "--config", cfg, root}))
+	assert.Equal(t, "CONFIGURED", out.String())
+	out.Reset()
+	require.NoError(t, a.Run(t.Context(), []string{"list", "--json", "--config", cfg}))
+	var sessions []model.Session
+	require.NoError(t, json.Unmarshal(out.Bytes(), &sessions))
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "project", sessions[0].Name)
+	assert.Equal(t, "sp1", sessions[0].WorkspaceID)
+	assert.Equal(t, subdir, sessions[0].Path)
+}
+
 func TestConnectMissingFocusSocketWarnsAndRecordsHistory(t *testing.T) {
 	configureHerdrScript(t, `#!/bin/sh
 case "$1 $2" in
