@@ -23,7 +23,25 @@
       "matchManagers": [
         "gomod"
       ],
+      "matchPackageNames": [
+        "!bloomfx.dev/bloom"
+      ],
       "groupName": "go dependencies",
+      "semanticCommitScope": "go-deps",
+      "semanticCommitType": "fix",
+      "minimumReleaseAgeBehaviour": "timestamp-required",
+      "postUpdateOptions": [
+        "gomodTidy"
+      ]
+    },
+    {
+      "description": "bloom is pre-1.0 and may break between alphas, so it updates in its own PR.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "bloomfx.dev/bloom"
+      ],
       "semanticCommitScope": "go-deps",
       "semanticCommitType": "fix",
       "minimumReleaseAgeBehaviour": "timestamp-required",

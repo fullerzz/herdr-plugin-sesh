@@ -85,6 +85,9 @@ script -q "$EVIDENCE/picker.terminal.txt" uv run --frozen python "$VERIFY" tui "
 Wait for `Sesh>` and the fixture names; type `verify-beta`, capture the filtered
 screen, then press Escape. The helper records argv and exit; `script` captures
 the PTY. See [picker](features/picker.md) for checks and other entry points.
+If using tmux, start a server on a fresh private socket with `-f /dev/null`.
+Personal tmux startup hooks can restore other sessions even on a new socket.
+Capture the named pane and confirm both fixture rows before sending any keys.
 Use actual keyboard input, not a pipe, for interactive claims. The helper caps
 CLI calls at 30 seconds and TUI calls at 180 seconds. A timeout is a failure.
 

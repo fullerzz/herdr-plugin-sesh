@@ -127,7 +127,7 @@ func TestTeaModelClickUsesLastRenderedFrame(t *testing.T) {
 		case <-ctx.Done():
 			return
 		}
-		p.Send(tea.MouseClickMsg{X: 20, Y: 6, Button: tea.MouseLeft})
+		p.Send(tea.MouseClickMsg{X: 20, Y: 5, Button: tea.MouseLeft})
 	}()
 	final, err := p.Run()
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestTeaModelIgnoresStaleWorkspaceClick(t *testing.T) {
 				{Source: "herdr", Name: "web", WorkspaceID: "w2"},
 			}, Options{DisplayOptions: DisplayOptions{HidePreview: true}})
 			m.width, m.height = 120, 28
-			click := m.View().OnMouse(tea.MouseClickMsg{X: 20, Y: 6, Button: tea.MouseLeft})
+			click := m.View().OnMouse(tea.MouseClickMsg{X: 20, Y: 5, Button: tea.MouseLeft})
 			require.NotNil(t, click)
 			switch state {
 			case "filtered out":
@@ -198,7 +198,7 @@ func TestTeaModelIgnoresStaleWorkspaceClick(t *testing.T) {
 				require.NoError(t, err)
 				m.settings = &editor
 			}
-			updated, _ := m.Update(click())
+			updated, _ := m.Update(previewResult(click))
 			assert.False(t, updated.(teaModel).chosen)
 		})
 	}
@@ -256,6 +256,8 @@ func TestTeaModelMouseWheelNavigates(t *testing.T) {
 			t.Cleanup(func() { m.cancelActivePreview() })
 			m.width, m.height, m.reduceMotion = tc.width, 28, true
 			for i, button := range []tea.MouseButton{tea.MouseWheelDown, tea.MouseWheelDown, tea.MouseWheelUp, tea.MouseWheelUp} {
+				// Wheel handlers belong to the frame on screen, as in a running program.
+				m.View()
 				updated, _ := m.Update(tea.MouseWheelMsg{X: 20, Y: 7, Button: button})
 				m = updated.(teaModel)
 				assert.Equal(t, []int{0, 1, 0, 0}[i], m.list.Selected)
@@ -271,21 +273,25 @@ func TestTeaModelDividerFollowsMultilinePrompt(t *testing.T) {
 	t.Cleanup(func() { m.cancelActivePreview() })
 	m.width, m.height = 120, 28
 	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	// The divider is the column after the list box's right border, from
+	// the box's top corner to its bottom one.
+	const border, divider = 64, 65
 	top, bottom := -1, -1
 	for y, line := range lines {
-		if ansi.Cut(line, 64, 65) == "│" {
-			if top == -1 {
-				top = y
-			}
+		switch ansi.Cut(line, border, divider) {
+		case "╮":
+			top = y
+		case "╯":
 			bottom = y
 		}
 	}
 	require.NotEqual(t, -1, top)
+	require.NotEqual(t, -1, bottom)
 	for _, tc := range []struct {
 		y    int
 		drag bool
 	}{{top - 1, false}, {top, true}, {bottom, true}} {
-		updated, _ := m.Update(tea.MouseClickMsg{X: 64, Y: tc.y, Button: tea.MouseLeft})
-		assert.Equal(t, tc.drag, updated.(teaModel).draggingPreview, "screen row %d", tc.y)
+		updated, _ := m.Update(tea.MouseClickMsg{X: divider, Y: tc.y, Button: tea.MouseLeft})
+		assert.Equal(t, tc.drag, updated.(teaModel).pointer.dividerActive, "screen row %d", tc.y)
 	}
 }

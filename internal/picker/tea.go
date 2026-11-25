@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"bloomfx.dev/bloom"
+	"bloomfx.dev/bloom/anim"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -26,7 +28,6 @@ import (
 )
 
 const (
-	defaultVisibleRows         = 12
 	statusRefreshInterval      = time.Second
 	panePreviewRefreshInterval = time.Second
 
@@ -39,20 +40,17 @@ const (
 	defaultPrompt      = "Sesh> "
 	defaultPlaceholder = "Filter workspaces"
 	defaultWidth       = 80
+	defaultHeight      = 24
 	previewSplitWidth  = 92
 	minPreviewWidth    = 36
 	minListWidth       = 36
 	maxPreviewWidth    = 52
-	previewTitleRows   = 1
-	pickerChromeRows   = 8
 	compactPreviewBody = 6
 	horizontalPadding  = 2
 	rowPathMinWidth    = 60
 	rowSourceWidth     = 10
 	rowNameMinWidth    = 12
 	rowNameMaxWidth    = 28
-	filterLineIndex    = 3
-	listFirstRowIndex  = 6
 	herdrSourceIcon    = "\U000f0cc6"
 	zoxideSourceIcon   = "\uf114"
 	configSourceIcon   = "\ue615"
@@ -122,9 +120,6 @@ var (
 	emptyStyle = lipgloss.NewStyle().
 			Foreground(amberColor)
 
-	moreStyle = lipgloss.NewStyle().
-			Foreground(mutedColor)
-
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
 )
@@ -184,6 +179,7 @@ type ReloadResult struct {
 func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool, error) {
 	uitheme.DetectHostAppearance()
 	configureHerdrTheme(opts.HerdrThemeInherit)
+	configureMotion()
 	var popts []tea.ProgramOption
 	if opts.Output != nil {
 		popts = append(popts, tea.WithOutput(opts.Output))
@@ -200,6 +196,7 @@ func Run(items []sessionmodel.Session, opts Options) (sessionmodel.Session, bool
 }
 
 type teaModel struct {
+	ui                *bloom.Root
 	backend           Backend
 	settings          *settings.Model
 	settingsBusy      bool
@@ -221,6 +218,7 @@ type teaModel struct {
 	focusSmearFrame     int
 	focusSmearStep      int
 	focusSmearSteps     int
+	focusSmearInputRow  int
 	focusSmearDirection int
 	focusSmearActive    bool
 	reduceMotion        bool
@@ -229,7 +227,9 @@ type teaModel struct {
 	preview              string
 	previewLoading       bool
 	previewWidth         int
-	draggingPreview      bool
+	pointer              *pointerInput
+	previewScroll        *previewViewport
+	listOffset           int
 	previewKey           string
 	previewParentContext context.Context
 	previewContext       context.Context
@@ -256,6 +256,29 @@ type teaModel struct {
 	cancelWorkspaceClose    context.CancelFunc
 	quitAfterWorkspaceClose bool
 	closeError              string
+	// toastText outlives closeError so the toast keeps its text while hiding.
+	toast     anim.Presence
+	toastText string
+	shimmer   anim.Sequence
+
+	// previewIn fades in text for another workspace or preview mode.
+	previewIn anim.Value
+	// countRoll turns the workspace count over from countFrom.
+	countRoll anim.Value
+	countFrom string
+	// shake wobbles the list when a key is refused.
+	shake anim.Value
+}
+
+const (
+	previewInDuration    = 220 * time.Millisecond
+	countRollDuration    = 300 * time.Millisecond
+	refusedShakeDuration = 360 * time.Millisecond
+)
+
+// oneShot is an effect's progress, at rest at 1 until it plays from 0.
+func oneShot(d time.Duration) anim.Value {
+	return anim.NewValue(1, anim.Duration(d), anim.Ease(anim.Linear))
 }
 
 type previewMsg struct {
@@ -336,8 +359,15 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	if opts.CyclePreviewModeKey != nil {
 		cyclePreviewModeKey = *opts.CyclePreviewModeKey
 	}
-	reduceMotion := os.Getenv("HERDR_SESH_REDUCE_MOTION")
 	m := teaModel{
+		ui:                    bloom.New(),
+		toast:                 anim.NewPresence(),
+		shimmer:               anim.NewLoop(shimmerPeriod),
+		previewIn:             anim.NewValue(1, anim.Duration(previewInDuration), anim.Ease(anim.OutCubic)),
+		countRoll:             oneShot(countRollDuration),
+		shake:                 oneShot(refusedShakeDuration),
+		pointer:               &pointerInput{},
+		previewScroll:         &previewViewport{},
 		backend:               opts.Backend,
 		list:                  list,
 		input:                 input,
@@ -359,7 +389,7 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 		herdrWorkspaces:       workspaceSessionsByID(opts.HerdrWorkspaces),
 		workspaceCloseContext: closeContext,
 		previewParentContext:  closeContext,
-		reduceMotion:          reduceMotion == "1" || strings.EqualFold(reduceMotion, "true"),
+		reduceMotion:          reduceMotionRequested(),
 		smear:                 newSmearPreset(os.Getenv("HERDR_SESH_SMEAR_PRESET")),
 	}
 	if current, ok := list.Current(); ok && !m.hidePreview {
@@ -368,13 +398,28 @@ func newTeaModel(items []sessionmodel.Session, opts Options) teaModel {
 	return m
 }
 
+// configureMotion applies HERDR_SESH_REDUCE_MOTION to bloom's animations.
+// Motion is process-wide in bloom, so it is set both ways on every run.
+func configureMotion() {
+	anim.SetMotion(!reduceMotionRequested())
+}
+
+func reduceMotionRequested() bool {
+	value := os.Getenv("HERDR_SESH_REDUCE_MOTION")
+	return value == "1" || strings.EqualFold(value, "true")
+}
+
 func (m teaModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus()}
+	cmds := []tea.Cmd{m.input.Focus(), m.ui.Init()}
 	if current, ok := m.list.Current(); ok && m.previewKey != "" {
 		cmds = append(cmds, previewCommand(m.previewContext, m.previewKey, m.previewRequestID, current, m.defaultPreviewCommand, m.panePreview), previewLoadingCommand(m.previewContext, m.previewRequestID))
 	}
 	if m.backend != nil {
-		cmds = append(cmds, scheduleStatusRefreshFor(m.refreshGeneration), m.agentSpinner.Tick)
+		cmds = append(cmds, scheduleStatusRefreshFor(m.refreshGeneration))
+		if !m.reduceMotion {
+			// Reduced motion keeps the working spinner on its first frame.
+			cmds = append(cmds, m.agentSpinner.Tick)
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -443,12 +488,79 @@ func (p smearPreset) trailGlyph(age int, diagonal bool) string {
 	}
 }
 
-//nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
+//nolint:ireturn // Bubble Tea's Model interface requires this return shape.
 func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var uiCmd tea.Cmd
+	if _, mouse := msg.(tea.MouseMsg); !mouse || m.settings == nil {
+		// The root's last frame is the picker, not settings, so its handlers
+		// must not see clicks made in settings.
+		uiCmd = m.ui.Update(msg)
+	}
+	animCmd := anim.Update(msg, &m.toast, &m.shimmer, &m.previewIn, &m.countRoll, &m.shake)
+	count := m.countText()
+	if _, ok := msg.(anim.FrameMsg); ok {
+		// Animation frames only redraw; the picker's catch-all would refilter on each one.
+		return m, tea.Batch(uiCmd, animCmd)
+	}
+	next, cmd := m.update(msg)
+	if _, mouse := msg.(tea.MouseMsg); mouse {
+		// update applies what the handlers recorded or, when it ignores the
+		// mouse, such as while settings load, drops it here so it cannot
+		// replay on a later event.
+		m.pointer.wheel, m.pointer.listScrolled, m.pointer.dividerMoved = 0, false, false
+	}
+	if picker, ok := next.(teaModel); ok {
+		var syncCmd tea.Cmd
+		picker, syncCmd = picker.syncToast()
+		var effectsCmd tea.Cmd
+		picker, effectsCmd = picker.syncEffects(count)
+		next, cmd = picker, tea.Batch(cmd, syncCmd, effectsCmd)
+	}
+	return next, tea.Batch(cmd, uiCmd, animCmd)
+}
+
+// syncEffects rolls the workspace count over when an update changes it.
+// count is the count shown before the update.
+func (m teaModel) syncEffects(count string) (teaModel, tea.Cmd) {
+	if m.countText() == count || m.reduceMotion {
+		return m, nil
+	}
+	m.countFrom = count
+	return m, m.countRoll.Play(0, 1)
+}
+
+// refuse shakes the list, for a key that does nothing right now.
+func (m teaModel) refuse() (teaModel, tea.Cmd) {
+	if m.reduceMotion {
+		return m, nil
+	}
+	return m, m.shake.Play(0, 1)
+}
+
+// syncToast shows the toast while closeError is set, so every path that sets
+// or clears the error drives it.
+func (m teaModel) syncToast() (teaModel, tea.Cmd) {
+	switch {
+	case m.closeError != "":
+		m.toastText = m.closeError
+		if !m.toast.Shown() {
+			return m, m.toast.Show()
+		}
+	case m.toast.Shown():
+		return m, m.toast.Hide()
+	}
+	return m, nil
+}
+
+//nolint:gocyclo,ireturn // Bubble Tea's central event dispatcher requires this return shape.
+func (m teaModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if next, cmd, handled := m.updateSettings(msg); handled {
 		return next, cmd
 	}
 	if _, ok := msg.(spinner.TickMsg); ok {
+		if m.reduceMotion {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.agentSpinner, cmd = m.agentSpinner.Update(msg)
 		return m, cmd
@@ -527,6 +639,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if loading, ok := msg.(previewLoadingMsg); ok {
 		if loading.requestID == m.previewRequestID && m.cancelPreview != nil && m.previewContext.Err() == nil {
 			m.previewLoading = true
+			return m, m.shimmer.Loop()
 		}
 		return m, nil
 	}
@@ -595,7 +708,10 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
 		m.height = size.Height
-		m.draggingPreview = false
+		m.pointer.dividerActive = false
+		if m.focusSmearActive {
+			m.focusSmearInputRow, _ = m.smearEnds()
+		}
 		return m, nil
 	}
 	if clicked, ok := msg.(workspaceClickedMsg); ok {
@@ -610,18 +726,33 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
-		switch wheel.Button {
-		case tea.MouseWheelUp:
+	if _, ok := msg.(tea.MouseWheelMsg); ok {
+		// The wheel steps the selection as the arrow keys do. A handler from
+		// a frame drawn before a close started may have recorded it.
+		dy := m.pointer.wheel
+		m.pointer.wheel = 0
+		switch {
+		case !m.selectable():
+			return m, nil
+		case dy < 0:
 			msg = tea.KeyPressMsg{Code: tea.KeyUp}
-		case tea.MouseWheelDown:
+		case dy > 0:
 			msg = tea.KeyPressMsg{Code: tea.KeyDown}
 		default:
 			return m, nil
 		}
 	}
-	if mouse, ok := msg.(tea.MouseMsg); ok {
-		return m.resizePreview(mouse), nil
+	if _, ok := msg.(tea.MouseMsg); ok {
+		if m.pointer.dividerMoved {
+			m.previewWidth, m.pointer.dividerMoved = m.pointer.dividerWidth, false
+		}
+		if m.pointer.listScrolled {
+			m.pointer.listScrolled = false
+			if m.selectable() && m.pointer.listQuery == m.list.Query {
+				return m.scrollListTo(m.pointer.listFirst)
+			}
+		}
+		return m, nil
 	}
 	if _, ok := msg.(tea.PasteMsg); ok {
 		return m.updateInput(msg)
@@ -697,7 +828,7 @@ func (m teaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m teaModel) chooseCurrent() (teaModel, tea.Cmd) {
 	if m.closingWorkspaceID != "" {
-		return m, nil
+		return m.refuse()
 	}
 	if choice, ok := m.list.Current(); ok {
 		m.choice = choice
@@ -710,7 +841,7 @@ func (m teaModel) chooseCurrent() (teaModel, tea.Cmd) {
 func (m teaModel) closeSelectedWorkspace() (teaModel, tea.Cmd) {
 	current, ok := m.list.Current()
 	if !ok || current.Source != "herdr" || current.WorkspaceID == "" || m.backend == nil || m.closingWorkspaceID != "" {
-		return m, nil
+		return m.refuse()
 	}
 	m.closingWorkspaceID = current.WorkspaceID
 	m.closeError = ""
@@ -781,6 +912,9 @@ func (m teaModel) updateInput(msg tea.Msg) (teaModel, tea.Cmd) {
 	if smearing {
 		m.input.Blur()
 		m.focusSmearStart = m.inputCursorColumn()
+		// The edit can change the filter's height, as when a multiline
+		// placeholder goes, which moves the input's cursor line.
+		m.focusSmearInputRow, _ = m.smearEnds()
 	}
 	m = m.filter(m.input.Value())
 	m, previewCmd := m.refreshPreview()
@@ -802,12 +936,6 @@ func refreshAgentStatusesCommand(refresh func() (map[string]string, error), gene
 	}
 }
 
-func (m teaModel) headerLines(width int) []string {
-	input := m.input
-	input.SetWidth(maxInt(8, width-lipgloss.Width(input.Prompt)-1))
-	return []string{"", m.header(width), horizontalRule(width), fitLine(input.View(), width), horizontalRule(width)}
-}
-
 func (m teaModel) View() tea.View {
 	if m.settings != nil {
 		if m.settingsBusy {
@@ -821,73 +949,35 @@ func (m teaModel) View() tea.View {
 		}
 		return m.settings.View()
 	}
-	width := m.contentWidth()
-	listWidth, previewWidth := m.previewLayout()
-	lines := m.headerLines(width)
-	listTop := lipgloss.Height(strings.Join(lines, "\n")) + previewTitleRows
-	visibleRows := m.previewBodyLines()
-	var workspaces workspaceListView
+	width := m.contentWidth() + horizontalPadding*2
+	view := m.ui.View(width, m.windowHeight(), bloom.Overlay(m.pickerTree(), m.pickerLayers(width)...))
+	m.previewScroll.drawn = m.previewScroll.shown
+	view.AltScreen = true
+	// The wheel moves the selection from Update, which needs reports even
+	// when no node has a handler. Bloom asks for all motion while the
+	// divider's grip follows the pointer; that is kept.
+	if view.MouseMode == tea.MouseModeNone {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
+	return view
+}
 
-	if m.hidePreview {
-		visibleRows = m.listOnlyBodyLines()
-		workspaces = m.listView(width, visibleRows)
-		lines = append(lines, sectionStyle.Render("WORKSPACES"))
-		lines = append(lines, strings.Split(strings.TrimSuffix(workspaces.content, "\n"), "\n")...)
-	} else if previewWidth > 0 {
-		workspaces = m.listView(listWidth, visibleRows)
-		list := sectionStyle.Render("WORKSPACES") + "\n" + workspaces.content
-		preview := m.previewView(previewWidth, visibleRows)
-		lines = append(lines, strings.Split(joinPanels(list, preview, listWidth, previewWidth), "\n")...)
-	} else {
-		var previewLines int
-		visibleRows, previewLines = m.stackedBodyLines()
-		workspaces = m.listView(listWidth, visibleRows)
-		lines = append(lines, sectionStyle.Render("WORKSPACES"))
-		lines = append(lines, strings.Split(strings.TrimSuffix(workspaces.content, "\n"), "\n")...)
-		lines = append(lines, strings.Split(m.previewView(width, previewLines), "\n")...)
+func (m teaModel) footerText() string {
+	if !m.previewShown() && m.closingWorkspaceID != "" {
+		status := "Closing workspace..."
+		if m.quitAfterWorkspaceClose {
+			status = "Cancelling workspace close..."
+		}
+		return emptyStyle.Render(status)
+	}
+	if m.settingsBusy {
+		return helpStyle.Render("Loading settings…")
 	}
 	help := fmt.Sprintf("enter select · ctrl+j/k · ctrl+r %s · ctrl+x close · esc exit", m.workspaceSort)
 	if m.backend != nil {
 		help = m.settingsKey() + " settings · " + help
 	}
-	footer := helpStyle.Render(help)
-	if m.settingsBusy {
-		footer = helpStyle.Render("Loading settings…")
-	}
-	if m.closeError != "" {
-		footer = emptyStyle.Render(m.closeError)
-	} else if m.hidePreview && m.closingWorkspaceID != "" {
-		status := "Closing workspace..."
-		if m.quitAfterWorkspaceClose {
-			status = "Cancelling workspace close..."
-		}
-		footer = emptyStyle.Render(status)
-	}
-	lines = append(lines,
-		horizontalRule(width),
-		m.footerLine(footer, width),
-		"",
-	)
-	for i, line := range lines {
-		if line != "" {
-			lines[i] = fitLine(line, width)
-		}
-	}
-	m.renderFocusSmear(lines, width)
-	framed := make([]string, len(lines))
-	for i, line := range lines {
-		if line == "" {
-			continue
-		}
-		framed[i] = strings.Repeat(" ", horizontalPadding) + line + strings.Repeat(" ", horizontalPadding)
-	}
-	view := tea.NewView(strings.Join(framed, "\n"))
-	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
-	if m.closingWorkspaceID == "" && !m.settingsBusy {
-		view.OnMouse = m.workspaceMouseHandler(listWidth, listTop, workspaces.keys)
-	}
-	return view
+	return helpStyle.Render(help)
 }
 
 func herdrWorkspaceIDs(items []sessionmodel.Session) []string {
@@ -1025,84 +1115,24 @@ func workspaceSessionsByID(items []sessionmodel.Session) map[string]sessionmodel
 	return workspaces
 }
 
-type workspaceListView struct {
-	content string
-	keys    []string
-}
-
-func (m teaModel) listView(width, visibleRows int) workspaceListView {
-	if visibleRows < 1 {
-		return workspaceListView{}
-	}
-	lines := make([]string, 0, visibleRows)
-	keys := make([]string, visibleRows)
-	if len(m.list.Filtered) == 0 {
-		lines = append(lines, emptyStyle.Render("No matching workspaces"))
-	} else {
-		start, end, moreAbove, moreBelow := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
-		if moreAbove {
-			lines = append(lines, moreStyle.Render(fmt.Sprintf("↑ %d more", start)))
-		}
-		for i := start; i < end; i++ {
-			selected := m.listFocused && !m.focusSmearActive && i == m.list.Selected
-			selectedRail := m.smear.headStyle().Render(m.smear.headGlyph + " ")
-			treePrefix := worktreeTreePrefix(m.list.Filtered, i)
-			line := strings.TrimSuffix(rowWithRail(m.list.Filtered[i], selected, width, m.showIcons, m.replaceWorktreeIcon, m.hidePath, m.list.Query, selectedRail, m.agentSpinner.View(), treePrefix), "\n")
-			if rail, age := m.smearRail(i); rail != "" {
-				line = m.smear.trailStyle(age).Render(rail+" ") + strings.TrimPrefix(line, "  ")
-			}
-			keys[len(lines)] = sessionmodel.Key(m.list.Filtered[i])
-			lines = append(lines, line)
-		}
-		if moreBelow {
-			lines = append(lines, moreStyle.Render(fmt.Sprintf("↓ %d more", len(m.list.Filtered)-end)))
-		}
-	}
-	for len(lines) < visibleRows {
-		lines = append(lines, "")
-	}
-	if len(lines) > visibleRows {
-		lines = lines[:visibleRows]
-	}
-	var physicalKeys []string
-	for i := range lines {
-		lines[i] = fitLine(lines[i], width)
-		for range lipgloss.Height(lines[i]) {
-			physicalKeys = append(physicalKeys, keys[i])
-		}
-	}
-	return workspaceListView{content: strings.Join(lines, "\n") + "\n", keys: physicalKeys}
-}
-
-func (m teaModel) previewBodyLines() int {
-	if m.height == 0 {
-		return defaultVisibleRows
-	}
-	lines := m.height - pickerChromeRows - previewTitleRows
-	if lines < compactPreviewBody {
-		return compactPreviewBody
-	}
-	return lines
-}
-
-func (m teaModel) listOnlyBodyLines() int {
-	if m.height == 0 {
-		return defaultVisibleRows
-	}
-	return maxInt(1, m.height-pickerChromeRows-previewTitleRows)
-}
-
-func (m teaModel) stackedBodyLines() (int, int) {
-	if m.height == 0 {
-		return defaultVisibleRows, compactPreviewBody
-	}
+// stackedPreviewRows is how many preview lines show under the list when the
+// terminal is too narrow to put them side by side.
+func (m teaModel) stackedPreviewRows() int {
 	const stackedChromeRows = 10
-	available := m.height - stackedChromeRows
+	available := m.windowHeight() - stackedChromeRows
 	if available < 2 {
-		return 1, 1
+		return 1
 	}
-	previewLines := min(compactPreviewBody, maxInt(1, available/3))
-	return maxInt(1, available-previewLines), previewLines
+	return min(compactPreviewBody, maxInt(1, available/3))
+}
+
+// windowHeight is the terminal's height, or a standard one before Bubble
+// Tea reports it.
+func (m teaModel) windowHeight() int {
+	if m.height == 0 {
+		return defaultHeight
+	}
+	return m.height
 }
 
 func (m teaModel) contentWidth() int {
@@ -1113,18 +1143,13 @@ func (m teaModel) contentWidth() int {
 	return maxInt(1, width-horizontalPadding*2)
 }
 
-func (m teaModel) header(width int) string {
-	title := titleStyle.Render("herdr / sesh")
-	countText := fmt.Sprintf("%d workspaces", len(m.list.All))
+// countText is how many workspaces there are, and how many match while the
+// filter has text.
+func (m teaModel) countText() string {
 	if m.list.Query != "" {
-		countText = fmt.Sprintf("%d/%d workspaces", len(m.list.Filtered), len(m.list.All))
+		return fmt.Sprintf("%d/%d workspaces", len(m.list.Filtered), len(m.list.All))
 	}
-	count := countStyle.Render(countText)
-	gap := width - lipgloss.Width(title) - lipgloss.Width(count)
-	if gap < 1 {
-		gap = 1
-	}
-	return fitLine(title+strings.Repeat(" ", gap)+count, width)
+	return fmt.Sprintf("%d workspaces", len(m.list.All))
 }
 
 func (m teaModel) lastWorkspaceStatus() (label, path string) {
@@ -1170,7 +1195,7 @@ func (m teaModel) lastWorkspaceCompactText() string {
 // row) intact and fits the last-workspace status into the remaining width,
 // compacting or dropping it rather than truncating the help.
 func (m teaModel) footerLine(footer string, width int) string {
-	if m.closeError != "" || m.hideLastWorkspace {
+	if m.hideLastWorkspace {
 		return fitLine(footer, width)
 	}
 	available := width - lipgloss.Width(footer) - 2
@@ -1183,26 +1208,6 @@ func (m teaModel) footerLine(footer string, width int) string {
 	}
 	gap := maxInt(1, width-lipgloss.Width(footer)-lipgloss.Width(last))
 	return fitLine(footer+strings.Repeat(" ", gap)+last, width)
-}
-
-func (m teaModel) previewView(width, maxLines int) string {
-	text := strings.TrimRight(m.preview, "\n")
-	if m.closingWorkspaceID != "" && (m.previewKey == "" || m.quitAfterWorkspaceClose) {
-		text = "Closing workspace..."
-		if m.quitAfterWorkspaceClose {
-			text = "Cancelling workspace close..."
-		}
-	} else if m.previewLoading {
-		text = "Loading preview..."
-	} else if text == "" && m.cancelPreview == nil {
-		text = "No preview available"
-	}
-	text = fixedVisualLines(text, width, maxLines)
-	lines := append([]string{m.previewTitle()}, strings.Split(text, "\n")...)
-	for i := range lines {
-		lines[i] = fitLine(lines[i], width)
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (m teaModel) previewTitle() string {
@@ -1241,17 +1246,27 @@ func (m teaModel) receivePreview(preview previewMsg) (teaModel, tea.Cmd) {
 		return m, nil
 	}
 	m.preview = preview.text
+	// Text for another workspace or preview mode starts at the top; a pane
+	// refresh of the same one keeps where it was scrolled.
+	var fadeIn tea.Cmd
+	if shown := fmt.Sprintf("%t:%s", m.panePreview, preview.key); shown != m.previewScroll.shown {
+		m.previewScroll.shown, m.previewScroll.pos = shown, bloom.ViewportPos{}
+		if !m.reduceMotion {
+			fadeIn = m.previewIn.Play(0, 1)
+		}
+	}
 	m.previewLoading = false
+	m.shimmer.Stop()
 	if m.cancelPreview != nil {
 		m.cancelPreview()
 		m.cancelPreview = nil
 	}
 	if current, ok := m.list.Current(); ok && m.panePreview && !m.hidePreview && current.Source == "herdr" && current.WorkspaceID != "" {
-		return m, tea.Tick(panePreviewRefreshInterval, func(time.Time) tea.Msg {
+		return m, tea.Batch(fadeIn, tea.Tick(panePreviewRefreshInterval, func(time.Time) tea.Msg {
 			return panePreviewTickMsg{requestID: preview.requestID}
-		})
+		}))
 	}
-	return m, nil
+	return m, fadeIn
 }
 
 func (m teaModel) refreshPanePreview(tick panePreviewTickMsg) (teaModel, tea.Cmd) {
@@ -1288,6 +1303,7 @@ func (m teaModel) refreshPreview() (teaModel, tea.Cmd) {
 
 func (m teaModel) cancelActivePreview() teaModel {
 	m.previewLoading = false
+	m.shimmer.Stop()
 	if m.cancelPreview != nil {
 		m.cancelPreview()
 		m.cancelPreview = nil
@@ -1336,7 +1352,7 @@ func (m teaModel) focusList() (teaModel, tea.Cmd) {
 	}
 	m.focusSmearFrame = 0
 	m.focusSmearStep = 0
-	m.focusSmearSteps = m.focusSmearDistance()
+	m = m.measureFocusSmear()
 	m.focusSmearDirection = 1
 	m.focusSmearActive = true
 	return m, m.smearTick()
@@ -1351,26 +1367,56 @@ func (m teaModel) smearToInput() (teaModel, tea.Cmd) {
 	}
 	m.focusSmearStart = m.inputCursorColumn()
 	m.focusSmearFrame = 0
-	m.focusSmearSteps = m.focusSmearDistance()
+	m = m.measureFocusSmear()
 	m.focusSmearStep = m.focusSmearSteps
 	m.focusSmearDirection = -1
 	m.focusSmearActive = true
 	return m, m.smearTick()
 }
 
-func (m teaModel) focusSmearDistance() int {
-	visibleRows := m.previewBodyLines()
-	if m.hidePreview {
-		visibleRows = m.listOnlyBodyLines()
-	} else if _, previewWidth := m.previewLayout(); previewWidth == 0 {
-		visibleRows, _ = m.stackedBodyLines()
+// measureFocusSmear solves the layout once as the smear starts, rather than
+// on every frame, for the row it starts from, the input's cursor line, and
+// how many rows it travels down to the selected row.
+func (m teaModel) measureFocusSmear() teaModel {
+	inputRow, selectedRow := m.smearEnds()
+	m.focusSmearInputRow, m.focusSmearSteps = inputRow, maxInt(1, selectedRow-inputRow)
+	return m
+}
+
+// smearEnds solves the layout for the screen rows of the input's cursor line
+// and of the selected workspace.
+func (m teaModel) smearEnds() (inputRow, selectedRow int) {
+	frame := bloom.Solve(m.contentWidth()+horizontalPadding*2, m.windowHeight(), m.pickerTree())
+	if input, ok := frame.Rect(inputID); ok {
+		inputRow = input.Max.Y - 1
 	}
-	start, _, moreAbove, _ := listWindow(len(m.list.Filtered), m.list.Selected, visibleRows)
-	selectedLine := m.list.Selected - start
-	if moreAbove {
-		selectedLine++
+	selectedRow = inputRow + 1
+	list, listOK := frame.Rect(listID)
+	shown, shownOK := frame.List(listID)
+	if listOK && shownOK {
+		selectedRow = list.Min.Y + m.list.Selected - shown.First
 	}
-	return maxInt(1, listFirstRowIndex+selectedLine-filterLineIndex)
+	return inputRow, selectedRow
+}
+
+// scrollListTo shows the list from item first, as the scrollbar was dragged
+// to, and keeps the selection among the items shown.
+func (m teaModel) scrollListTo(first int) (teaModel, tea.Cmd) {
+	if len(m.list.Filtered) == 0 {
+		return m, nil
+	}
+	m.listOffset = first
+	visible := 1
+	if shown, ok := m.ui.Frame().List(listID); ok {
+		visible = max(shown.Visible, 1)
+	}
+	m.list.Selected = min(max(m.list.Selected, first), first+visible-1, len(m.list.Filtered)-1)
+	// Focus the list so its rail marks what enter or ctrl+x would act on,
+	// and drop any trail: the selection may have jumped far.
+	m.listFocused = true
+	m.input.Blur()
+	m.smearActive, m.focusSmearActive = false, false
+	return m.refreshPreview()
 }
 
 func focusSmearFrameCount(distance int) int {
@@ -1413,7 +1459,7 @@ func (m teaModel) renderFocusSmear(lines []string, width int) {
 		start, end = head, min(m.focusSmearSteps, head+m.smear.maxLength-1)
 	}
 	for step := start; step <= end; step++ {
-		lineIndex := filterLineIndex + step
+		lineIndex := step
 		if lineIndex < 0 || lineIndex >= len(lines) {
 			continue
 		}
@@ -1433,6 +1479,10 @@ func (m teaModel) renderFocusSmear(lines []string, width int) {
 }
 
 func (m teaModel) moveSelection(delta int) (teaModel, tea.Cmd) {
+	// Keep scrolls from where the list was on screen.
+	if shown, ok := m.ui.Frame().List(listID); ok {
+		m.listOffset = shown.First
+	}
 	previous := m.list.Selected
 	m.list.Move(delta)
 	var tick tea.Cmd
@@ -1534,72 +1584,6 @@ func (m teaModel) previewLayout() (int, int) {
 	}
 	previewWidth = min(max(previewWidth, minPreviewWidth), width-minListWidth-3)
 	return width - previewWidth - 3, previewWidth
-}
-
-func (m teaModel) resizePreview(msg tea.MouseMsg) teaModel {
-	listWidth, previewWidth := m.previewLayout()
-	if previewWidth == 0 {
-		m.draggingPreview = false
-		return m
-	}
-	switch mouse := msg.(type) {
-	case tea.MouseClickMsg:
-		// joinPanels places the divider after the list and one space.
-		listTop := lipgloss.Height(strings.Join(m.headerLines(m.contentWidth()), "\n")) + previewTitleRows
-		m.draggingPreview = mouse.Button == tea.MouseLeft &&
-			mouse.X == horizontalPadding+listWidth+1 &&
-			mouse.Y >= listTop-previewTitleRows &&
-			mouse.Y < listTop+m.previewBodyLines()
-	case tea.MouseMotionMsg:
-		if mouse.Button != tea.MouseLeft {
-			m.draggingPreview = false
-		}
-		if m.draggingPreview {
-			width := m.contentWidth()
-			m.previewWidth = min(max(width+horizontalPadding-mouse.X-2, minPreviewWidth), width-minListWidth-3)
-		}
-	case tea.MouseReleaseMsg:
-		m.draggingPreview = false
-	}
-	return m
-}
-
-func (m teaModel) workspaceMouseHandler(width, top int, keys []string) func(tea.MouseMsg) tea.Cmd {
-	// OnMouse belongs to the last flushed frame; keys describe its physical rows.
-	height := m.height
-	return func(msg tea.MouseMsg) tea.Cmd {
-		click, ok := msg.(tea.MouseClickMsg)
-		if !ok || click.Button != tea.MouseLeft {
-			return nil
-		}
-		row := click.Y - top
-		if click.X < horizontalPadding || click.X >= horizontalPadding+width || row < 0 || row >= len(keys) || height > 0 && click.Y >= height {
-			return nil
-		}
-		key := keys[row]
-		if key == "" {
-			return nil
-		}
-		return func() tea.Msg { return workspaceClickedMsg{key: key} }
-	}
-}
-
-func fixedVisualLines(text string, width, count int) string {
-	if count < 1 {
-		count = 1
-	}
-	lines := strings.Split(lipgloss.NewStyle().Width(width).MaxWidth(width).Render(text), "\n")
-	if len(lines) > count {
-		if count == 1 {
-			lines = []string{"..."}
-		} else {
-			lines = append(lines[:count-1], "...")
-		}
-	}
-	for len(lines) < count {
-		lines = append(lines, "")
-	}
-	return strings.Join(lines, "\n")
 }
 
 func row(s sessionmodel.Session, selected bool, width int, showIcons bool, query string) string {
@@ -1863,10 +1847,6 @@ func compactHome(path string) string {
 	return path
 }
 
-func horizontalRule(width int) string {
-	return ruleStyle.Render(strings.Repeat("─", maxInt(1, width)))
-}
-
 func fitLine(line string, width int) string {
 	if width < 1 {
 		return ""
@@ -1881,54 +1861,6 @@ func fitPlain(text string, width int) string {
 	}
 	text = ansi.Truncate(text, width, "…")
 	return text + strings.Repeat(" ", maxInt(0, width-lipgloss.Width(text)))
-}
-
-func joinPanels(left, right string, leftWidth, rightWidth int) string {
-	leftLines := strings.Split(strings.TrimSuffix(left, "\n"), "\n")
-	rightLines := strings.Split(strings.TrimSuffix(right, "\n"), "\n")
-	height := max(len(leftLines), len(rightLines))
-	lines := make([]string, height)
-	divider := ruleStyle.Render("│")
-	for i := range height {
-		var leftLine, rightLine string
-		if i < len(leftLines) {
-			leftLine = leftLines[i]
-		}
-		if i < len(rightLines) {
-			rightLine = rightLines[i]
-		}
-		lines[i] = fitLine(leftLine, leftWidth) + " " + divider + " " + fitLine(rightLine, rightWidth)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func listWindow(total, selected, height int) (start, end int, moreAbove, moreBelow bool) {
-	if total <= 0 || height <= 0 {
-		return 0, 0, false, false
-	}
-	if total <= height {
-		return 0, total, false, false
-	}
-	if height == 1 {
-		selected = min(maxInt(0, selected), total-1)
-		return selected, selected + 1, false, false
-	}
-	if height == 2 {
-		selected = min(maxInt(0, selected), total-1)
-		if selected < total-1 {
-			return selected, selected + 1, false, true
-		}
-		return selected, selected + 1, true, false
-	}
-	if selected < height-1 {
-		return 0, height - 1, false, true
-	}
-	if selected >= total-(height-1) {
-		return total - (height - 1), total, true, false
-	}
-	itemRows := height - 2
-	start = selected - itemRows + 1
-	return start, start + itemRows, true, true
 }
 
 func maxInt(a, b int) int {

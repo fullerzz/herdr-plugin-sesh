@@ -25,6 +25,11 @@ and paths under this run's `runtime/`. `catalog-proof.json` records passed check
 read the individual command/output files as the evidence, not just that summary.
 The same journey also checks alpha's preview and unchanged valid configuration.
 
+With the machine fixture from [workspace lifecycle](workspaces.md) added,
+repeat `list --json` and `picker --json` under fresh evidence labels. The TUI
+backend hides configured machine workspaces from both catalogs. Expect exactly
+the two local rows even though `connect NAME` recognizes the machine entry.
+
 ## Gotchas
 
 The private environment excludes zoxide and deliberately makes Herdr unavailable.

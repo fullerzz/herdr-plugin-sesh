@@ -112,15 +112,15 @@ def catalog(evidence: Path) -> None:
     before = digest(runtime / "config.toml")
     listed = json.loads(cli(evidence, "list-json", ["list", "--json"]))
     picked = json.loads(cli(evidence, "picker-json", ["picker", "--json"]))
-    expected = {"verify-alpha", "verify-beta"}
+    expected = {f"verify-{name}": str(runtime / name) for name in ("alpha", "beta")}
     for rows in (listed, picked):
-        if len(rows) != 2 or {r["name"] for r in rows} != expected:
+        if len(rows) != len(expected) or {r["name"]: r["path"] for r in rows} != expected:
             raise RuntimeError(f"Unexpected catalog: {rows}")
         if any(r["source"] != "config" or r.get("machine") for r in rows):
             raise RuntimeError("External source leaked into catalog")
     text = cli(evidence, "list-text", ["list"]).decode()
-    if not all(name in text for name in expected):
-        raise RuntimeError("Text list omitted a seeded workspace")
+    if sorted(text.splitlines()) != sorted(f"config\t{name}\t{path}" for name, path in expected.items()):
+        raise RuntimeError(f"Unexpected text catalog: {text!r}")
     preview = cli(evidence, "preview-alpha", ["preview", "verify-alpha"])
     if preview.strip() != b"README.md":
         raise RuntimeError(f"Unexpected directory preview: {preview!r}")

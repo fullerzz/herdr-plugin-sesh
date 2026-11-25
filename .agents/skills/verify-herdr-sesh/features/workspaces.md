@@ -21,6 +21,12 @@ Preconditions: build/launch/doctor; an explicitly selected live host, no concurr
 driver, and no preexisting space named `verify-alpha` or `verify-beta`.
 The private helper cannot drive this journey: its backend is unavailable.
 
+For the private rejection path, add a disposable `[[workspace]]` with a name,
+an absolute path and a `machine` value to the runtime config. Run
+`cli "$EVIDENCE" reject-machine connect NAME` through the helper. Expect exit 1
+and an error saying the backend has no machines. Inspect the recorded stderr
+and exit, then run doctor again before the next drive.
+
 Save `herdr-app status` and `herdr-app ls` in evidence before acting. Refuse if
 fixture names already exist or an overlay is open. In a shell with the intended
 app's normal environment (not the helper's private environment), run:
@@ -31,11 +37,16 @@ directory (and long evidence paths can exceed the Unix socket path limit).
 Use the socket reported by the session preflight; confirm `hc get "$HC_TERMINAL_ID"`
 still resolves the caller with that explicit socket. Do not start a new core.
 
+Local creation registers the directory with zoxide, including with `--no-focus`.
+Keep that write in the owned runtime for all live commands in this shell:
+
 ```sh
-HERDR_SESH_BACKEND=app XDG_STATE_HOME="$EVIDENCE/live-state" ./bin/herdr-sesh connect --no-focus --config "$EVIDENCE/runtime/config.toml" verify-alpha
+export _ZO_DATA_DIR="$EVIDENCE/runtime/zoxide"
+mkdir -p "$_ZO_DATA_DIR"
+HERDR_SESH_BACKEND=app XDG_STATE_HOME="$EVIDENCE/live-state" "$EVIDENCE/herdr-sesh" connect --no-focus --config "$EVIDENCE/runtime/config.toml" verify-alpha
 herdr-app ls > "$EVIDENCE/live-after-create.json"
 herdr-app status > "$EVIDENCE/live-after-status.json"
-HERDR_SESH_BACKEND=app XDG_STATE_HOME="$EVIDENCE/live-state" ./bin/herdr-sesh connect --no-focus --config "$EVIDENCE/runtime/config.toml" verify-alpha
+HERDR_SESH_BACKEND=app XDG_STATE_HOME="$EVIDENCE/live-state" "$EVIDENCE/herdr-sesh" connect --no-focus --config "$EVIDENCE/runtime/config.toml" verify-alpha
 herdr-app ls > "$EVIDENCE/live-after-reconnect.json"
 ```
 
@@ -48,7 +59,7 @@ print a `wait_for` readiness marker. Inspect via `hc read` using returned termin
 IDs. Missing layout fixtures means this sub-feature is untested.
 
 To exercise `last`, connect alpha then beta without `--no-focus` using the same
-private `XDG_STATE_HOME`, run `herdr-sesh last` with that environment, and require
+private `XDG_STATE_HOME`, run `"$EVIDENCE/herdr-sesh" last` with that environment, and require
 alpha selected plus matching private history. For installed mod navigation,
 the existing `just test-app-last` requires at least two spaces and a loaded
 `sesh-last` recorder. Read `.github/scripts/test-app-last.py` first: it changes

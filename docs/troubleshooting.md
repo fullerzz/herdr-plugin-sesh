@@ -87,7 +87,7 @@ Command previews use `eza` by default. If it is unavailable, install it or set
 `workspace_defaults.preview` to an available command, for example `ls -la {}`.
 Test the command with `"$sesh_bin" preview TARGET`. Commands time out after
 five seconds; superseded previews are canceled when the selection changes.
-The loading message appears only after a preview has been pending for 500 ms.
+The loading placeholder appears only after a preview has been pending for 500 ms.
 
 If no preview panel appears, check `picker.show_preview`. Narrow terminals put
 the preview below the list, and hiding paths does not force a side-by-side
@@ -100,7 +100,8 @@ to use source labels. The default `eza` preview has its own icon flag; customize
 the preview command separately if its glyphs are missing.
 
 Set `HERDR_SESH_REDUCE_MOTION=1` in the environment inherited by Herdr to disable
-the cursor trail. See [cursor settings](config/picker.md#cursor-and-status-indicators).
+the cursor trail and the picker's other animations: the error toast, the
+loading placeholder, the preview fade, the rolling count, the refused-key shake, and the working-agent spinner. See [cursor settings](config/picker.md#cursor-and-status-indicators).
 
 ## Previous workspace is unexpected
 

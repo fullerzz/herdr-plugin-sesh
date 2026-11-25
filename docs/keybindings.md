@@ -32,9 +32,13 @@ Left-click a workspace row to select it and switch immediately, just like
 ++enter++. Clicking a configured session or directory creates or focuses its
 workspace. Mouse selection also works with stacked or hidden previews.
 
-Mouse capture is enabled in every native picker layout, and the wheel follows
-the up/down controls. To select text for copying, use your terminal's mouse
-override (often Shift-drag).
+Mouse capture is enabled in every native picker layout. The wheel follows the
+up/down controls, except over the preview box, where it scrolls the preview.
+When the list has more workspaces than fit and shows at least two rows, a
+scrollbar appears on its right border; click or drag it to scroll the list.
+Scrolling this way focuses the list and keeps the selection on a visible row.
+To select text for copying, use your terminal's mouse override (often
+Shift-drag).
 
 !!! warning "Closing a workspace"
 
@@ -43,6 +47,9 @@ override (often Shift-drag).
     nothing for configured sessions or directory results. During the request,
     selection is disabled; ++esc++ requests cancellation and exits once the
     request returns. Cancellation cannot undo a close that already completed.
+    The box that says the workspace is closing has a red border, and
+    ++enter++ shakes the list instead of choosing. ++ctrl+x++ also shakes
+    the list when the selected row is not a running Herdr workspace.
 
 ## Native picker previews
 
@@ -52,10 +59,12 @@ shows the current shortcut; configure another key or disable cycling through
 the choice; set [`picker.preview_mode`](config/picker.md#preview-controls) to
 change the initial mode. Cycling is disabled when `show_preview = false`.
 
-For side-by-side previews, drag the vertical divider with the left mouse button.
+For side-by-side previews, drag the column between the list and preview boxes,
+marked `⋮`, with the left mouse button.
 Both panels keep a minimum width; the chosen width resets when the picker closes.
-Narrow terminals stack the preview below the list. These controls apply to the
-native picker, not fzf.
+Narrow terminals stack the preview below the list. A preview longer than its
+box shows a scrollbar on the box's right border; scroll it with the wheel.
+These controls apply to the native picker, not fzf.
 
 ## Herdr actions
 

@@ -1,0 +1,19 @@
+
+  ╭─ herdr / sesh ──────────────────────────────────────────────────────────────────────────────────── 3 workspaces ─╮
+  │ Sesh> Filter workspaces                                                                                          │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ WORKSPACES ────────────────────────────────────────── 1/3 ─╮ ╭─ PREVIEW [ctrl+o] · api · working ───────────────╮
+  │   ⢄ [herdr]   api                /src/api                   │ │ preview line 00                                  ┃
+  │     [zoxide]  web                /src/web                   │ │ preview line 01                                  ┃
+  │     [config]  dots               /src/dots                  │ │ preview line 02                                  ┃
+  │                                                             │ │ preview line 03                                  ┃
+  │                                                             │ │ preview line 04                                  │
+  │                                                             │ │ preview line 05                                  │
+  │                                                             │⋮│ preview line 06                                  │
+  │                                                             │ │ preview line 07                                  │
+  │                                                             │ │ preview line 08                                  │
+  │                                                             │ │ preview line 09                                  │
+  │                                                             │ │ preview line 10                                  │
+  │                                                             │ │ preview line 11                                  │
+  ╰─────────────────────────────────────────────────────────────╯ ╰──────────────────────────────────────────────────╯
+  enter select · ctrl+j/k · ctrl+r workspace · ctrl+x close · esc exit                  LAST WORKSPACE · None recorded

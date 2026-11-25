@@ -34,7 +34,7 @@ func TestPanePreviewToggleRefreshAndSelection(t *testing.T) {
 	require.Contains(t, ansi.Strip(m.previewTitle()), "PANE [ctrl+o]")
 	// A completed read schedules one refresh; refreshing preserves the visible text.
 	refreshID := m.previewRequestID
-	refreshTick := tick().(panePreviewTickMsg)
+	refreshTick := batchedMsg[panePreviewTickMsg](t, tick)
 	require.Equal(t, refreshID, refreshTick.requestID)
 	updated, cmd = m.Update(refreshTick)
 	m = updated.(teaModel)
@@ -185,4 +185,48 @@ func TestCyclePreviewModeModifiedShiftUsesBaseKey(t *testing.T) {
 		updated, _ := m.Update(tc.key)
 		assert.True(t, updated.(teaModel).panePreview, "binding %q", tc.binding)
 	}
+}
+
+// batchedMsg runs cmd, and every command it batches, and returns the one
+// message of type T among what they send.
+//
+//nolint:ireturn // T is the concrete message type the caller asks for.
+func batchedMsg[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
+	t.Helper()
+	var found []T
+	for _, msg := range sentMsgs(cmd) {
+		if msg, ok := msg.(T); ok {
+			found = append(found, msg)
+		}
+	}
+	require.Len(t, found, 1)
+	return found[0]
+}
+
+// sentMsgs runs cmd, and every command it batches, and returns what they
+// send.
+func sentMsgs(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var msgs []tea.Msg
+	for _, c := range batch {
+		msgs = append(msgs, sentMsgs(c)...)
+	}
+	return msgs
+}
+
+// quits reports whether cmd, or a command it batches, quits the program.
+func quits(cmd tea.Cmd) bool {
+	for _, msg := range sentMsgs(cmd) {
+		if _, ok := msg.(tea.QuitMsg); ok {
+			return true
+		}
+	}
+	return false
 }

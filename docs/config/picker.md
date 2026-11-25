@@ -122,13 +122,13 @@ enabling it in settings uses that appearance without querying the terminal again
 
     | Herdr token | Picker role |
     | --- | --- |
-    | `accent` | Prompt, cursor, and selection rail |
+    | `accent` | Prompt, cursor, selection rail, and the focused box's border |
     | `mauve` | Title, section headers, search matches, smear trail |
     | `text` | Row labels |
-    | `subtext0` | Paths, counts, help text |
+    | `subtext0` | Paths, counts, help text, and unfocused box borders |
     | `green` | Idle agents (`✓`) |
     | `yellow` | Working agents (spinner) and the empty-state message |
-    | `red` | Blocked agents (`◉`) |
+    | `red` | Blocked agents (`◉`) and the border of a closing workspace's box |
     | `overlay1` | Ghost cursor trail |
 
     Custom tokens that are unknown or not a `#RGB`/`#RRGGBB` hex value leave that
@@ -148,7 +148,7 @@ Set these environment variables in the environment inherited by Herdr.
 | `gooey` | Slower block cursor with a long shaded trail and eased movement. |
 | `ghost` | Soft diamond cursor with a dotted, low-contrast trail. |
 
-Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) for instantaneous movement without trails.
+Set `HERDR_SESH_REDUCE_MOTION=1` (or `true`) for instantaneous movement without trails. Error toasts then appear without sliding in, the loading placeholder does not shimmer, preview text appears without fading in, the workspace count changes without rolling, refused keys do not shake the list, and working agents show a still spinner.
 
 Herdr agent indicators are amber animated spinner (working), red `◉` (blocked),
 green `✓` (idle), and teal `●` (done). Unknown states have no indicator.
