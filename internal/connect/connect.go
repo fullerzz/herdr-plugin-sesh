@@ -31,28 +31,39 @@ func Connect(ctx context.Context, client herdr.Client, candidates []model.Sessio
 	if client == nil {
 		return Result{}, errors.New("herdr client required")
 	}
+	match, err := Resolve(ctx, candidates, target, opts.Namer)
+	if err != nil {
+		return Result{}, err
+	}
+	return Open(ctx, client, match, opts)
+}
+
+// Resolve returns the session Connect opens for target, naming a bare local
+// directory with namer when it is set. A caller that must check that session
+// before Open uses it instead of Connect, so the target is resolved once.
+func Resolve(ctx context.Context, candidates []model.Session, target string, namer func(context.Context, string) string) (model.Session, error) {
 	match, dir, ok := ResolveTarget(candidates, target)
 	if dir {
 		match.Source, match.Name = "dir", target
-		if opts.Namer != nil {
-			match.Name = opts.Namer(ctx, target)
+		if namer != nil {
+			match.Name = namer(ctx, target)
 		}
 	}
 	if !ok {
 		for _, s := range candidates {
 			if s.Machine != "" && (s.Name == target || s.Path == target) {
 				if s.Source == "config" || s.Configured {
-					return Result{}, fmt.Errorf("%q is the path of workspace %q on machine %q; connect with its name", target, s.Name, s.Machine)
+					return model.Session{}, fmt.Errorf("%q is the path of workspace %q on machine %q; connect with its name", target, s.Name, s.Machine)
 				}
 				if s.WorkspaceID == "" {
-					return Result{}, errors.New("remote session requires an existing workspace ID")
+					return model.Session{}, errors.New("remote session requires an existing workspace ID")
 				}
-				return Result{}, fmt.Errorf("%q is a remote space; connect with its workspace ID %q", target, s.WorkspaceID)
+				return model.Session{}, fmt.Errorf("%q is a remote space; connect with its workspace ID %q", target, s.WorkspaceID)
 			}
 		}
-		return Result{}, errors.New("no matching session")
+		return model.Session{}, errors.New("no matching session")
 	}
-	return Open(ctx, client, match, opts)
+	return match, nil
 }
 
 // Open focuses match's workspace, or creates it when it has none. Callers

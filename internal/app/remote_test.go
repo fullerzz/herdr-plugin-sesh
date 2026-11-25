@@ -279,6 +279,7 @@ path = "/srv/api"
 	t.Run("failed lookup", func(t *testing.T) {
 		_, created, err := run(t, "")
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), `list Herdr workspaces before creating "remote-api" on machine "buildbox"`)
 		assert.Contains(t, err.Error(), "herdr-app ls")
 		assert.Contains(t, err.Error(), "host unreachable")
 		assert.Empty(t, created)
