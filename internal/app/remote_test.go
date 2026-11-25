@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fullerzz/herdr-plugin-sesh/internal/config"
@@ -208,6 +209,92 @@ func TestListAndPickerOmitRemoteWorkspacesWithoutMachines(t *testing.T) {
 		col, err := (&App{}).collectPickerWithClient(t.Context(), cfg, nil, &herdr.AppClient{AppBin: "/usr/bin/false", CoreBin: "/usr/bin/false", Runner: herdr.ExecRunner{}})
 		require.NoError(t, err)
 		assert.ElementsMatch(t, want, sessionNames(col.Sessions))
+	})
+}
+
+// fakeAppHost puts herdr-app and hc fakes first on PATH. herdr-app logs each
+// call and prints ls, or fails ls when ls is empty; every other request it
+// needs to open a space succeeds.
+func fakeAppHost(t *testing.T, ls string) (log string) {
+	t.Helper()
+	bin := t.TempDir()
+	log = filepath.Join(t.TempDir(), "herdr-app.log")
+	t.Setenv("FAKE_APP_LOG", log)
+	t.Setenv("FAKE_APP_LS", ls)
+	for name, script := range map[string]string{
+		"herdr-app": `#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_APP_LOG"
+case "$1 $2" in
+"ls ") [ -n "$FAKE_APP_LS" ] || { echo 'host unreachable' >&2; exit 1; }; printf '%s' "$FAKE_APP_LS" ;;
+"status ") printf '{"space":"sp0","tab":"t0"}' ;;
+"do space.new") printf '{"space":"buildbox/sp9","tab":"buildbox/t9","pane":"buildbox/p9","terminal":"buildbox/term9"}' ;;
+"do tab.select") printf '{"ok":true}' ;;
+*) exit 1 ;;
+esac
+`,
+		"hc": "#!/bin/sh\n[ \"$*\" = 'ls --json' ] || exit 1\nprintf '{\"terminals\":[]}'\n",
+	} {
+		//nolint:gosec // executable fixtures at the process boundary.
+		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(script), 0o700))
+	}
+	t.Setenv("PATH", bin+":/usr/bin:/bin") // Also excludes the user's zoxide database.
+	t.Setenv("HERDR_SESH_BACKEND", "app")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	return log
+}
+
+func spaceNewCalls(t *testing.T, log string) []string {
+	t.Helper()
+	//nolint:gosec // read only the log created in this test's temporary directory.
+	data, err := os.ReadFile(log)
+	require.NoError(t, err)
+	var calls []string
+	for line := range strings.Lines(string(data)) {
+		if strings.HasPrefix(line, "do space.new ") {
+			calls = append(calls, strings.TrimSpace(strings.TrimPrefix(line, "do space.new ")))
+		}
+	}
+	return calls
+}
+
+// connect may create a configured remote workspace only after herdr-app has
+// listed its spaces: an unknown list could already hold it.
+func TestConnectRemoteWorkspaceRequiresSuccessfulLookup(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`version = 1
+[[workspace]]
+name = "remote-api"
+machine = "buildbox"
+path = "/srv/api"
+`), 0o600))
+	run := func(t *testing.T, ls string) (string, []string, error) {
+		t.Helper()
+		log := fakeAppHost(t, ls)
+		var out bytes.Buffer
+		err := (&App{Out: &out, Err: &bytes.Buffer{}}).connect(t.Context(), []string{"--config", cfgPath, "--no-focus", "remote-api"})
+		return out.String(), spaceNewCalls(t, log), err
+	}
+
+	t.Run("failed lookup", func(t *testing.T) {
+		_, created, err := run(t, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `list Herdr workspaces before creating "remote-api" on machine "buildbox"`)
+		assert.Contains(t, err.Error(), "herdr-app ls")
+		assert.Contains(t, err.Error(), "host unreachable")
+		assert.Empty(t, created)
+	})
+	t.Run("open on the configured machine", func(t *testing.T) {
+		out, created, err := run(t, `{"spaces":[{"id":"buildbox/sp1","name":"remote-api","folder":"/srv/api","machine":"buildbox"}]}`)
+		require.NoError(t, err)
+		assert.Equal(t, "remote-api\n", out)
+		assert.Empty(t, created)
+	})
+	t.Run("open only on another machine", func(t *testing.T) {
+		out, created, err := run(t, `{"spaces":[{"id":"ser8/sp1","name":"remote-api","folder":"/srv/api","machine":"ser8"}]}`)
+		require.NoError(t, err)
+		assert.Equal(t, "remote-api\n", out)
+		assert.Equal(t, []string{`{"folder":"/srv/api","machine":"buildbox","name":"remote-api"}`}, created)
 	})
 }
 

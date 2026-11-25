@@ -343,14 +343,24 @@ func (a *App) connect(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sessions, err := a.collectAllowUnavailableHerdr(ctx, cfg, target)
+	client := herdr.NewBackend()
+	herdrSource := &capturingSource{Source: sources.HerdrWorkspaces{Client: client}}
+	sessions, err := a.collectFrom(ctx, cfg, target, herdrSource, false)
 	if err != nil {
 		return err
 	}
-	client := herdr.NewBackend()
+	match, err := connectpkg.Resolve(ctx, sessions, target, func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) })
+	if err != nil {
+		return err
+	}
+	// Without a workspace list, a configured remote workspace may already be
+	// open, and creating it again would rerun its startup commands.
+	if herdrSource.err != nil && !lacksMachines(client) && match.Machine != "" && match.WorkspaceID == "" {
+		return fmt.Errorf("list Herdr workspaces before creating %q on machine %q: %w", match.Name, match.Machine, herdrSource.err)
+	}
 	currentWorkspaceID := client.CurrentWorkspaceID(ctx)
 	revision := a.historyRevision()
-	res, err := connectpkg.Connect(ctx, client, sessions, target, connectpkg.Options{NoFocus: *noFocus, Warnf: a.warnf, Namer: func(ctx context.Context, p string) string { return namer.Namer{}.Name(ctx, p, cfg.DirLength) }})
+	res, err := connectpkg.Open(ctx, client, match, connectpkg.Options{NoFocus: *noFocus, Warnf: a.warnf})
 	if err != nil {
 		return err
 	}
