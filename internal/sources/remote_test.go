@@ -157,7 +157,7 @@ func TestOpenLocalSpaceKeepsItsConfiguredPreviewInEitherOrder(t *testing.T) {
 	for _, order := range [][]string{{"config", "herdr"}, {"herdr", "config"}} {
 		got, err := Merge(context.Background(), []Source{
 			HerdrWorkspaces{Client: &herdr.FakeClient{Workspaces: []herdr.Workspace{
-				{ID: "sp3", Label: "web", CWD: "/src/web"},
+				{ID: "sp3", Label: "web", CWD: "/src/web/subdir"},
 				{ID: "sp4", Label: "docs", CWD: "/src/docs"},
 			}}},
 			staticSource{name: "config", sessions: []model.Session{
@@ -171,6 +171,8 @@ func TestOpenLocalSpaceKeepsItsConfiguredPreviewInEitherOrder(t *testing.T) {
 		require.Len(t, items, 2, order)
 		assert.Equal(t, "sp3", items[0].WorkspaceID, order)
 		assert.Equal(t, "printf workspace-preview", items[0].PreviewCommand, order)
+		assert.Equal(t, "/src/web", items[0].ConfiguredPath, order)
+		assert.Equal(t, "/src/web/subdir", items[0].Path, order)
 		assert.Equal(t, "sp4", items[1].WorkspaceID, order)
 		assert.Equal(t, "printf rule-preview", items[1].PreviewCommand, "an entry without a preview still takes the rule's")
 	}

@@ -106,7 +106,7 @@ func ResolveTarget(candidates []model.Session, target string) (s model.Session, 
 	// Remote spaces resolve only by qualified ID here, so a local name or
 	// path never focuses a space on another machine.
 	for _, c := range candidates {
-		if c.Machine == "" && (c.Name == target || c.Path == target) {
+		if c.Machine == "" && (c.Name == target || c.Path == target || (c.ConfiguredPath != "" && c.ConfiguredPath == target)) {
 			return c, false, true
 		}
 	}
