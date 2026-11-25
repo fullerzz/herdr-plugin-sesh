@@ -87,6 +87,20 @@ func TestConnectMarkedPanePreservesPathReconnect(t *testing.T) {
 	}
 }
 
+func TestConnectConfiguredRootFocusesOpenWorkspace(t *testing.T) {
+	root := t.TempDir()
+	open := model.Session{Source: "herdr", Name: "web", WorkspaceID: "sp1", Path: filepath.Join(root, "subdir"), ConfiguredPath: root}
+	zoxide := model.Session{Source: "zoxide", Name: filepath.Base(root), Path: root}
+	for _, candidates := range [][]model.Session{{zoxide, open}, {open, zoxide}} {
+		client := &herdr.FakeClient{}
+		result, err := Connect(t.Context(), client, candidates, root, Options{})
+		require.NoError(t, err)
+		assert.False(t, result.Created)
+		assert.Equal(t, []string{"sp1"}, client.FocusedWorkspaces)
+		assert.Empty(t, client.CreatedWorkspaces)
+	}
+}
+
 func TestConnectFocusesExistingWorkspace(t *testing.T) {
 	f := &herdr.FakeClient{}
 	_, err := Connect(context.Background(), f, []model.Session{{Name: "api", WorkspaceID: "ws1"}}, "api", Options{})

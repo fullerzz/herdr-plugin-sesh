@@ -824,6 +824,7 @@ preview = "printf CONFIGURED"
 	for name, reply := range map[string]string{
 		"herdr-app": fmt.Sprintf(`{"spaces":[{"id":"sp1","name":"project","folder":%q,"tabs":[{"id":"tb1","active":true,"terminals":[{"terminal":"t1"}]}]}]}`, root),
 		"hc":        fmt.Sprintf(`{"terminals":[{"address":"t1","cwd":%q,"foreground":{"cwd":%q}}]}`, root, subdir),
+		"zoxide":    "",
 	} {
 		//nolint:gosec // executable fixtures for the app and core listings.
 		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\ncat <<'JSON'\n"+reply+"\nJSON\n"), 0o700))
