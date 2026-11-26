@@ -25,7 +25,13 @@ The centered dialog uses 80.5% of the window width and 86.25% of its height. In 
 
 - Install this project's CLI on the login PATH alongside `herdr-app` and `hc`. Both launchers need `/bin/sh`. Opening the picker can run programs and access files outside the mod folder. The CLI reads Sesh configuration and history, lists directories, reads pane previews, and can run configured preview and workspace startup commands. Remote previews and configured remote workspaces use the registered machine through herdr-core.
 - Closing the dialog externally can leave its terminal running. Opening the picker again cleans it up. A nonzero picker exit leaves its error visible until Enter.
-- By default, last-space history covers switches made through Sesh. To include sidebar navigation, append this block to a row in a personal layout. It records only while that layout is active, skipping spaces shown for less than half a second.
+- By default, last-space history covers switches made through Sesh. To record sidebar navigation, use a personal layout. If you use the built-in `main` layout, clone it first:
+
+  ```sh
+  herdr-app do layout.clone '{"name":"main","as":"my-layout"}'
+  ```
+
+  In `layouts/my-layout.json` under the app home (normally `~/.config/herdr-app`), append this block to the root's `children` array. If you already use a personal layout, edit its file instead. The block records only while its layout is active, skipping spaces shown for less than half a second.
 
   ```json
   { "id": "sesh-last", "type": "block", "size": { "px": 0 }, "content": { "mod": "sesh-last" } }

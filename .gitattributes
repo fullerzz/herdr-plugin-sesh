@@ -1,2 +1,4 @@
 *.gif filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
+# Keep the gallery preview readable directly from the Git tree.
+herdr-app/preview.png -filter binary
