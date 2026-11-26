@@ -18,7 +18,12 @@ zoxide history in one searchable overlay. Selecting an item focuses its
 existing workspace or creates a new one with the configured startup command and
 tabs.
 
-![Filtering workspaces and inspecting a live pane in the Herdr TUI picker](docs/assets/picker-demo.gif)
+In the Herdr desktop app, the `sesh` mod opens the picker over your current
+space. Search local and remote spaces by name, inspect a live terminal preview,
+and press **Enter** to switch. The companion `sesh-last` mod takes you back to
+your previous space.
+
+![Filtering spaces, widening the live preview, and switching to atlas-api in the Herdr desktop app](docs/assets/picker-demo-app.gif)
 
 ## Choose your Herdr integration
 
@@ -26,7 +31,7 @@ This repository provides a **herdr-tui plugin** for Herdr's terminal UI and
 **herdr-app mods** for the desktop app. Both use the same `herdr-sesh` binary
 and native TOML configuration.
 
-[Watch the desktop mod demo](docs/herdr-app.md#desktop-picker-demo) or
+[Watch the Herdr TUI picker demo](docs/assets/picker-demo.gif) or
 [re-record either integration](demo/picker/README.md).
 
 | Capability | Herdr TUI plugin | Herdr app mods |
@@ -105,6 +110,24 @@ the [Herdr app setup](docs/herdr-app.md#install).
 
 ## Installation
 
+### Herdr app
+
+From this checkout, build `herdr-sesh` and link both mods into the app:
+
+```bash
+just install-app-mod
+```
+
+The mods find `herdr-sesh` on your login shell's `PATH`. If
+`~/.local/bin` is on that path, you can link the binary there:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s "$PWD/bin/herdr-sesh" ~/.local/bin/herdr-sesh
+```
+
+### Herdr TUI
+
 For Herdr TUI, install the plugin directly from GitHub:
 
 ```bash
@@ -121,22 +144,22 @@ This repository is also discoverable through the
 GitHub topic. Marketplace listings are automatic and are not endorsements or
 security reviews.
 
-### Herdr app
-
-The [Herdr app](https://herdr.dev) uses mods instead of plugins. Install the
-`sesh` and `sesh-last` mods from this repository with `just install-app-mod`,
-then bind `mod.open:sesh` to open the picker and `mod.open:sesh-last` to switch
-to the last space. See [Herdr app](docs/herdr-app.md).
-
 ## Quick start
+
+**Herdr app.** Add these bindings to the `global` object in
+`~/.config/herdr-app/keys.json`. Press **Cmd+K** to open the picker or
+**Cmd+;** to switch back. To include spaces you select in the sidebar in
+that history, add the [`sesh-last` layout block](docs/herdr-app.md#switch-to-the-last-space).
+
+```json
+{ "global": { "cmd-k": "mod.open:sesh", "cmd-;": "mod.open:sesh-last" } }
+```
 
 In Herdr TUI, open the picker through the installed plugin action:
 
 ```bash
 herdr plugin action invoke fullerzz.sesh.open-picker
 ```
-
-For the desktop app, use [`mod.open:sesh`](docs/herdr-app.md#install).
 
 You can also open its overlay pane directly:
 
