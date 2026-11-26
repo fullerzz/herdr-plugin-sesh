@@ -43,6 +43,6 @@ The centered dialog uses 80.5% of the window width and 86.25% of its height. In 
 - Cmd+K opens a focused picker. Typing filters immediately, and Escape dismisses it with the original space still selected.
 - With two open spaces, select the other one in the picker. Cmd+semicolon returns to the first, and a second press switches back.
 - If the active layout includes the optional recorder block, verify a sidebar switch after the two-space toggle:
-  1. Read `workspaces` in `${XDG_STATE_HOME:-$HOME/.local/state}/herdr-sesh/herdr-app/history.json`. Its first two IDs should be the current space followed by the other space. Use `herdr-app ls` to match IDs to names.
+  1. Stay in the current space for at least one second so the recorder can observe and settle the last toggle. Read `workspaces` in `${XDG_STATE_HOME:-$HOME/.local/state}/herdr-sesh/herdr-app/history.json`. Its first two IDs should be the current space followed by the other space. Use `herdr-app ls` to match IDs to names.
   2. Click the other space in the sidebar. Recheck the file for up to five seconds. The check fails unless those IDs reverse, with the clicked space first and the space you left second.
   3. Once history shows the switch, press Cmd+semicolon and verify that it returns to the space you left.
