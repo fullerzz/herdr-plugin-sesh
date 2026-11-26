@@ -1,3 +1,51 @@
+## v0.18.0 (2026-11-26)
+
+### 🚀 Features
+
+- feat(app): support configured remote workspaces and previews by @fullerzz in [#183](https://github.com/fullerzz/herdr-plugin-sesh/pull/183) ([4601b43](https://github.com/fullerzz/herdr-plugin-sesh/commit/4601b4307a2e6cc5da145b2873c31d0b7a8fdfc8))
+
+- feat(picker): render the native workspace picker with Bloom by @fullerzz in [#189](https://github.com/fullerzz/herdr-plugin-sesh/pull/189) ([bb920b4](https://github.com/fullerzz/herdr-plugin-sesh/commit/bb920b49eba211d6f816a93403d582c36b5fcdd8))
+
+
+
+### 🐛 Bug Fixes
+
+- fix(preview): resolve open workspaces by configured root by @fullerzz in [#194](https://github.com/fullerzz/herdr-plugin-sesh/pull/194) ([bfbc50a](https://github.com/fullerzz/herdr-plugin-sesh/commit/bfbc50acedebfca29a1ea13183af934234511eaf))
+
+- fix(connect): require a successful workspace lookup before creating a remote space by @fullerzz in [#195](https://github.com/fullerzz/herdr-plugin-sesh/pull/195) ([88a6f86](https://github.com/fullerzz/herdr-plugin-sesh/commit/88a6f8677457ae855d5cfcf8ce0c5e5333f2f695))
+
+
+
+### 🛬 Dependency Updates
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#181](https://github.com/fullerzz/herdr-plugin-sesh/pull/181) ([611aac2](https://github.com/fullerzz/herdr-plugin-sesh/commit/611aac2487b743d959671da689b6522a0ab622a8))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#184](https://github.com/fullerzz/herdr-plugin-sesh/pull/184) ([f30a409](https://github.com/fullerzz/herdr-plugin-sesh/commit/f30a409aff3347a3429ea2a373262ff9f9967f5b))
+
+- chore(python-deps): update python dependencies by @renovate[bot] in [#128](https://github.com/fullerzz/herdr-plugin-sesh/pull/128) ([10e17c9](https://github.com/fullerzz/herdr-plugin-sesh/commit/10e17c94b19b831922508a0768147016e9c7cd9c))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#185](https://github.com/fullerzz/herdr-plugin-sesh/pull/185) ([53d18fc](https://github.com/fullerzz/herdr-plugin-sesh/commit/53d18fc9343b09a3508f697343c812c2ed45fd89))
+
+- fix(go-deps): update go dependencies by @renovate[bot] in [#182](https://github.com/fullerzz/herdr-plugin-sesh/pull/182) ([53973c3](https://github.com/fullerzz/herdr-plugin-sesh/commit/53973c3b09103ab9279d7b17a3e7d51b6290fb82))
+
+- ci(ci-deps): update ci dependencies by @renovate[bot] in [#188](https://github.com/fullerzz/herdr-plugin-sesh/pull/188) ([64414f1](https://github.com/fullerzz/herdr-plugin-sesh/commit/64414f1f9962fab411ae85c408ae6909646bb462))
+
+
+
+### 📚 Documentation
+
+- docs: refresh the TUI and desktop picker demos by @fullerzz in [#193](https://github.com/fullerzz/herdr-plugin-sesh/pull/193) ([0f90644](https://github.com/fullerzz/herdr-plugin-sesh/commit/0f90644746eae77f01a57012de4c1c622c9aabbc))
+
+- Feature the Herdr desktop picker in the README by @fullerzz ([b6a331b](https://github.com/fullerzz/herdr-plugin-sesh/commit/b6a331b868252ab3a1a7008123631b115e7117e0))
+
+
+
+### ⚙️ Miscellaneous Tasks
+
+- chore(config): migrate Renovate config by @renovate[bot] in [#186](https://github.com/fullerzz/herdr-plugin-sesh/pull/186) ([656f3bb](https://github.com/fullerzz/herdr-plugin-sesh/commit/656f3bb457081d06e2c1d9d7bc63b3f28f74b80b))
+
+
+
 ## v0.17.0 (2026-11-07)
 
 ### 🚀 Features
