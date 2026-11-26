@@ -21,7 +21,8 @@ tabs.
 In the Herdr desktop app, the `sesh` mod opens the picker over your current
 space. Search local and remote spaces by name, inspect a live terminal preview,
 and press **Enter** to switch. The companion `sesh-last` mod takes you back to
-your previous space.
+your previous space. The [desktop mod package](herdr-app/RECIPE.md) includes
+both launchers and their suggested shortcuts.
 
 ![Filtering spaces, widening the live preview, and switching to atlas-api in the Herdr desktop app](docs/assets/picker-demo-app.gif)
 
