@@ -1,0 +1,6 @@
+{
+  "global": {
+    "cmd-k": "mod.open:sesh",
+    "cmd-;": "mod.open:sesh-last"
+  }
+}
