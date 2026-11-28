@@ -3,12 +3,12 @@ module github.com/fullerzz/herdr-plugin-sesh
 go 1.27.3
 
 require (
-	bloomfx.dev/bloom v0.0.0-alpha.11
+	bloomfx.dev/bloom v0.0.0-alpha.18
 	charm.land/bubbles/v2 v2.2.2
-	charm.land/bubbletea/v2 v2.1.2
+	charm.land/bubbletea/v2 v2.2.0
 	charm.land/lipgloss/v2 v2.1.1
-	github.com/charmbracelet/ultraviolet v0.0.0-20261119151026-8ecbcf0e188c
-	github.com/charmbracelet/x/ansi v0.11.10
+	github.com/charmbracelet/ultraviolet v0.0.0-20261125122737-8ed499892fb4
+	github.com/charmbracelet/x/ansi v0.12.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sys v0.50.0
